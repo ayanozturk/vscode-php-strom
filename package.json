@@ -1,0 +1,342 @@
+{
+  "name": "phpls",
+  "displayName": "PHP Language Server",
+  "description": "High-performance, fully open-source PHP language intelligence for VS Code — a complete LSP implementation covering all features.",
+  "version": "0.1.0",
+  "publisher": "phpls",
+  "license": "MIT",
+  "icon": "images/icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ayanozturk/vscode-php-strom"
+  },
+  "engines": {
+    "vscode": "^1.89.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Linters",
+    "Formatters",
+    "Other"
+  ],
+  "keywords": [
+    "php",
+    "language-server",
+    "lsp",
+    "intellisense",
+    "code-completion",
+    "intelephense",
+    "phpstan",
+    "psalm"
+  ],
+  "activationEvents": [
+    "onLanguage:php"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "php",
+        "extensions": [
+          ".php",
+          ".php3",
+          ".php4",
+          ".php5",
+          ".php7",
+          ".php8",
+          ".phtml",
+          ".pht",
+          ".phar"
+        ],
+        "aliases": [
+          "PHP"
+        ]
+      }
+    ],
+    "configuration": {
+      "title": "PHP Language Server",
+      "properties": {
+        "phpls.enable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable/disable the PHP Language Server."
+        },
+        "phpls.environment.phpVersion": {
+          "type": "string",
+          "default": "8.3",
+          "enum": ["7.4", "8.0", "8.1", "8.2", "8.3", "8.4"],
+          "description": "The PHP version to use for analysis and stubs."
+        },
+        "phpls.environment.includePaths": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Additional paths to include for symbol indexing (e.g. global vendor directories)."
+        },
+        "phpls.environment.documentRoot": {
+          "type": "string",
+          "default": "",
+          "description": "Document root path used for resolving include/require document links."
+        },
+        "phpls.files.associations": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": ["**/*.php", "**/*.phtml", "**/*.phar"],
+          "description": "Glob patterns identifying PHP files to index."
+        },
+        "phpls.files.exclude": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": ["**/.git/**", "**/node_modules/**", "**/vendor/**/{Tests,tests}/**"],
+          "description": "Glob patterns for files and folders to exclude from indexing."
+        },
+        "phpls.files.maxSize": {
+          "type": "number",
+          "default": 1000000,
+          "description": "Maximum file size (bytes) to index and analyse."
+        },
+        "phpls.stubs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [
+            "apache", "bcmath", "bz2", "calendar", "com_dotnet", "Core",
+            "ctype", "curl", "date", "dba", "dom", "enchant", "exif",
+            "FFI", "fileinfo", "filter", "fpm", "ftp", "gd", "gettext",
+            "gmp", "hash", "iconv", "imap", "intl", "json", "ldap",
+            "libxml", "mbstring", "meta", "mysqli", "mysqlnd", "oci8",
+            "odbc", "openssl", "pcntl", "pcre", "PDO", "pdo_ibm",
+            "pdo_mysql", "pdo_pgsql", "pdo_sqlite", "pgsql", "Phar",
+            "posix", "pspell", "random", "readline", "Reflection",
+            "session", "shmop", "SimpleXML", "snmp", "soap", "sockets",
+            "sodium", "SPL", "sqlite3", "standard", "superglobals",
+            "sysvmsg", "sysvsem", "sysvshm", "tidy", "tokenizer",
+            "xml", "xmlreader", "xmlrpc", "xmlwriter", "xsl", "Zend OPcache",
+            "zip", "zlib"
+          ],
+          "description": "Built-in PHP stubs to include for symbol resolution."
+        },
+        "phpls.completion.insertUseDeclaration": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically add use declarations when completing fully-qualified symbols."
+        },
+        "phpls.completion.fullyQualifyGlobalSymbols": {
+          "type": "boolean",
+          "default": false,
+          "description": "Use fully-qualified names for global symbols instead of importing them."
+        },
+        "phpls.completion.triggerParameterHints": {
+          "type": "boolean",
+          "default": true,
+          "description": "Trigger signature help automatically after completing a function or method call."
+        },
+        "phpls.completion.maxItems": {
+          "type": "number",
+          "default": 100,
+          "description": "Maximum number of completion items to return per request."
+        },
+        "phpls.diagnostics.enable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable diagnostics."
+        },
+        "phpls.diagnostics.run": {
+          "type": "string",
+          "default": "onType",
+          "enum": ["onType", "onSave"],
+          "description": "Run diagnostics on type or on save."
+        },
+        "phpls.diagnostics.undefinedSymbols": {
+          "type": "boolean",
+          "default": true,
+          "description": "Report undefined classes, functions, and constants."
+        },
+        "phpls.diagnostics.undefinedVariables": {
+          "type": "boolean",
+          "default": true,
+          "description": "Report undefined variables."
+        },
+        "phpls.diagnostics.typeErrors": {
+          "type": "boolean",
+          "default": true,
+          "description": "Report type errors."
+        },
+        "phpls.diagnostics.strictTypes": {
+          "type": "boolean",
+          "default": false,
+          "description": "Treat all files as if they have declare(strict_types=1)."
+        },
+        "phpls.diagnostics.relaxedTypeCheck": {
+          "type": "boolean",
+          "default": true,
+          "description": "Allow super-types to satisfy sub-type constraints (reduces false positives)."
+        },
+        "phpls.diagnostics.noMixedTypeCheck": {
+          "type": "boolean",
+          "default": true,
+          "description": "Allow mixed to satisfy any type constraint."
+        },
+        "phpls.diagnostics.typeCheckDocumentedTypes": {
+          "type": "boolean",
+          "default": false,
+          "description": "Include PHPDoc annotated types in type checking."
+        },
+        "phpls.diagnostics.exclude": {
+          "type": "object",
+          "default": {},
+          "description": "Map of file glob patterns to arrays of diagnostic codes to suppress."
+        },
+        "phpls.format.braceStyle": {
+          "type": "string",
+          "default": "per",
+          "enum": ["per", "allman", "k&r"],
+          "description": "Brace style for code formatting."
+        },
+        "phpls.format.insertSpaces": {
+          "type": "boolean",
+          "default": true,
+          "description": "Use spaces for indentation."
+        },
+        "phpls.format.tabSize": {
+          "type": "number",
+          "default": 4,
+          "description": "Number of spaces per indent level."
+        },
+        "phpls.phpdoc.useFullyQualifiedNames": {
+          "type": "boolean",
+          "default": false,
+          "description": "Use fully-qualified type names in generated PHPDoc."
+        },
+        "phpls.phpdoc.returnVoid": {
+          "type": "boolean",
+          "default": true,
+          "description": "Add @return void to generated PHPDoc for void functions."
+        },
+        "phpls.phpdoc.textFormat": {
+          "type": "string",
+          "default": "snippet",
+          "enum": ["snippet", "text"],
+          "description": "Format for PHPDoc text in generated doc blocks."
+        },
+        "phpls.codeLens.references.enable": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show reference counts above declarations."
+        },
+        "phpls.codeLens.implementations.enable": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show implementation counts above interface/abstract declarations."
+        },
+        "phpls.codeLens.overrides.enable": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show override counts above method declarations."
+        },
+        "phpls.codeLens.parent.enable": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show parent method link above overriding methods."
+        },
+        "phpls.codeLens.usages.enable": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show trait usage counts above trait declarations."
+        },
+        "phpls.inlayHints.parameterNames.enable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show inferred parameter names as inlay hints."
+        },
+        "phpls.inlayHints.parameterTypes.enable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show inferred closure parameter types as inlay hints."
+        },
+        "phpls.inlayHints.returnTypes.enable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show inferred return types as inlay hints."
+        },
+        "phpls.compatibility.preferPsalmPhpstanPrefixedAnnotations": {
+          "type": "boolean",
+          "default": false,
+          "description": "Prefer @psalm- and @phpstan- prefixed PHPDoc annotations over un-prefixed ones."
+        },
+        "phpls.telemetry.enable": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable anonymous telemetry for improving the extension."
+        },
+        "phpls.trace.server": {
+          "type": "string",
+          "default": "off",
+          "enum": ["off", "messages", "verbose"],
+          "description": "Trace LSP communication for debugging."
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "phpls.restartServer",
+        "title": "PHP Language Server: Restart Server"
+      },
+      {
+        "command": "phpls.clearCache",
+        "title": "PHP Language Server: Clear Cache and Restart"
+      },
+      {
+        "command": "phpls.indexWorkspace",
+        "title": "PHP Language Server: Re-index Workspace"
+      },
+      {
+        "command": "phpls.showOutputChannel",
+        "title": "PHP Language Server: Show Output Channel"
+      }
+    ],
+    "menus": {
+      "commandPalette": [
+        { "command": "phpls.restartServer", "when": "editorLangId == php" },
+        { "command": "phpls.clearCache", "when": "editorLangId == php" },
+        { "command": "phpls.indexWorkspace", "when": "editorLangId == php" },
+        { "command": "phpls.showOutputChannel" }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run package",
+    "compile": "tsc -p ./tsconfig.json && tsc -p ./tsconfig.server.json",
+    "watch": "tsc -watch -p ./tsconfig.json",
+    "watch:server": "tsc -watch -p ./tsconfig.server.json",
+    "package": "webpack --mode production --devtool hidden-source-map",
+    "lint": "eslint src --ext ts",
+    "test": "node ./out/test/runTest.js"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1",
+    "vscode-languageserver": "^9.0.1",
+    "vscode-languageserver-textdocument": "^1.0.11",
+    "vscode-languageserver-types": "^3.17.5",
+    "vscode-uri": "^3.0.8",
+    "fast-glob": "^3.3.2",
+    "lru-cache": "^10.2.2",
+    "fs-extra": "^11.2.0",
+    "semver": "^7.6.2",
+    "micromatch": "^4.0.7"
+  },
+  "devDependencies": {
+    "@types/fs-extra": "^11.0.4",
+    "@types/micromatch": "^4.0.9",
+    "@types/node": "^20.12.12",
+    "@types/semver": "^7.5.8",
+    "@types/vscode": "^1.89.0",
+    "@typescript-eslint/eslint-plugin": "^7.10.0",
+    "@typescript-eslint/parser": "^7.10.0",
+    "@vscode/test-electron": "^2.3.9",
+    "eslint": "^9.3.0",
+    "ts-loader": "^9.5.1",
+    "typescript": "^5.4.5",
+    "webpack": "^5.91.0",
+    "webpack-cli": "^5.1.4"
+  }
+}
