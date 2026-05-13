@@ -290,6 +290,10 @@
       {
         "command": "phpls.showOutputChannel",
         "title": "PHP Strom: Show Output Channel"
+      },
+      {
+        "command": "phpls.showDetectedPhpExtensions",
+        "title": "PHP Strom: Show Detected PHP Extensions"
       }
     ],
     "menus": {
@@ -297,7 +301,8 @@
         { "command": "phpls.restartServer" },
         { "command": "phpls.clearCache" },
         { "command": "phpls.indexWorkspace" },
-        { "command": "phpls.showOutputChannel" }
+        { "command": "phpls.showOutputChannel" },
+        { "command": "phpls.showDetectedPhpExtensions" }
       ]
     }
   },
