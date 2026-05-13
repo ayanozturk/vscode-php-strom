@@ -1,10 +1,10 @@
 import * as path from 'path';
+import * as os from 'os';
 import * as vscode from 'vscode';
 import {
   LanguageClient,
   LanguageClientOptions,
   ServerOptions,
-  TransportKind,
 } from 'vscode-languageclient/node';
 
 let client: LanguageClient | undefined;
@@ -60,18 +60,12 @@ async function startClient(context: vscode.ExtensionContext, clearCache = false)
     return;
   }
 
-  const serverModule = context.asAbsolutePath(path.join('dist', 'server.js'));
+  const binaryName = os.platform() === 'win32' ? 'phpls.exe' : 'phpls';
+  const serverBinary = context.asAbsolutePath(path.join('bin', binaryName));
 
   const serverOptions: ServerOptions = {
-    run: {
-      module: serverModule,
-      transport: TransportKind.ipc,
-    },
-    debug: {
-      module: serverModule,
-      transport: TransportKind.ipc,
-      options: { execArgv: ['--nolazy', '--inspect=6009'] },
-    },
+    command: serverBinary,
+    args: [],
   };
 
   const clientOptions: LanguageClientOptions = {
