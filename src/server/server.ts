@@ -210,9 +210,7 @@ connection.onDidChangeTextDocument((params: DidChangeTextDocumentParams) => {
 connection.onDidSaveTextDocument((params: DidSaveTextDocumentParams) => {
   const doc = documents.get(params.textDocument.uri);
   if (!doc) return;
-  if (config.diagnostics.run === 'onSave') {
-    diagnosticsProvider.validate(doc);
-  }
+  diagnosticsProvider.validate(doc);
 });
 
 connection.onDidCloseTextDocument((params: DidCloseTextDocumentParams) => {

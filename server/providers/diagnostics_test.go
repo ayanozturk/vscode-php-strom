@@ -45,6 +45,57 @@ class Foo
 	_ = diags
 }
 
+func TestDiagnosticsProvider_DoesNotReportUnreachableAfterIfReturnWithNullsafeCall(t *testing.T) {
+	p := &DiagnosticsProvider{}
+	diags := p.Analyse("file:///test.php", `<?php
+class Contact
+{
+    public function getContactEmail(): ?string
+    {
+        if ($this->email) {
+            return $this->email;
+        }
+
+        $admin = $this->getAdministrator();
+        return $admin?->getEmail();
+    }
+}
+`)
+	for _, diag := range diags {
+		if code, ok := diag.Code.(string); ok && code == "Generic.CodeAnalysis.UnreachableCode" {
+			t.Fatalf("unexpected unreachable diagnostic: %+v", diag)
+		}
+	}
+}
+
+func TestDiagnosticsProvider_DoesNotReportUnreachableAfterShortTernaryInPreviousMethod(t *testing.T) {
+	p := &DiagnosticsProvider{}
+	diags := p.Analyse("file:///test.php", `<?php
+class Company
+{
+    public function getAdministrator(): ?User
+    {
+        return $this->users->first() ?: null;
+    }
+
+    public function getContactEmail(): ?string
+    {
+        if ($this->email) {
+            return $this->email;
+        }
+
+        $admin = $this->getAdministrator();
+        return $admin?->getEmail();
+    }
+}
+`)
+	for _, diag := range diags {
+		if code, ok := diag.Code.(string); ok && code == "Generic.CodeAnalysis.UnreachableCode" {
+			t.Fatalf("unexpected unreachable diagnostic after short ternary: %+v", diag)
+		}
+	}
+}
+
 func TestLineColToRange(t *testing.T) {
 	r := lineColToRange(5, 10)
 	if r.Start.Line != 4 || r.Start.Character != 9 {

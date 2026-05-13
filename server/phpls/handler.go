@@ -140,10 +140,8 @@ func (h *Handler) HandleNotification(method string, raw json.RawMessage) {
 		if err := json.Unmarshal(raw, &p); err != nil {
 			return
 		}
-		if h.cfg.Diagnostics.Run == "onSave" {
-			if doc, ok := h.documents.Get(p.TextDocument.URI); ok {
-				go h.publishDiagnostics(doc.URI, doc.Text)
-			}
+		if doc, ok := h.documents.Get(p.TextDocument.URI); ok {
+			go h.publishDiagnostics(doc.URI, doc.Text)
 		}
 
 	case "textDocument/didClose":

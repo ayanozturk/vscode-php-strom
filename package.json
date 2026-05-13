@@ -142,7 +142,7 @@
           "type": "string",
           "default": "onType",
           "enum": ["onType", "onSave"],
-          "description": "Run diagnostics on type or on save."
+          "description": "Run diagnostics while typing and on save, or only on save."
         },
         "phpls.diagnostics.undefinedSymbols": {
           "type": "boolean",
