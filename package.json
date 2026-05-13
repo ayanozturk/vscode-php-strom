@@ -1,11 +1,10 @@
 {
   "name": "phpls",
-  "displayName": "PHP Language Server",
+  "displayName": "PHP Strom",
   "description": "High-performance, fully open-source PHP language intelligence for VS Code — a complete LSP implementation covering all features.",
   "version": "0.1.0",
   "publisher": "phpls",
   "license": "MIT",
-  "icon": "images/icon.png",
   "repository": {
     "type": "git",
     "url": "https://github.com/ayanozturk/vscode-php-strom"
@@ -53,12 +52,12 @@
       }
     ],
     "configuration": {
-      "title": "PHP Language Server",
+      "title": "PHP Strom",
       "properties": {
         "phpls.enable": {
           "type": "boolean",
           "default": true,
-          "description": "Enable/disable the PHP Language Server."
+          "description": "Enable/disable the PHP Strom."
         },
         "phpls.environment.phpVersion": {
           "type": "string",
@@ -278,19 +277,19 @@
     "commands": [
       {
         "command": "phpls.restartServer",
-        "title": "PHP Language Server: Restart Server"
+        "title": "PHP Strom: Restart Server"
       },
       {
         "command": "phpls.clearCache",
-        "title": "PHP Language Server: Clear Cache and Restart"
+        "title": "PHP Strom: Clear Cache and Restart"
       },
       {
         "command": "phpls.indexWorkspace",
-        "title": "PHP Language Server: Re-index Workspace"
+        "title": "PHP Strom: Re-index Workspace"
       },
       {
         "command": "phpls.showOutputChannel",
-        "title": "PHP Language Server: Show Output Channel"
+        "title": "PHP Strom: Show Output Channel"
       }
     ],
     "menus": {
@@ -304,9 +303,8 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run package",
-    "compile": "tsc -p ./tsconfig.json && tsc -p ./tsconfig.server.json",
+    "compile": "tsc -p ./tsconfig.json",
     "watch": "tsc -watch -p ./tsconfig.json",
-    "watch:server": "tsc -watch -p ./tsconfig.server.json",
     "package": "webpack --mode production --devtool hidden-source-map",
     "lint": "eslint src --ext ts",
     "test": "node ./out/test/runTest.js"

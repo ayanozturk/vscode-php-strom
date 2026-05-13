@@ -11,7 +11,7 @@ let client: LanguageClient | undefined;
 let outputChannel: vscode.OutputChannel;
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
-  outputChannel = vscode.window.createOutputChannel('PHP Language Server');
+  outputChannel = vscode.window.createOutputChannel('PHP Strom');
   context.subscriptions.push(outputChannel);
 
   await startClient(context);
@@ -91,7 +91,7 @@ async function startClient(context: vscode.ExtensionContext, clearCache = false)
 
   client = new LanguageClient(
     'phpls',
-    'PHP Language Server',
+    'PHP Strom',
     serverOptions,
     clientOptions,
   );

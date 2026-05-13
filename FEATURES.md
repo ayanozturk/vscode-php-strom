@@ -1,13 +1,13 @@
-# phpls — PHP Language Server: Feature Specification
+# phpls — PHP Strom: Feature Specification
 
-> A fully open-source, MIT-licensed, high-performance PHP Language Server for VS Code and any LSP-capable editor.  
+> A fully open-source, MIT-licensed, high-performance PHP Strom for VS Code and any LSP-capable editor.  
 > All features listed here are **free**. There is no premium tier.
 
 ---
 
 ## Table of Contents
 
-- [phpls — PHP Language Server: Feature Specification](#phpls--php-language-server-feature-specification)
+- [phpls — PHP Strom: Feature Specification](#phpls--php-strom-feature-specification)
   - [Table of Contents](#table-of-contents)
   - [1. Architecture Overview](#1-architecture-overview)
   - [2. Free Features](#2-free-features)

@@ -1,6 +1,7 @@
 .vscode/**
 .gitignore
 src/**
+server/**
 test/**
 out/**
 node_modules/**
@@ -8,3 +9,4 @@ node_modules/**
 tsconfig*.json
 webpack.config.js
 .eslintrc.json
+Makefile
