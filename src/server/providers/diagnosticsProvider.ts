@@ -61,7 +61,7 @@ export class DiagnosticsProvider {
         severity: DiagnosticSeverity.Error,
         range: lspRange(err.range),
         message: err.message,
-        source: 'phpls',
+        source: 'phpstrom',
         code: 'P0001',
       });
     }

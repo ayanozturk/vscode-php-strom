@@ -34,7 +34,7 @@ func (p *DiagnosticsProvider) Analyse(uri, text string) []lsp.Diagnostic {
 			Range:    lineColToRange(issue.Line, issue.Column),
 			Severity: &sev,
 			Code:     issue.Code,
-			Source:   "phpls",
+			Source:   "phpstrom",
 			Message:  issue.Message,
 		})
 	}
@@ -49,7 +49,7 @@ func (p *DiagnosticsProvider) Analyse(uri, text string) []lsp.Diagnostic {
 			Range:    lineColToRange(issue.Line, issue.Column),
 			Severity: &sev,
 			Code:     issue.Code,
-			Source:   "phpls",
+			Source:   "phpstrom",
 			Message:  issue.Message,
 		})
 	}
@@ -60,7 +60,7 @@ func (p *DiagnosticsProvider) Analyse(uri, text string) []lsp.Diagnostic {
 		diags = append(diags, lsp.Diagnostic{
 			Range:    lineColToRange(0, 0),
 			Severity: &sev,
-			Source:   "phpls",
+			Source:   "phpstrom",
 			Message:  errMsg,
 		})
 	}
