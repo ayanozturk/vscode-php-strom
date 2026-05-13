@@ -294,9 +294,9 @@
     ],
     "menus": {
       "commandPalette": [
-        { "command": "phpls.restartServer", "when": "editorLangId == php" },
-        { "command": "phpls.clearCache", "when": "editorLangId == php" },
-        { "command": "phpls.indexWorkspace", "when": "editorLangId == php" },
+        { "command": "phpls.restartServer" },
+        { "command": "phpls.clearCache" },
+        { "command": "phpls.indexWorkspace" },
         { "command": "phpls.showOutputChannel" }
       ]
     }

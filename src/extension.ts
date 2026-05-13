@@ -14,6 +14,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   outputChannel = vscode.window.createOutputChannel('PHP Strom');
   context.subscriptions.push(outputChannel);
 
+  await warnAboutConflictingPhpExtensions();
+
   await startClient(context);
 
   // Commands
@@ -151,4 +153,45 @@ async function stopClient(): Promise<void> {
 
 function getConfiguration(): Record<string, unknown> {
   return vscode.workspace.getConfiguration('phpls') as unknown as Record<string, unknown>;
+}
+
+async function warnAboutConflictingPhpExtensions(): Promise<void> {
+  const conflicts = vscode.extensions.all.filter((ext) => {
+    if (!ext.isActive && !ext.packageJSON?.activationEvents) {
+      return false;
+    }
+
+    const id = ext.id.toLowerCase();
+    if (id === 'phpls.phpls') {
+      return false;
+    }
+
+    if (id === 'vscode.php-language-features') {
+      return true;
+    }
+
+    const contributesLanguages = Array.isArray(ext.packageJSON?.contributes?.languages)
+      ? ext.packageJSON.contributes.languages
+      : [];
+
+    return contributesLanguages.some((language: { id?: string }) => language?.id === 'php');
+  });
+
+  if (conflicts.length === 0) {
+    return;
+  }
+
+  const labels = conflicts.map((ext) => ext.packageJSON?.displayName ?? ext.id).join(', ');
+  outputChannel.appendLine(
+    `[phpls] Conflicting PHP language providers detected: ${labels}. VS Code merges definition results from all enabled providers.`,
+  );
+
+  const selection = await vscode.window.showWarningMessage(
+    'PHP Strom detected other enabled PHP language extensions. Cmd+Click definitions will be merged across providers until those extensions are disabled for this workspace.',
+    'Open Extensions',
+  );
+
+  if (selection === 'Open Extensions') {
+    await vscode.commands.executeCommand('workbench.view.extensions');
+  }
 }

@@ -5,6 +5,12 @@ package providers
 // Real logic will be added incrementally.
 
 import (
+	"strings"
+
+	"go-phpcs/ast"
+	goplexer "go-phpcs/lexer"
+	goparser "go-phpcs/parser"
+
 	"github.com/ayanozturk/vscode-php-strom/indexer"
 	"github.com/ayanozturk/vscode-php-strom/lsp"
 )
@@ -38,8 +44,25 @@ func (p *HoverProvider) Provide(uri, text string, pos lsp.Position) *lsp.Hover {
 type DefinitionProvider struct{ idx *indexer.WorkspaceIndexer }
 
 func (p *DefinitionProvider) Provide(uri, text string, pos lsp.Position) []lsp.Location {
-	word := wordAt(text, pos)
-	syms := p.idx.GetIndex().Search(word)
+	if locs := resolveTypeDefinitionLocations(p.idx, text, pos); len(locs) > 0 {
+		return locs
+	}
+
+	word := identifierAt(text, pos)
+	if word == "" {
+		return nil
+	}
+
+	if sym := p.idx.GetIndex().GetByFQN(ensureLeadingSlash(word)); sym != nil {
+		return []lsp.Location{symToLocation(sym)}
+	}
+
+	lookup := unqualifiedName(word)
+	if lookup == "" {
+		return nil
+	}
+
+	syms := prioritizeDefinitionMatches(p.idx.GetIndex().Search(lookup), lookup)
 	var locs []lsp.Location
 	for _, s := range syms {
 		locs = append(locs, symToLocation(s))
@@ -60,7 +83,7 @@ func (p *DeclarationProvider) Provide(uri, text string, pos lsp.Position) []lsp.
 type TypeDefinitionProvider struct{ idx *indexer.WorkspaceIndexer }
 
 func (p *TypeDefinitionProvider) Provide(uri, text string, pos lsp.Position) []lsp.Location {
-	return nil
+	return resolveTypeDefinitionLocations(p.idx, text, pos)
 }
 
 // ─── Implementation ───────────────────────────────────────────────────────────
@@ -266,4 +289,206 @@ func rangeToLSP(s *indexer.Symbol) lsp.Range {
 		Start: lsp.Position{Line: s.StartLine, Character: s.StartChar},
 		End:   lsp.Position{Line: s.EndLine, Character: s.EndChar},
 	}
+}
+
+type documentTypeContext struct {
+	namespace string
+	aliases   map[string]string
+}
+
+func resolveTypeDefinitionLocations(idx *indexer.WorkspaceIndexer, text string, pos lsp.Position) []lsp.Location {
+	ident := identifierAt(text, pos)
+	if ident == "" {
+		return nil
+	}
+
+	for _, candidate := range resolveTypeCandidates(text, ident) {
+		sym := idx.GetIndex().GetByFQN(candidate)
+		if sym == nil || !isClassLikeKind(sym.Kind) {
+			continue
+		}
+		return []lsp.Location{symToLocation(sym)}
+	}
+
+	lookup := unqualifiedName(ident)
+	if lookup == "" {
+		return nil
+	}
+
+	matched := prioritizeDefinitionMatches(idx.GetIndex().Search(lookup), lookup)
+	var locs []lsp.Location
+	for _, sym := range matched {
+		if isClassLikeKind(sym.Kind) {
+			locs = append(locs, symToLocation(sym))
+		}
+	}
+	return locs
+}
+
+func resolveTypeCandidates(text, ident string) []string {
+	if ident == "" {
+		return nil
+	}
+
+	ident = strings.TrimSpace(ident)
+	if ident == "self" || ident == "static" || ident == "parent" {
+		return nil
+	}
+	if strings.HasPrefix(ident, `\`) {
+		return []string{ensureLeadingSlash(ident)}
+	}
+
+	ctx := parseDocumentTypeContext(text)
+	firstSegment := ident
+	remainder := ""
+	if idx := strings.Index(ident, `\`); idx >= 0 {
+		firstSegment = ident[:idx]
+		remainder = ident[idx+1:]
+	}
+
+	seen := make(map[string]struct{})
+	var candidates []string
+	appendCandidate := func(candidate string) {
+		candidate = ensureLeadingSlash(candidate)
+		if _, ok := seen[candidate]; ok {
+			return
+		}
+		seen[candidate] = struct{}{}
+		candidates = append(candidates, candidate)
+	}
+
+	if target, ok := ctx.aliases[strings.ToLower(firstSegment)]; ok {
+		if remainder != "" {
+			appendCandidate(target + `\` + remainder)
+		} else {
+			appendCandidate(target)
+		}
+	}
+	if ctx.namespace != "" {
+		appendCandidate(`\` + ctx.namespace + `\` + ident)
+	}
+	appendCandidate(`\` + ident)
+	return candidates
+}
+
+func parseDocumentTypeContext(text string) documentTypeContext {
+	ctx := documentTypeContext{aliases: make(map[string]string)}
+	l := goplexer.New(text)
+	p := goparser.New(l, false)
+	nodes := p.Parse()
+	collectTypeContext(nodes, "", &ctx)
+	return ctx
+}
+
+func collectTypeContext(nodes []ast.Node, currentNS string, ctx *documentTypeContext) {
+	namespace := currentNS
+	for _, node := range nodes {
+		switch n := node.(type) {
+		case *ast.NamespaceNode:
+			if len(n.Body) > 0 {
+				if ctx.namespace == "" {
+					ctx.namespace = n.Name
+				}
+				collectTypeContext(n.Body, n.Name, ctx)
+				continue
+			}
+			namespace = n.Name
+			if ctx.namespace == "" {
+				ctx.namespace = n.Name
+			}
+		case *ast.UseNode:
+			if n.Type != "class" {
+				continue
+			}
+			alias := n.Alias
+			if alias == "" {
+				alias = unqualifiedName(n.Path)
+			}
+			ctx.aliases[strings.ToLower(alias)] = ensureLeadingSlash(n.Path)
+		}
+	}
+	if ctx.namespace == "" {
+		ctx.namespace = namespace
+	}
+}
+
+func identifierAt(text string, pos lsp.Position) string {
+	lines := strings.Split(text, "\n")
+	if int(pos.Line) >= len(lines) {
+		return ""
+	}
+	line := lines[pos.Line]
+	col := int(pos.Character)
+	if col < 0 {
+		col = 0
+	}
+	if col > len(line) {
+		col = len(line)
+	}
+
+	start := col
+	for start > 0 && isIdentChar(rune(line[start-1])) {
+		start--
+	}
+	end := col
+	for end < len(line) && isIdentChar(rune(line[end])) {
+		end++
+	}
+	return line[start:end]
+}
+
+func prioritizeDefinitionMatches(symbols []*indexer.Symbol, lookup string) []*indexer.Symbol {
+	exactClassLike := make([]*indexer.Symbol, 0)
+	exact := make([]*indexer.Symbol, 0)
+	seen := make(map[string]struct{})
+	lowerLookup := strings.ToLower(lookup)
+
+	for _, sym := range symbols {
+		if strings.ToLower(sym.Name) != lowerLookup {
+			continue
+		}
+		if _, ok := seen[sym.FQN]; ok {
+			continue
+		}
+		seen[sym.FQN] = struct{}{}
+		exact = append(exact, sym)
+		if isClassLikeKind(sym.Kind) {
+			exactClassLike = append(exactClassLike, sym)
+		}
+	}
+
+	if len(exactClassLike) > 0 {
+		return exactClassLike
+	}
+	if len(exact) > 0 {
+		return exact
+	}
+	return symbols
+}
+
+func isClassLikeKind(kind indexer.SymbolKind) bool {
+	switch kind {
+	case indexer.KindClass, indexer.KindInterface, indexer.KindModule, indexer.KindEnum:
+		return true
+	default:
+		return false
+	}
+}
+
+func ensureLeadingSlash(name string) string {
+	if name == "" || strings.HasPrefix(name, `\`) {
+		return name
+	}
+	return `\` + name
+}
+
+func unqualifiedName(name string) string {
+	if name == "" {
+		return ""
+	}
+	name = strings.TrimPrefix(name, `\`)
+	if idx := strings.LastIndex(name, `\`); idx >= 0 {
+		return name[idx+1:]
+	}
+	return name
 }
