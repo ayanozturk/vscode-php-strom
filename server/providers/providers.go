@@ -7,7 +7,6 @@ package providers
 import (
 	"github.com/ayanozturk/vscode-php-strom/indexer"
 	"github.com/ayanozturk/vscode-php-strom/lsp"
-	"github.com/ayanozturk/vscode-php-strom/parser"
 )
 
 // ─── Hover ────────────────────────────────────────────────────────────────────
@@ -109,8 +108,8 @@ func (p *SymbolProvider) ProvideDocument(uri, text string) []lsp.DocumentSymbol 
 		ds = append(ds, lsp.DocumentSymbol{
 			Name:           s.Name,
 			Kind:           lsp.SymbolKind(s.Kind),
-			Range:          rangeToLSP(s.Range),
-			SelectionRange: rangeToLSP(s.Range),
+			Range:          rangeToLSP(s),
+			SelectionRange: rangeToLSP(s),
 		})
 	}
 	return ds
@@ -248,14 +247,6 @@ func (p *TypeHierarchyProvider) Subtypes(item lsp.TypeHierarchyItem) []lsp.TypeH
 	return nil
 }
 
-// ─── Diagnostics ──────────────────────────────────────────────────────────────
-
-type DiagnosticsProvider struct{ idx *indexer.WorkspaceIndexer }
-
-func (p *DiagnosticsProvider) Analyse(uri, text string) []lsp.Diagnostic {
-	return nil
-}
-
 // ─── InlineValues ─────────────────────────────────────────────────────────────
 
 type InlineValuesProvider struct{}
@@ -267,9 +258,12 @@ func (p *InlineValuesProvider) Provide(uri, text string, r lsp.Range) []lsp.Inli
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 func symToLocation(s *indexer.Symbol) lsp.Location {
-	return lsp.Location{URI: s.URI, Range: rangeToLSP(s.Range)}
+	return lsp.Location{URI: s.URI, Range: rangeToLSP(s)}
 }
 
-func rangeToLSP(r parser.Range) lsp.Range {
-	return lsp.Range{} // byte offsets → line/char conversion done in a future pass
+func rangeToLSP(s *indexer.Symbol) lsp.Range {
+	return lsp.Range{
+		Start: lsp.Position{Line: s.StartLine, Character: s.StartChar},
+		End:   lsp.Position{Line: s.EndLine, Character: s.EndChar},
+	}
 }

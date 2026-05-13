@@ -48,6 +48,12 @@ type Symbol struct {
 	URI   string // file:// URI
 	Range parser.Range
 
+	// LSP line/character positions (0-based), populated at extraction time.
+	StartLine uint32
+	StartChar uint32
+	EndLine   uint32
+	EndChar   uint32
+
 	// Relationships
 	Extends    []string // FQNs of parent classes/interfaces
 	Implements []string // FQNs of implemented interfaces

@@ -1,10 +1,7 @@
 module github.com/ayanozturk/vscode-php-strom
 
-go 1.22
+go 1.23
 
-require (
-	github.com/fsnotify/fsnotify v1.7.0
-	github.com/bmatcuk/doublestar/v4 v4.6.1
-)
+replace go-phpcs => /Users/ayan/Projects/go-php-parser
 
-require golang.org/x/sys v0.20.0 // indirect
+require go-phpcs v0.0.0-00010101000000-000000000000

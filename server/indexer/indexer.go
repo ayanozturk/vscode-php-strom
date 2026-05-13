@@ -218,7 +218,38 @@ func extractSymbols(uri, src string) []*Symbol {
 	var syms []*Symbol
 	var ns string
 	extractFromStmts(file.Stmts, uri, ns, &syms)
+	// Populate LSP line/char positions from byte offsets.
+	lineOffsets := buildLineOffsets(src)
+	for _, sym := range syms {
+		sym.StartLine, sym.StartChar = offsetToLineChar(lineOffsets, int(sym.Range.Start))
+		sym.EndLine, sym.EndChar = offsetToLineChar(lineOffsets, int(sym.Range.End))
+	}
 	return syms
+}
+
+// buildLineOffsets returns a slice where element i is the byte offset of line i (0-based).
+func buildLineOffsets(src string) []int {
+	offsets := []int{0}
+	for i := 0; i < len(src); i++ {
+		if src[i] == '\n' {
+			offsets = append(offsets, i+1)
+		}
+	}
+	return offsets
+}
+
+// offsetToLineChar converts a byte offset to 0-based LSP line and character.
+func offsetToLineChar(lineOffsets []int, offset int) (line, char uint32) {
+	lo, hi := 0, len(lineOffsets)-1
+	for lo < hi {
+		mid := (lo + hi + 1) / 2
+		if lineOffsets[mid] <= offset {
+			lo = mid
+		} else {
+			hi = mid - 1
+		}
+	}
+	return uint32(lo), uint32(offset - lineOffsets[lo])
 }
 
 func extractFromStmts(stmts []parser.Stmt, uri, ns string, syms *[]*Symbol) {
