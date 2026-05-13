@@ -7,50 +7,69 @@
 
 ## Table of Contents
 
-1. [Architecture Overview](#1-architecture-overview)
-2. [Free Features (parity with intelephense)](#2-free-features)
-   - 2.1 [Code Completion (IntelliSense)](#21-code-completion-intellisense)
-   - 2.2 [Signature Help](#22-signature-help)
-   - 2.3 [Hover](#23-hover)
-   - 2.4 [Go to Definition](#24-go-to-definition)
-   - 2.5 [Find All References](#25-find-all-references)
-   - 2.6 [Document Highlight](#26-document-highlight)
-   - 2.7 [Document Symbols (Outline / Breadcrumbs)](#27-document-symbols)
-   - 2.8 [Workspace Symbol Search](#28-workspace-symbol-search)
-   - 2.9 [Diagnostics](#29-diagnostics)
-   - 2.10 [Formatting](#210-formatting)
-   - 2.11 [Embedded Languages](#211-embedded-languages)
-   - 2.12 [Inline Values (Xdebug)](#212-inline-values)
-3. [Premium-Equivalent Features (all free in phpls)](#3-premium-equivalent-features)
-   - 3.1 [Rename Symbol](#31-rename-symbol)
-   - 3.2 [Code Folding](#32-code-folding)
-   - 3.3 [Find All Implementations](#33-find-all-implementations)
-   - 3.4 [Go to Type Definition](#34-go-to-type-definition)
-   - 3.5 [Go to Declaration](#35-go-to-declaration)
-   - 3.6 [Smart Select](#36-smart-select)
-   - 3.7 [Code Actions](#37-code-actions)
-   - 3.8 [Type Hierarchy](#38-type-hierarchy)
-   - 3.9 [Code Lens](#39-code-lens)
-   - 3.10 [Inlay Hints](#310-inlay-hints)
-   - 3.11 [Document Links](#311-document-links)
-   - 3.12 [@mixin Support](#312-mixin-support)
-4. [Type System](#4-type-system)
-   - 4.1 [Supported Types](#41-supported-types)
-   - 4.2 [Type Narrowing](#42-type-narrowing)
-   - 4.3 [Type Evolving](#43-type-evolving)
-   - 4.4 [PHPDoc Annotation Support](#44-phpdoc-annotation-support)
-5. [Beyond Intelephense: Improvements & New Features](#5-beyond-intelephense)
-   - 5.1 [Tree-sitter Parser Backend](#51-tree-sitter-parser-backend)
-   - 5.2 [Framework & Library Intelligence](#52-framework--library-intelligence)
-   - 5.3 [Improved Diagnostics](#53-improved-diagnostics)
-   - 5.4 [Auto-PHPDoc Generation](#54-auto-phpdoc-generation)
-   - 5.5 [Refactoring Actions](#55-refactoring-actions)
-   - 5.6 [AI-Assisted Completions (Optional)](#56-ai-assisted-completions-optional)
-   - 5.7 [Test Integration](#57-test-integration)
-   - 5.8 [Better Multi-root Workspace Support](#58-better-multi-root-workspace-support)
-6. [Configuration Reference](#6-configuration-reference)
-7. [Diagnostic Codes](#7-diagnostic-codes)
-8. [Extension Points / API](#8-extension-points--api)
+- [phpls — PHP Language Server: Feature Specification](#phpls--php-language-server-feature-specification)
+  - [Table of Contents](#table-of-contents)
+  - [1. Architecture Overview](#1-architecture-overview)
+  - [2. Free Features](#2-free-features)
+    - [2.1 Code Completion (IntelliSense)](#21-code-completion-intellisense)
+    - [2.2 Signature Help](#22-signature-help)
+    - [2.3 Hover](#23-hover)
+    - [2.4 Go to Definition](#24-go-to-definition)
+    - [2.5 Find All References](#25-find-all-references)
+    - [2.6 Document Highlight](#26-document-highlight)
+    - [2.7 Document Symbols](#27-document-symbols)
+    - [2.8 Workspace Symbol Search](#28-workspace-symbol-search)
+    - [2.9 Diagnostics](#29-diagnostics)
+      - [Syntax errors](#syntax-errors)
+      - [Undefined symbols](#undefined-symbols)
+      - [Undefined variables](#undefined-variables)
+      - [Type errors (configurable strictness)](#type-errors-configurable-strictness)
+      - [Other checks](#other-checks)
+      - [Suppression](#suppression)
+    - [2.10 Formatting](#210-formatting)
+    - [2.11 Embedded Languages](#211-embedded-languages)
+    - [2.12 Inline Values](#212-inline-values)
+  - [3. Premium-Equivalent Features](#3-premium-equivalent-features)
+    - [3.1 Rename Symbol](#31-rename-symbol)
+    - [3.2 Code Folding](#32-code-folding)
+    - [3.3 Find All Implementations](#33-find-all-implementations)
+    - [3.4 Go to Type Definition](#34-go-to-type-definition)
+    - [3.5 Go to Declaration](#35-go-to-declaration)
+    - [3.6 Smart Select](#36-smart-select)
+    - [3.7 Code Actions](#37-code-actions)
+    - [3.8 Type Hierarchy](#38-type-hierarchy)
+    - [3.9 Code Lens](#39-code-lens)
+    - [3.10 Inlay Hints](#310-inlay-hints)
+    - [3.11 Document Links](#311-document-links)
+    - [3.12 @mixin Support](#312-mixin-support)
+  - [4. Type System](#4-type-system)
+    - [4.1 Supported Types](#41-supported-types)
+      - [Scalar](#scalar)
+      - [Unit](#unit)
+      - [Top / Bottom](#top--bottom)
+      - [Literals _(PHPDoc only)_](#literals-phpdoc-only)
+      - [Object](#object)
+      - [Array](#array)
+      - [Callable](#callable)
+      - [Alias](#alias)
+      - [Compound](#compound)
+      - [Generic _(PHPDoc only)_](#generic-phpdoc-only)
+      - [Advanced _(PHPDoc only)_](#advanced-phpdoc-only)
+    - [4.2 Type Narrowing](#42-type-narrowing)
+    - [4.3 Type Evolving](#43-type-evolving)
+    - [4.4 PHPDoc Annotation Support](#44-phpdoc-annotation-support)
+  - [5. Beyond](#5-beyond)
+    - [5.1 Tree-sitter Parser Backend](#51-tree-sitter-parser-backend)
+    - [5.2 Framework \& Library Intelligence](#52-framework--library-intelligence)
+    - [5.3 Improved Diagnostics](#53-improved-diagnostics)
+    - [5.4 Auto-PHPDoc Generation](#54-auto-phpdoc-generation)
+    - [5.5 Refactoring Actions](#55-refactoring-actions)
+    - [5.6 AI-Assisted Completions (Optional)](#56-ai-assisted-completions-optional)
+    - [5.7 Test Integration](#57-test-integration)
+    - [5.8 Better Multi-root Workspace Support](#58-better-multi-root-workspace-support)
+  - [6. Configuration Reference](#6-configuration-reference)
+  - [7. Diagnostic Codes](#7-diagnostic-codes)
+  - [8. Extension Points / API](#8-extension-points--api)
 
 ---
 
@@ -131,6 +150,7 @@ Completion suggestions for:
 - **Automatic `use` insertion** — adds the import when completing a non-imported type
 
 Each completion item includes:
+
 - Full signature / type detail
 - PHPDoc documentation (resolved lazily via `completionItem/resolve`)
 - Sort text adjusted by relevance (prefix match, camelCase score)
@@ -207,11 +227,13 @@ Hover card content:
 **Keybinding:** `Ctrl+Shift+O`
 
 Hierarchical symbol tree powering:
+
 - Outline view
 - Breadcrumb navigation
 - `@` search in the Go to Symbol dropdown
 
 Symbols reported:
+
 - Namespaces → classes → methods / properties / constants
 - Top-level functions and constants
 - `use` declaration groups
@@ -235,18 +257,22 @@ Symbols reported:
 **Run:** `onType` (default) or `onSave`
 
 #### Syntax errors
+
 - Error-tolerant parser continues past errors and reports all issues
 
 #### Undefined symbols
+
 - Undefined classes, interfaces, traits, enums
 - Undefined functions
 - Undefined constants
 
 #### Undefined variables
+
 - Variables used before assignment
 - Variable scope boundary violations
 
 #### Type errors (configurable strictness)
+
 | Setting | Default | Effect |
 |---|---|---|
 | `diagnostics.typeErrors` | `true` | Enable type checking |
@@ -256,12 +282,14 @@ Symbols reported:
 | `diagnostics.typeCheckDocumentedTypes` | `false` | Include PHPDoc types in checks |
 
 #### Other checks
+
 - Deprecated symbol usage (based on `@deprecated` PHPDoc)
 - Duplicate class / function declarations
 - Missing return statement
 - Unreachable code after `throw` / `return` / `exit`
 
 #### Suppression
+
 ```php
 /** @disregard P1010 */
 $undefined->method(); // suppressed
@@ -304,7 +332,7 @@ Provides variable ranges to the Xdebug extension (`xdebug.php-debug`) so that cu
 
 ## 3. Premium-Equivalent Features
 
-> In intelephense these require a paid licence. **phpls ships them all for free.**
+> Other extensions require a paid licence. **php-strom ships them all for free.**
 
 ---
 
@@ -365,7 +393,7 @@ Syntax-tree driven (more reliable than indent-based):
 **LSP method:** `textDocument/declaration`  
 **Keybinding:** right-click
 
-- Navigates to the *initial* (root) declaration in a type hierarchy
+- Navigates to the _initial_ (root) declaration in a type hierarchy
 - Invoking on an overriding method → jumps to the abstract/interface declaration
 
 ---
@@ -376,6 +404,7 @@ Syntax-tree driven (more reliable than indent-based):
 **Keybinding:** `Shift+Alt+→` (expand) / `Shift+Alt+←` (shrink)
 
 Syntax-tree driven expansion sequence:
+
 ```
 word → identifier → expression → statement → block → method → class → file
 ```
@@ -445,6 +474,7 @@ More precise than indent or regex-based providers.
 **Keybinding:** `Ctrl+Click` / mouse-over
 
 Clickable links for:
+
 - `require` / `require_once` / `include` / `include_once` paths
 - `@see` PHPDoc annotations referencing local files
 - Respects `phpls.environment.documentRoot` for document-root-relative paths
@@ -462,40 +492,51 @@ Classes that delegate to another class via `__call`, `__callStatic`, `__get`, or
 ### 4.1 Supported Types
 
 #### Scalar
+
 `int`  `float`  `bool`  `string`
 
 #### Unit
+
 `void`  `null`  `true`  `false`  `never`
 
 #### Top / Bottom
+
 `mixed`  `never`
 
 #### Literals _(PHPDoc only)_
+
 `'string'`  `42`  `true`  `false`
 
 #### Object
+
 `object`  `ClassName`  `self`  `static`  `$this`  
 `object{name: string, optional?: string}` _(PHPDoc only)_
 
 #### Array
+
 `array`  `TValue[]`  `array<TKey, TValue>`  
 `array{key: Type, optional?: Type, ...<int, string>}` _(PHPDoc only)_
 
 #### Callable
+
 `callable`  `callable(TParam): TReturn`  `Closure`  `Closure(TParam): TReturn` _(PHPDoc only)_
 
 #### Alias
+
 `iterable`  `?Type` (nullable shorthand)
 
 #### Compound
+
 `A|B|C` (union)  `A&B&C` (intersection)  `A|B|(C&D)` (DNF)
 
 #### Generic _(PHPDoc only)_
+
 `ClassName<TypeArg1, TypeArg2>`  
 Full support for `@template` / `@extends` / `@implements` / `@use`  
 All built-in generic types: `Generator`, `Iterator`, `ArrayAccess`, `SplStack`, etc.
 
 #### Advanced _(PHPDoc only)_
+
 `(TSubject is TCompare ? TTrue : TFalse)` — conditional return types  
 `key-of<TArray>`  `value-of<TArray>`  `TArray[TKey]` — index access  
 `class-string<T>`  `resource`
@@ -521,6 +562,7 @@ function example(string|array|Foo|null $input): void {
 ```
 
 **Narrowing triggers:**
+
 - `instanceof` checks
 - `is_*` type assertions (`is_string`, `is_int`, `is_array`, `is_null`, …)
 - `assert()` expressions
@@ -573,7 +615,7 @@ Psalm-prefixed (`@psalm-*`) and PHPStan-prefixed (`@phpstan-*`) variants are rec
 
 ---
 
-## 5. Beyond Intelephense
+## 5. Beyond
 
 ### 5.1 Tree-sitter Parser Backend
 
@@ -599,6 +641,7 @@ Built-in support for popular PHP frameworks (no IDE helper files needed):
 | **Doctrine** | ORM entity metadata, repository methods |
 
 Implemented via:
+
 - Static metadata files (`.phpls/stubs/`)
 - Composer plugin detection (`composer.json` `require` key scanning)
 - Dynamic stub generation (replaces the need for `laravel-ide-helper`)
@@ -607,7 +650,7 @@ Implemented via:
 
 ### 5.3 Improved Diagnostics
 
-Additional diagnostic checks beyond intelephense:
+Additional diagnostic checks:
 
 | Code | Check |
 |---|---|
@@ -787,5 +830,5 @@ This API allows framework-specific extensions to contribute additional stubs, di
 
 ---
 
-*phpls is fully open source under the MIT licence.*  
-*Contributions are welcome — see `CONTRIBUTING.md` for guidelines.*
+_phpls is fully open source under the MIT licence._  
+_Contributions are welcome — see `CONTRIBUTING.md` for guidelines._
