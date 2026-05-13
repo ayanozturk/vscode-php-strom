@@ -55,3 +55,34 @@ func TestExtractSymbolsHasLSPPositions(t *testing.T) {
 		t.Errorf("expected StartLine=1 (0-based), got %d", cls.StartLine)
 	}
 }
+
+func TestExtractSymbolsUsesGoParserForPropertyHooks(t *testing.T) {
+	src := `<?php
+class Example {
+    public private(set) string $name {
+        get => $this->name;
+        set => $value;
+    }
+}
+`
+
+	syms := extractSymbols("file:///test.php", src)
+	if len(syms) < 2 {
+		t.Fatalf("expected class and property symbols, got %d", len(syms))
+	}
+
+	var property *Symbol
+	for _, sym := range syms {
+		if sym.Kind == KindProperty && sym.Name == "name" {
+			property = sym
+			break
+		}
+	}
+
+	if property == nil {
+		t.Fatal("expected property symbol for hook-backed property")
+	}
+	if property.Visibility != "public" {
+		t.Fatalf("expected public visibility, got %q", property.Visibility)
+	}
+}

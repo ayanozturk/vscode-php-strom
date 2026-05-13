@@ -1,8 +1,11 @@
 package indexer
 
-import (
-	"github.com/ayanozturk/vscode-php-strom/parser"
-)
+import "go-phpcs/ast"
+
+type Range struct {
+	Start ast.Position
+	End   ast.Position
+}
 
 // SymbolKind mirrors the LSP symbol kind values.
 type SymbolKind int
@@ -46,7 +49,7 @@ type Symbol struct {
 
 	// Location
 	URI   string // file:// URI
-	Range parser.Range
+	Range Range
 
 	// LSP line/character positions (0-based), populated at extraction time.
 	StartLine uint32

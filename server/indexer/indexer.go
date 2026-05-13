@@ -11,7 +11,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/ayanozturk/vscode-php-strom/parser"
+	"go-phpcs/ast"
+	goplexer "go-phpcs/lexer"
+	goparser "go-phpcs/parser"
 )
 
 // WorkspaceIndexer discovers and indexes PHP files in workspace folders.
@@ -214,15 +216,13 @@ func (wi *WorkspaceIndexer) matchesAssociations(path string) bool {
 
 // extractSymbols parses PHP source and extracts top-level declarations.
 func extractSymbols(uri, src string) []*Symbol {
-	file := parser.Parse(src)
+	l := goplexer.New(src)
+	p := goparser.New(l, false)
+	nodes := p.Parse()
 	var syms []*Symbol
-	var ns string
-	extractFromStmts(file.Stmts, uri, ns, &syms)
-	// Populate LSP line/char positions from byte offsets.
-	lineOffsets := buildLineOffsets(src)
+	extractFromNodes(nodes, uri, "", &syms)
 	for _, sym := range syms {
-		sym.StartLine, sym.StartChar = offsetToLineChar(lineOffsets, int(sym.Range.Start))
-		sym.EndLine, sym.EndChar = offsetToLineChar(lineOffsets, int(sym.Range.End))
+		populateLSPRange(sym)
 	}
 	return syms
 }
@@ -252,193 +252,358 @@ func offsetToLineChar(lineOffsets []int, offset int) (line, char uint32) {
 	return uint32(lo), uint32(offset - lineOffsets[lo])
 }
 
-func extractFromStmts(stmts []parser.Stmt, uri, ns string, syms *[]*Symbol) {
-	for _, stmt := range stmts {
-		switch s := stmt.(type) {
-		case *parser.NamespaceDeclStmt:
-			newNS := s.Decl.Name
-			if s.Decl.Stmts != nil {
-				extractFromStmts(s.Decl.Stmts, uri, newNS, syms)
+func extractFromNodes(nodes []ast.Node, uri, ns string, syms *[]*Symbol) {
+	for _, node := range nodes {
+		switch n := node.(type) {
+		case *ast.NamespaceNode:
+			newNS := n.Name
+			if len(n.Body) > 0 {
+				extractFromNodes(n.Body, uri, newNS, syms)
 			} else {
-				// bracket-less: rest of file uses this namespace
+				// Bracket-less namespace: subsequent top-level declarations use this namespace.
 				ns = newNS
 			}
 
-		case *parser.ClassDeclStmt:
-			fqn := fqn(ns, s.Decl.Name)
+		case *ast.ClassNode:
+			classFQN := fqn(ns, n.Name)
 			sym := &Symbol{
-				FQN: fqn, Name: s.Decl.Name, Kind: KindClass,
-				Namespace: ns, URI: uri, Range: s.Decl.Pos,
-				DocComment: s.Decl.DocComment,
-				IsFinal:    s.Decl.Flags&parser.FlagFinal != 0,
-				IsAbstract: s.Decl.Flags&parser.FlagAbstract != 0,
-				IsReadonly: s.Decl.Flags&parser.FlagReadonly != 0,
+				FQN:        classFQN,
+				Name:       n.Name,
+				Kind:       KindClass,
+				Namespace:  ns,
+				URI:        uri,
+				Range:      positionRange(n.GetPos()),
+				DocComment: docRaw(n.PHPDoc),
+				IsFinal:    hasModifier(n.Modifier, "final"),
+				IsAbstract: hasModifier(n.Modifier, "abstract"),
 				Visibility: "public",
 			}
-			if s.Decl.Extends != "" {
-				sym.Extends = []string{s.Decl.Extends}
+			if n.Extends != "" {
+				sym.Extends = []string{n.Extends}
 			}
-			sym.Implements = s.Decl.Implements
+			sym.Implements = n.Implements
 			*syms = append(*syms, sym)
-			extractMembers(s.Decl.Members, uri, fqn, syms)
+			extractClassMembers(n, uri, classFQN, syms)
 
-		case *parser.InterfaceDeclStmt:
-			fqn := fqn(ns, s.Decl.Name)
-			sym := &Symbol{
-				FQN: fqn, Name: s.Decl.Name, Kind: KindInterface,
-				Namespace: ns, URI: uri, Range: s.Decl.Pos,
-				DocComment: s.Decl.DocComment,
+		case *ast.InterfaceNode:
+			interfaceFQN := fqn(ns, n.Name)
+			*syms = append(*syms, &Symbol{
+				FQN:        interfaceFQN,
+				Name:       n.Name,
+				Kind:       KindInterface,
+				Namespace:  ns,
+				URI:        uri,
+				Range:      positionRange(n.GetPos()),
+				DocComment: docRaw(n.PHPDoc),
+				Extends:    n.Extends,
 				Visibility: "public",
+			})
+			extractInterfaceMembers(n.Members, uri, interfaceFQN, syms)
+
+		case *ast.TraitNode:
+			traitName := ""
+			if n.Name != nil {
+				traitName = n.Name.Name
 			}
-			sym.Extends = s.Decl.Extends
-			*syms = append(*syms, sym)
-			extractMembers(s.Decl.Members, uri, fqn, syms)
-
-		case *parser.TraitDeclStmt:
-			fqn := fqn(ns, s.Decl.Name)
+			traitFQN := fqn(ns, traitName)
 			*syms = append(*syms, &Symbol{
-				FQN: fqn, Name: s.Decl.Name, Kind: KindModule,
-				Namespace: ns, URI: uri, Range: s.Decl.Pos,
-				DocComment: s.Decl.DocComment, Visibility: "public",
+				FQN:        traitFQN,
+				Name:       traitName,
+				Kind:       KindModule,
+				Namespace:  ns,
+				URI:        uri,
+				Range:      positionRange(n.GetPos()),
+				Visibility: "public",
 			})
-			extractMembers(s.Decl.Members, uri, fqn, syms)
+			extractTraitMembers(n.Body, uri, traitFQN, syms)
 
-		case *parser.EnumDeclStmt:
-			fqn := fqn(ns, s.Decl.Name)
+		case *ast.EnumNode:
+			enumFQN := fqn(ns, n.Name)
 			*syms = append(*syms, &Symbol{
-				FQN: fqn, Name: s.Decl.Name, Kind: KindEnum,
-				Namespace: ns, URI: uri, Range: s.Decl.Pos,
-				DocComment: s.Decl.DocComment, Visibility: "public",
+				FQN:        enumFQN,
+				Name:       n.Name,
+				Kind:       KindEnum,
+				Namespace:  ns,
+				URI:        uri,
+				Range:      positionRange(n.GetPos()),
+				Visibility: "public",
 			})
-			extractMembers(s.Decl.Members, uri, fqn, syms)
+			extractEnumCases(n.Cases, uri, enumFQN, syms)
 
-		case *parser.FunctionDeclStmt:
-			fqn := fqn(ns, s.Decl.Name)
+		case *ast.FunctionNode:
+			functionFQN := fqn(ns, n.Name)
 			*syms = append(*syms, &Symbol{
-				FQN: fqn, Name: s.Decl.Name, Kind: KindFunction,
-				Namespace: ns, URI: uri, Range: s.Decl.Pos,
-				DocComment: s.Decl.DocComment, Visibility: "public",
-				Params: extractParams(s.Decl.Params),
+				FQN:        functionFQN,
+				Name:       n.Name,
+				Kind:       KindFunction,
+				Namespace:  ns,
+				URI:        uri,
+				Range:      positionRange(n.GetPos()),
+				DocComment: docRaw(n.PHPDoc),
+				ReturnType: n.ReturnType,
+				Visibility: "public",
+				Params:     extractParams(n.Params),
 			})
 
-		case *parser.ConstDeclStmt:
-			for _, item := range s.Decl.Items {
-				fqn := fqn(ns, item.Name)
-				*syms = append(*syms, &Symbol{
-					FQN: fqn, Name: item.Name, Kind: KindConstant,
-					Namespace: ns, URI: uri, Range: item.Pos, Visibility: "public",
-				})
-			}
+		case *ast.ConstantNode:
+			constFQN := fqn(ns, n.Name)
+			*syms = append(*syms, &Symbol{
+				FQN:        constFQN,
+				Name:       n.Name,
+				Kind:       KindConstant,
+				Namespace:  ns,
+				URI:        uri,
+				Range:      positionRange(n.GetPos()),
+				Visibility: defaultVisibility(n.Visibility),
+			})
 		}
 	}
 }
 
-func extractMembers(members []parser.ClassMember, uri, classFQN string, syms *[]*Symbol) {
-	for _, m := range members {
-		switch mem := m.(type) {
-		case *parser.MethodDecl:
-			fqn := classFQN + "::" + mem.Name
+func extractClassMembers(class *ast.ClassNode, uri, classFQN string, syms *[]*Symbol) {
+	for _, methodNode := range class.Methods {
+		method, ok := methodNode.(*ast.FunctionNode)
+		if !ok {
+			continue
+		}
+		visibility := visibilityFromModifiers(method.Visibility, method.Modifiers)
+		*syms = append(*syms, &Symbol{
+			FQN:        classFQN + "::" + method.Name,
+			Name:       method.Name,
+			Kind:       KindMethod,
+			URI:        uri,
+			Range:      positionRange(method.GetPos()),
+			DocComment: docRaw(method.PHPDoc),
+			ReturnType: method.ReturnType,
+			IsStatic:   hasModifierList(method.Modifiers, "static"),
+			IsAbstract: hasModifierList(method.Modifiers, "abstract"),
+			IsFinal:    hasModifierList(method.Modifiers, "final"),
+			Visibility: visibility,
+			Params:     extractParams(method.Params),
+		})
+	}
+
+	for _, propertyNode := range class.Properties {
+		property, ok := propertyNode.(*ast.PropertyNode)
+		if !ok {
+			continue
+		}
+		*syms = append(*syms, &Symbol{
+			FQN:        classFQN + "::$" + property.Name,
+			Name:       property.Name,
+			Kind:       KindProperty,
+			URI:        uri,
+			Range:      positionRange(property.GetPos()),
+			IsStatic:   property.IsStatic,
+			IsReadonly: property.IsReadonly,
+			Visibility: defaultVisibility(property.Visibility),
+		})
+	}
+
+	for _, constantNode := range class.Constants {
+		constant, ok := constantNode.(*ast.ConstantNode)
+		if !ok {
+			continue
+		}
+		*syms = append(*syms, &Symbol{
+			FQN:        classFQN + "::" + constant.Name,
+			Name:       constant.Name,
+			Kind:       KindConstant,
+			URI:        uri,
+			Range:      positionRange(constant.GetPos()),
+			Visibility: defaultVisibility(constant.Visibility),
+		})
+	}
+}
+
+func extractTraitMembers(members []ast.Node, uri, traitFQN string, syms *[]*Symbol) {
+	for _, member := range members {
+		switch n := member.(type) {
+		case *ast.FunctionNode:
+			visibility := visibilityFromModifiers(n.Visibility, n.Modifiers)
 			*syms = append(*syms, &Symbol{
-				FQN: fqn, Name: mem.Name,
+				FQN:        traitFQN + "::" + n.Name,
+				Name:       n.Name,
 				Kind:       KindMethod,
 				URI:        uri,
-				Range:      mem.Pos,
-				DocComment: mem.DocComment,
-				IsStatic:   mem.Flags&parser.FlagStatic != 0,
-				IsAbstract: mem.Flags&parser.FlagAbstractMember != 0,
-				IsFinal:    mem.Flags&parser.FlagFinalMember != 0,
-				Visibility: visibilityFromFlags(mem.Flags),
-				Params:     extractParams(mem.Params),
+				Range:      positionRange(n.GetPos()),
+				DocComment: docRaw(n.PHPDoc),
+				ReturnType: n.ReturnType,
+				IsStatic:   hasModifierList(n.Modifiers, "static"),
+				IsAbstract: hasModifierList(n.Modifiers, "abstract"),
+				IsFinal:    hasModifierList(n.Modifiers, "final"),
+				Visibility: visibility,
+				Params:     extractParams(n.Params),
 			})
-		case *parser.PropertyDecl:
-			for _, item := range mem.Items {
-				fqn := classFQN + "::$" + item.Name
-				*syms = append(*syms, &Symbol{
-					FQN: fqn, Name: item.Name,
-					Kind:       KindProperty,
-					URI:        uri,
-					Range:      item.Pos,
-					DocComment: mem.DocComment,
-					IsStatic:   mem.Flags&parser.FlagStatic != 0,
-					IsReadonly: mem.Flags&parser.FlagReadonlyMember != 0,
-					Visibility: visibilityFromFlags(mem.Flags),
-				})
-			}
-		case *parser.ClassConstDecl:
-			for _, item := range mem.Items {
-				fqn := classFQN + "::" + item.Name
-				*syms = append(*syms, &Symbol{
-					FQN: fqn, Name: item.Name,
-					Kind:       KindConstant,
-					URI:        uri,
-					Range:      item.Pos,
-					DocComment: mem.DocComment,
-					Visibility: visibilityFromFlags(mem.Flags),
-				})
-			}
-		case *parser.EnumCase:
-			fqn := classFQN + "::" + mem.Name
+		case *ast.ConstantNode:
 			*syms = append(*syms, &Symbol{
-				FQN: fqn, Name: mem.Name,
-				Kind:       KindEnumMember,
+				FQN:        traitFQN + "::" + n.Name,
+				Name:       n.Name,
+				Kind:       KindConstant,
 				URI:        uri,
-				Range:      mem.Pos,
-				DocComment: mem.DocComment,
-				Visibility: "public",
+				Range:      positionRange(n.GetPos()),
+				Visibility: defaultVisibility(n.Visibility),
 			})
 		}
 	}
 }
 
-func extractParams(params []parser.Param) []SymbolParam {
-	sp := make([]SymbolParam, len(params))
-	for i, p := range params {
-		sp[i] = SymbolParam{
+func extractInterfaceMembers(members []ast.Node, uri, interfaceFQN string, syms *[]*Symbol) {
+	for _, member := range members {
+		switch n := member.(type) {
+		case *ast.InterfaceMethodNode:
+			*syms = append(*syms, &Symbol{
+				FQN:        interfaceFQN + "::" + n.Name,
+				Name:       n.Name,
+				Kind:       KindMethod,
+				URI:        uri,
+				Range:      positionRange(n.GetPos()),
+				DocComment: docRaw(n.PHPDoc),
+				ReturnType: typeNodeToString(n.ReturnType),
+				Visibility: defaultVisibility(n.Visibility),
+				Params:     extractParams(n.Params),
+			})
+		case *ast.ConstantNode:
+			*syms = append(*syms, &Symbol{
+				FQN:        interfaceFQN + "::" + n.Name,
+				Name:       n.Name,
+				Kind:       KindConstant,
+				URI:        uri,
+				Range:      positionRange(n.GetPos()),
+				Visibility: defaultVisibility(n.Visibility),
+			})
+		}
+	}
+}
+
+func extractEnumCases(cases []*ast.EnumCaseNode, uri, enumFQN string, syms *[]*Symbol) {
+	for _, enumCase := range cases {
+		*syms = append(*syms, &Symbol{
+			FQN:        enumFQN + "::" + enumCase.Name,
+			Name:       enumCase.Name,
+			Kind:       KindEnumMember,
+			URI:        uri,
+			Range:      positionRange(enumCase.GetPos()),
+			Visibility: "public",
+		})
+	}
+}
+
+func extractParams(params []ast.Node) []SymbolParam {
+	sp := make([]SymbolParam, 0, len(params))
+	for _, param := range params {
+		p, ok := param.(*ast.ParamNode)
+		if !ok {
+			continue
+		}
+		sp = append(sp, SymbolParam{
 			Name:        p.Name,
-			HasDefault:  p.Default != nil,
-			IsVariadic:  p.Variadic,
-			IsPassByRef: p.ByRef,
-		}
-		if p.Type != nil {
-			sp[i].Type = typeNodeToString(p.Type)
-		}
+			Type:        paramTypeToString(p),
+			HasDefault:  p.DefaultValue != nil,
+			IsVariadic:  p.IsVariadic,
+			IsPassByRef: p.IsByRef,
+		})
 	}
 	return sp
 }
 
-func typeNodeToString(t parser.TypeNode) string {
-	if t == nil {
+func paramTypeToString(param *ast.ParamNode) string {
+	if param == nil {
 		return ""
 	}
-	switch n := t.(type) {
-	case *parser.NamedType:
-		return n.Name
-	case *parser.NullableType:
-		return "?" + typeNodeToString(n.Inner)
-	case *parser.UnionType:
-		parts := make([]string, len(n.Types))
-		for i, t := range n.Types {
-			parts[i] = typeNodeToString(t)
-		}
-		return strings.Join(parts, "|")
-	case *parser.IntersectionType:
-		parts := make([]string, len(n.Types))
-		for i, t := range n.Types {
-			parts[i] = typeNodeToString(t)
-		}
-		return strings.Join(parts, "&")
+	if param.TypeHint != "" {
+		return param.TypeHint
+	}
+	if param.UnionType != nil {
+		return param.UnionType.TokenLiteral()
 	}
 	return ""
 }
 
-func visibilityFromFlags(f parser.MemberFlags) string {
-	if f&parser.FlagPrivate != 0 {
-		return "private"
+func typeNodeToString(node ast.Node) string {
+	if node == nil {
+		return ""
 	}
-	if f&parser.FlagProtected != 0 {
-		return "protected"
+	switch n := node.(type) {
+	case *ast.IdentifierNode:
+		return n.Value
+	case *ast.UnionTypeNode:
+		return strings.Join(n.Types, "|")
+	case *ast.IntersectionTypeNode:
+		return strings.Join(n.Types, "&")
+	default:
+		return node.TokenLiteral()
+	}
+}
+
+func positionRange(pos ast.Position) Range {
+	return Range{
+		Start: pos,
+		End: ast.Position{
+			Line:   pos.Line,
+			Column: pos.Column + 1,
+			Offset: pos.Offset,
+		},
+	}
+}
+
+func populateLSPRange(sym *Symbol) {
+	startLine := clampToZeroBased(sym.Range.Start.Line)
+	startChar := clampToZeroBased(sym.Range.Start.Column)
+	endLine := clampToZeroBased(sym.Range.End.Line)
+	endChar := clampToZeroBased(sym.Range.End.Column)
+
+	sym.StartLine = uint32(startLine)
+	sym.StartChar = uint32(startChar)
+	sym.EndLine = uint32(endLine)
+	sym.EndChar = uint32(endChar)
+}
+
+func clampToZeroBased(v int) int {
+	if v <= 0 {
+		return 0
+	}
+	return v - 1
+}
+
+func docRaw(doc *ast.PHPDocNode) string {
+	if doc == nil {
+		return ""
+	}
+	return doc.RawContent
+}
+
+func hasModifier(modifier, want string) bool {
+	return modifier == want
+}
+
+func hasModifierList(modifiers []string, want string) bool {
+	for _, modifier := range modifiers {
+		if modifier == want {
+			return true
+		}
+	}
+	return false
+}
+
+func visibilityFromModifiers(legacy string, modifiers []string) string {
+	if legacy != "" {
+		return legacy
+	}
+	for _, modifier := range modifiers {
+		switch modifier {
+		case "private", "protected", "public":
+			return modifier
+		}
 	}
 	return "public"
+}
+
+func defaultVisibility(visibility string) string {
+	if visibility == "" {
+		return "public"
+	}
+	return visibility
 }
 
 func fqn(ns, name string) string {
