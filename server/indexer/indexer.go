@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/ayanozturk/vscode-php-strom/parser"
 )
@@ -21,6 +22,7 @@ type WorkspaceIndexer struct {
 	mu           sync.RWMutex
 	onStart      func()
 	onDone       func(int)
+	onProgress   func(done, total int)
 	indexedCount int64
 }
 
@@ -42,6 +44,10 @@ func (wi *WorkspaceIndexer) OnIndexingStart(fn func()) { wi.onStart = fn }
 // OnIndexingDone registers a callback called when workspace indexing finishes.
 func (wi *WorkspaceIndexer) OnIndexingDone(fn func(int)) { wi.onDone = fn }
 
+// OnIndexingProgress registers a callback called periodically during indexing.
+// done is the number of files processed so far; total is the total file count.
+func (wi *WorkspaceIndexer) OnIndexingProgress(fn func(done, total int)) { wi.onProgress = fn }
+
 // IndexWorkspace scans all workspace folders and indexes every PHP file.
 // It uses a goroutine pool sized to GOMAXPROCS for parallel parsing.
 func (wi *WorkspaceIndexer) IndexWorkspace() {
@@ -57,25 +63,30 @@ func (wi *WorkspaceIndexer) IndexWorkspace() {
 	var paths []string
 	for _, folder := range folders {
 		root := uriToPath(folder.URI)
-		_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 			if err != nil {
 				return nil
 			}
 			if d.IsDir() {
-				if wi.shouldExcludeDir(path) {
+				if wi.shouldExcludeDir(p) {
 					return filepath.SkipDir
 				}
 				return nil
 			}
-			if wi.matchesAssociations(path) {
-				paths = append(paths, path)
+			if wi.matchesAssociations(p) {
+				paths = append(paths, p)
 			}
 			return nil
 		})
 	}
 
+	total := len(paths)
+	log.Printf("[indexer] discovered %d files across %d workspace folder(s)", total, len(folders))
+
 	// Parallel parse using goroutine pool
 	numWorkers := runtime.GOMAXPROCS(0)
+	log.Printf("[indexer] starting %d worker(s)", numWorkers)
+
 	jobs := make(chan string, len(paths))
 	for _, p := range paths {
 		jobs <- p
@@ -85,20 +96,38 @@ func (wi *WorkspaceIndexer) IndexWorkspace() {
 	var wg sync.WaitGroup
 	atomic.StoreInt64(&wi.indexedCount, 0)
 
+	// Report at most every 1% of files (min 10, max 200) to avoid flooding the client.
+	reportEvery := total / 100
+	if reportEvery < 10 {
+		reportEvery = 10
+	}
+	if reportEvery > 200 {
+		reportEvery = 200
+	}
+
 	for i := 0; i < numWorkers; i++ {
+		workerID := i
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for path := range jobs {
-				wi.indexFile(path)
-				atomic.AddInt64(&wi.indexedCount, 1)
+			log.Printf("[indexer] worker %d started", workerID)
+			for filePath := range jobs {
+				wi.indexFileWithTimeout(filePath)
+				done := int(atomic.AddInt64(&wi.indexedCount, 1))
+				if done%reportEvery == 0 || done == total {
+					log.Printf("[indexer] progress %d/%d", done, total)
+					if wi.onProgress != nil {
+						wi.onProgress(done, total)
+					}
+				}
 			}
+			log.Printf("[indexer] worker %d finished", workerID)
 		}()
 	}
 	wg.Wait()
 
 	count := int(atomic.LoadInt64(&wi.indexedCount))
-	log.Printf("indexed %d files", count)
+	log.Printf("[indexer] finished — %d files indexed", count)
 	if wi.onDone != nil {
 		wi.onDone(len(wi.index.AllSymbols()))
 	}
@@ -115,18 +144,55 @@ func (wi *WorkspaceIndexer) GetIndex() *Index { return wi.index }
 
 // ─── Internal ─────────────────────────────────────────────────────────────────
 
-func (wi *WorkspaceIndexer) indexFile(path string) {
-	info, err := os.Stat(path)
-	if err != nil || info.Size() > wi.cfg.MaxSize {
-		return
+// indexFileWithTimeout parses a file inside a goroutine with a 5s deadline.
+// If parsing hangs (e.g. infinite loop in the parser), the file is skipped and
+// a warning is logged. The timed-out goroutine leaks but does not block others.
+func (wi *WorkspaceIndexer) indexFileWithTimeout(path string) {
+	const timeout = 5 * time.Second
+
+	type result struct {
+		syms []*Symbol
 	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return
+	done := make(chan result, 1)
+
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				buf := make([]byte, 4096)
+				n := runtime.Stack(buf, false)
+				log.Printf("[indexer] PANIC parsing %s: %v\n%s", path, r, buf[:n])
+				done <- result{}
+			}
+		}()
+		info, err := os.Stat(path)
+		if err != nil {
+			done <- result{}
+			return
+		}
+		if info.Size() > wi.cfg.MaxSize {
+			log.Printf("[indexer] skipping oversized file (%d bytes): %s", info.Size(), path)
+			done <- result{}
+			return
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			done <- result{}
+			return
+		}
+		uri := pathToURI(path)
+		syms := extractSymbols(uri, string(data))
+		done <- result{syms: syms}
+	}()
+
+	select {
+	case res := <-done:
+		if len(res.syms) > 0 {
+			uri := pathToURI(path)
+			wi.index.PutFile(uri, res.syms)
+		}
+	case <-time.After(timeout):
+		log.Printf("[indexer] TIMEOUT (>%s) parsing %s — skipping", timeout, path)
 	}
-	uri := pathToURI(path)
-	syms := extractSymbols(uri, string(data))
-	wi.index.PutFile(uri, syms)
 }
 
 func (wi *WorkspaceIndexer) shouldExcludeDir(path string) bool {

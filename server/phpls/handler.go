@@ -27,6 +27,9 @@ func NewHandler(srv *Server) *Handler {
 	h := &Handler{srv: srv, cfg: cfg, documents: docs, idx: idx, prov: prov}
 
 	idx.OnIndexingStart(func() { srv.Notify("phpls/indexingStarted", nil) })
+	idx.OnIndexingProgress(func(done, total int) {
+		srv.Notify("phpls/indexingProgress", map[string]int{"done": done, "total": total})
+	})
 	idx.OnIndexingDone(func(count int) {
 		srv.Notify("phpls/indexingFinished", map[string]int{"symbolCount": count})
 	})
@@ -224,10 +227,6 @@ func (h *Handler) initialize(raw json.RawMessage) (interface{}, *lsp.ResponseErr
 			CodeLensProvider:     &lsp.CodeLensOptions{ResolveProvider: true},
 			DocumentLinkProvider: &lsp.DocumentLinkOptions{ResolveProvider: false},
 			InlayHintProvider:    &lsp.InlayHintOptions{ResolveProvider: false},
-			DiagnosticProvider: &lsp.DiagnosticOptions{
-				InterFileDependencies: true,
-				WorkspaceDiagnostics:  false,
-			},
 			Workspace: &lsp.WorkspaceCapabilities{
 				WorkspaceFolders: &lsp.WorkspaceFoldersServerCapabilities{
 					Supported:           true,

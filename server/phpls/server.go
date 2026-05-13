@@ -11,6 +11,7 @@ import (
 	"log"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/ayanozturk/vscode-php-strom/lsp"
 )
@@ -19,6 +20,7 @@ import (
 type Server struct {
 	in      io.Reader
 	out     io.Writer
+	mu      sync.Mutex // guards all writes to out
 	handler *Handler
 	reader  *bufio.Reader
 }
@@ -121,8 +123,9 @@ func (s *Server) writeJSON(v interface{}) error {
 		return err
 	}
 	header := fmt.Sprintf("Content-Length: %d\r\n\r\n", len(data))
-	_, err = fmt.Fprint(s.out, header)
-	if err != nil {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, err = fmt.Fprint(s.out, header); err != nil {
 		return err
 	}
 	_, err = s.out.Write(data)

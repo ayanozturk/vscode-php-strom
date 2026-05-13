@@ -96,16 +96,46 @@ async function startClient(context: vscode.ExtensionContext, clearCache = false)
     clientOptions,
   );
 
-  // Forward server-initiated notifications
+  // Indexing progress
   client.onNotification('phpls/indexingStarted', () => {
+    outputChannel.appendLine('[phpls] Indexing workspace…');
     vscode.window.withProgress(
-      { location: vscode.ProgressLocation.Window, title: 'PHP: Indexing workspace…' },
-      async (progress) => {
-        await new Promise<void>((resolve) => {
-          client!.onNotification('phpls/indexingFinished', () => resolve());
-        });
-        progress.report({ increment: 100 });
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: 'PHP Strom',
+        cancellable: false,
       },
+      (progress) =>
+        new Promise<void>((resolve) => {
+          progress.report({ message: 'Indexing workspace…' });
+          let lastPct = 0;
+
+          const progressSub = client!.onNotification(
+            'phpls/indexingProgress',
+            (params: { done: number; total: number }) => {
+              const pct = params.total > 0 ? Math.round((params.done / params.total) * 100) : 0;
+              const increment = pct - lastPct;
+              lastPct = pct;
+              progress.report({
+                increment,
+                message: `Indexing files… ${params.done} / ${params.total}`,
+              });
+            },
+          );
+
+          const doneSub = client!.onNotification(
+            'phpls/indexingFinished',
+            (params: { symbolCount: number }) => {
+              progress.report({ increment: 100 - lastPct, message: 'Done' });
+              progressSub.dispose();
+              doneSub.dispose();
+              outputChannel.appendLine(
+                `[phpls] Indexing complete — ${params.symbolCount.toLocaleString()} symbols`,
+              );
+              resolve();
+            },
+          );
+        }),
     );
   });
 
