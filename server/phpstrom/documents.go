@@ -57,6 +57,16 @@ func (s *DocumentStore) Get(uri string) (*Document, bool) {
 	return doc, ok
 }
 
+func (s *DocumentStore) Snapshot(uri string) (Document, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	doc, ok := s.docs[uri]
+	if !ok {
+		return Document{}, false
+	}
+	return *doc, true
+}
+
 func (s *DocumentStore) SetText(uri string, text string) (*Document, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

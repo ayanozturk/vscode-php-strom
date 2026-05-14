@@ -124,7 +124,7 @@ func (h *Handler) HandleNotification(method string, raw json.RawMessage) {
 		doc := h.documents.Open(p.TextDocument)
 		h.idx.IndexDocument(doc.URI, doc.Text)
 		if h.cfg.Diagnostics.Run == "onType" {
-			go h.publishDiagnostics(doc.URI, doc.Text)
+			go h.publishDiagnostics(doc.URI, doc.Text, doc.Version)
 		}
 
 	case "textDocument/didChange":
@@ -136,7 +136,7 @@ func (h *Handler) HandleNotification(method string, raw json.RawMessage) {
 		doc := h.documents.Change(p.TextDocument.URI, p.TextDocument.Version, p.ContentChanges)
 		h.idx.IndexDocument(doc.URI, doc.Text)
 		if h.cfg.Diagnostics.Run == "onType" {
-			go h.publishDiagnostics(doc.URI, doc.Text)
+			go h.publishDiagnostics(doc.URI, doc.Text, doc.Version)
 		}
 
 	case "textDocument/didSave":
@@ -151,7 +151,7 @@ func (h *Handler) HandleNotification(method string, raw json.RawMessage) {
 				}
 			}
 			h.idx.IndexDocument(doc.URI, doc.Text)
-			go h.publishDiagnostics(doc.URI, doc.Text)
+			go h.publishDiagnostics(doc.URI, doc.Text, doc.Version)
 		}
 
 	case "textDocument/didClose":
@@ -248,11 +248,16 @@ func (h *Handler) initialize(raw json.RawMessage) (interface{}, *lsp.ResponseErr
 	}, nil
 }
 
-func (h *Handler) publishDiagnostics(uri, text string) {
+func (h *Handler) publishDiagnostics(uri, text string, version int) bool {
 	diags := h.prov.Diagnostics.Analyse(uri, text)
+	current, ok := h.documents.Snapshot(uri)
+	if !ok || current.Version != version || current.Text != text {
+		return false
+	}
 	h.srv.Notify("textDocument/publishDiagnostics", lsp.PublishDiagnosticsParams{
-		URI: uri, Diagnostics: diags,
+		URI: uri, Version: &version, Diagnostics: diags,
 	})
+	return true
 }
 
 func readDocumentTextFromDisk(uri string) (string, error) {

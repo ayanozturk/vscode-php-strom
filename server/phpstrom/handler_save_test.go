@@ -1,6 +1,7 @@
 package phpstrom
 
 import (
+	"bytes"
 	"encoding/json"
 	"io"
 	"os"
@@ -64,5 +65,38 @@ func TestDidSaveRefreshesDocumentFromDiskAndReindexes(t *testing.T) {
 	}
 	if got := h.idx.GetIndex().GetByFQN(`\RGSessionSession`); got == nil {
 		t.Fatal("expected saved file to be reindexed with new class symbol")
+	}
+}
+
+func TestPublishDiagnosticsDropsStaleResults(t *testing.T) {
+	var out bytes.Buffer
+	srv := &Server{out: &out}
+	h := NewHandler(srv)
+
+	uri := "file:///test.php"
+	h.documents.Open(lsp.TextDocumentItem{
+		URI:        uri,
+		LanguageID: "php",
+		Version:    1,
+		Text:       "<?php\nclass Bad_Class {}\n",
+	})
+
+	h.documents.Change(uri, 2, []lsp.TextDocumentContentChangeEvent{{
+		Range: nil,
+		Text:  "<?php\nclass GoodClass {}\n",
+	}})
+
+	if published := h.publishDiagnostics(uri, "<?php\nclass Bad_Class {}\n", 1); published {
+		t.Fatal("expected stale diagnostics publish to be dropped")
+	}
+	if out.Len() != 0 {
+		t.Fatalf("expected no diagnostics notification for stale publish, got %q", out.String())
+	}
+
+	if published := h.publishDiagnostics(uri, "<?php\nclass GoodClass {}\n", 2); !published {
+		t.Fatal("expected current diagnostics publish to succeed")
+	}
+	if out.Len() == 0 {
+		t.Fatal("expected diagnostics notification for current document version")
 	}
 }

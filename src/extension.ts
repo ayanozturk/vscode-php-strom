@@ -10,6 +10,8 @@ import {
 
 let client: LanguageClient | undefined;
 let outputChannel: vscode.OutputChannel;
+let indexingStatusItem: vscode.StatusBarItem;
+let indexingHideTimer: NodeJS.Timeout | undefined;
 
 type PhpExtensionConflict = {
   id: string;
@@ -19,6 +21,11 @@ type PhpExtensionConflict = {
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   outputChannel = vscode.window.createOutputChannel('PHP Strom');
   context.subscriptions.push(outputChannel);
+  indexingStatusItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
+  indexingStatusItem.name = 'PHP Strom Indexing';
+  indexingStatusItem.command = 'phpstrom.showOutputChannel';
+  indexingStatusItem.hide();
+  context.subscriptions.push(indexingStatusItem);
 
   await warnAboutConflictingPhpExtensions();
 
@@ -110,48 +117,50 @@ async function startClient(context: vscode.ExtensionContext, clearCache = false)
 
   // Indexing progress
   client.onNotification('phpstrom/indexingStarted', () => {
+    clearIndexingHideTimer();
     outputChannel.appendLine('[phpstrom] Indexing workspace…');
-    vscode.window.withProgress(
-      {
-        location: vscode.ProgressLocation.Notification,
-        title: 'PHP Strom',
-        cancellable: false,
-      },
-      (progress) =>
-        new Promise<void>((resolve) => {
-          progress.report({ message: 'Indexing workspace…' });
-          let lastPct = 0;
-
-          const progressSub = client!.onNotification(
-            'phpstrom/indexingProgress',
-            (params: { done: number; total: number }) => {
-              const pct = params.total > 0 ? Math.round((params.done / params.total) * 100) : 0;
-              const increment = pct - lastPct;
-              lastPct = pct;
-              progress.report({
-                increment,
-                message: `Indexing files… ${params.done} / ${params.total}`,
-              });
-            },
-          );
-
-          const doneSub = client!.onNotification(
-            'phpstrom/indexingFinished',
-            (params: { symbolCount: number }) => {
-              progress.report({ increment: 100 - lastPct, message: 'Done' });
-              progressSub.dispose();
-              doneSub.dispose();
-              outputChannel.appendLine(
-                `[phpstrom] Indexing complete — ${params.symbolCount.toLocaleString()} symbols`,
-              );
-              resolve();
-            },
-          );
-        }),
-    );
+    indexingStatusItem.text = '$(sync~spin) PHP Strom: Indexing workspace';
+    indexingStatusItem.tooltip = 'PHP Strom is indexing the workspace';
+    indexingStatusItem.show();
   });
 
+  client.onNotification(
+    'phpstrom/indexingProgress',
+    (params: { done: number; total: number }) => {
+      const progressText = params.total > 0
+        ? `$(sync~spin) PHP Strom: ${params.done.toLocaleString()} / ${params.total.toLocaleString()}`
+        : '$(sync~spin) PHP Strom: Indexing workspace';
+      indexingStatusItem.text = progressText;
+      indexingStatusItem.tooltip = `PHP Strom indexing ${params.done.toLocaleString()} of ${params.total.toLocaleString()} files`;
+      indexingStatusItem.show();
+    },
+  );
+
+  client.onNotification(
+    'phpstrom/indexingFinished',
+    (params: { symbolCount: number }) => {
+      clearIndexingHideTimer();
+      indexingStatusItem.text = `$(check) PHP Strom: ${params.symbolCount.toLocaleString()} symbols indexed`;
+      indexingStatusItem.tooltip = 'PHP Strom finished indexing the workspace';
+      indexingStatusItem.show();
+      outputChannel.appendLine(
+        `[phpstrom] Indexing complete — ${params.symbolCount.toLocaleString()} symbols`,
+      );
+      indexingHideTimer = setTimeout(() => {
+        indexingStatusItem.hide();
+        indexingHideTimer = undefined;
+      }, 3000);
+    },
+  );
+
   await client.start();
+}
+
+function clearIndexingHideTimer(): void {
+  if (indexingHideTimer) {
+    clearTimeout(indexingHideTimer);
+    indexingHideTimer = undefined;
+  }
 }
 
 async function stopClient(): Promise<void> {
@@ -159,6 +168,8 @@ async function stopClient(): Promise<void> {
     await client.stop();
     client = undefined;
   }
+  clearIndexingHideTimer();
+  indexingStatusItem.hide();
 }
 
 async function resolveServerBinary(context: vscode.ExtensionContext): Promise<string> {
