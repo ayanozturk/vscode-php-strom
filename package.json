@@ -30,6 +30,7 @@
   "activationEvents": [
     "onLanguage:php"
   ],
+  "icon": "phpstrom-logo.png",
   "main": "./dist/extension.js",
   "contributes": {
     "languages": [
@@ -62,12 +63,21 @@
         "phpls.environment.phpVersion": {
           "type": "string",
           "default": "8.3",
-          "enum": ["7.4", "8.0", "8.1", "8.2", "8.3", "8.4"],
+          "enum": [
+            "7.4",
+            "8.0",
+            "8.1",
+            "8.2",
+            "8.3",
+            "8.4"
+          ],
           "description": "The PHP version to use for analysis and stubs."
         },
         "phpls.environment.includePaths": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "default": [],
           "description": "Additional paths to include for symbol indexing (e.g. global vendor directories)."
         },
@@ -78,14 +88,26 @@
         },
         "phpls.files.associations": {
           "type": "array",
-          "items": { "type": "string" },
-          "default": ["**/*.php", "**/*.phtml", "**/*.phar"],
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "**/*.php",
+            "**/*.phtml",
+            "**/*.phar"
+          ],
           "description": "Glob patterns identifying PHP files to index."
         },
         "phpls.files.exclude": {
           "type": "array",
-          "items": { "type": "string" },
-          "default": ["**/.git/**", "**/node_modules/**", "**/vendor/**/{Tests,tests}/**"],
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "**/.git/**",
+            "**/node_modules/**",
+            "**/vendor/**/{Tests,tests}/**"
+          ],
           "description": "Glob patterns for files and folders to exclude from indexing."
         },
         "phpls.files.maxSize": {
@@ -95,21 +117,83 @@
         },
         "phpls.stubs": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "default": [
-            "apache", "bcmath", "bz2", "calendar", "com_dotnet", "Core",
-            "ctype", "curl", "date", "dba", "dom", "enchant", "exif",
-            "FFI", "fileinfo", "filter", "fpm", "ftp", "gd", "gettext",
-            "gmp", "hash", "iconv", "imap", "intl", "json", "ldap",
-            "libxml", "mbstring", "meta", "mysqli", "mysqlnd", "oci8",
-            "odbc", "openssl", "pcntl", "pcre", "PDO", "pdo_ibm",
-            "pdo_mysql", "pdo_pgsql", "pdo_sqlite", "pgsql", "Phar",
-            "posix", "pspell", "random", "readline", "Reflection",
-            "session", "shmop", "SimpleXML", "snmp", "soap", "sockets",
-            "sodium", "SPL", "sqlite3", "standard", "superglobals",
-            "sysvmsg", "sysvsem", "sysvshm", "tidy", "tokenizer",
-            "xml", "xmlreader", "xmlrpc", "xmlwriter", "xsl", "Zend OPcache",
-            "zip", "zlib"
+            "apache",
+            "bcmath",
+            "bz2",
+            "calendar",
+            "com_dotnet",
+            "Core",
+            "ctype",
+            "curl",
+            "date",
+            "dba",
+            "dom",
+            "enchant",
+            "exif",
+            "FFI",
+            "fileinfo",
+            "filter",
+            "fpm",
+            "ftp",
+            "gd",
+            "gettext",
+            "gmp",
+            "hash",
+            "iconv",
+            "imap",
+            "intl",
+            "json",
+            "ldap",
+            "libxml",
+            "mbstring",
+            "meta",
+            "mysqli",
+            "mysqlnd",
+            "oci8",
+            "odbc",
+            "openssl",
+            "pcntl",
+            "pcre",
+            "PDO",
+            "pdo_ibm",
+            "pdo_mysql",
+            "pdo_pgsql",
+            "pdo_sqlite",
+            "pgsql",
+            "Phar",
+            "posix",
+            "pspell",
+            "random",
+            "readline",
+            "Reflection",
+            "session",
+            "shmop",
+            "SimpleXML",
+            "snmp",
+            "soap",
+            "sockets",
+            "sodium",
+            "SPL",
+            "sqlite3",
+            "standard",
+            "superglobals",
+            "sysvmsg",
+            "sysvsem",
+            "sysvshm",
+            "tidy",
+            "tokenizer",
+            "xml",
+            "xmlreader",
+            "xmlrpc",
+            "xmlwriter",
+            "xsl",
+            "Zend OPcache",
+            "zip",
+            "zlib"
           ],
           "description": "Built-in PHP stubs to include for symbol resolution."
         },
@@ -141,7 +225,10 @@
         "phpls.diagnostics.run": {
           "type": "string",
           "default": "onType",
-          "enum": ["onType", "onSave"],
+          "enum": [
+            "onType",
+            "onSave"
+          ],
           "description": "Run diagnostics while typing and on save, or only on save."
         },
         "phpls.diagnostics.undefinedSymbols": {
@@ -187,7 +274,11 @@
         "phpls.format.braceStyle": {
           "type": "string",
           "default": "per",
-          "enum": ["per", "allman", "k&r"],
+          "enum": [
+            "per",
+            "allman",
+            "k&r"
+          ],
           "description": "Brace style for code formatting."
         },
         "phpls.format.insertSpaces": {
@@ -213,7 +304,10 @@
         "phpls.phpdoc.textFormat": {
           "type": "string",
           "default": "snippet",
-          "enum": ["snippet", "text"],
+          "enum": [
+            "snippet",
+            "text"
+          ],
           "description": "Format for PHPDoc text in generated doc blocks."
         },
         "phpls.codeLens.references.enable": {
@@ -269,7 +363,11 @@
         "phpls.trace.server": {
           "type": "string",
           "default": "off",
-          "enum": ["off", "messages", "verbose"],
+          "enum": [
+            "off",
+            "messages",
+            "verbose"
+          ],
           "description": "Trace LSP communication for debugging."
         }
       }
@@ -298,11 +396,21 @@
     ],
     "menus": {
       "commandPalette": [
-        { "command": "phpls.restartServer" },
-        { "command": "phpls.clearCache" },
-        { "command": "phpls.indexWorkspace" },
-        { "command": "phpls.showOutputChannel" },
-        { "command": "phpls.showDetectedPhpExtensions" }
+        {
+          "command": "phpls.restartServer"
+        },
+        {
+          "command": "phpls.clearCache"
+        },
+        {
+          "command": "phpls.indexWorkspace"
+        },
+        {
+          "command": "phpls.showOutputChannel"
+        },
+        {
+          "command": "phpls.showDetectedPhpExtensions"
+        }
       ]
     }
   },
@@ -311,20 +419,22 @@
     "compile": "tsc -p ./tsconfig.json",
     "watch": "tsc -watch -p ./tsconfig.json",
     "package": "webpack --mode production --devtool hidden-source-map",
+    "vsix": "vsce package --no-dependencies -o phpls-universal.vsix",
+    "publish:marketplace": "vsce publish",
     "lint": "eslint src --ext ts",
     "test": "node ./out/test/runTest.js"
   },
   "dependencies": {
+    "fast-glob": "^3.3.2",
+    "fs-extra": "^11.2.0",
+    "lru-cache": "^10.2.2",
+    "micromatch": "^4.0.7",
+    "semver": "^7.6.2",
     "vscode-languageclient": "^9.0.1",
     "vscode-languageserver": "^9.0.1",
     "vscode-languageserver-textdocument": "^1.0.11",
     "vscode-languageserver-types": "^3.17.5",
-    "vscode-uri": "^3.0.8",
-    "fast-glob": "^3.3.2",
-    "lru-cache": "^10.2.2",
-    "fs-extra": "^11.2.0",
-    "semver": "^7.6.2",
-    "micromatch": "^4.0.7"
+    "vscode-uri": "^3.0.8"
   },
   "devDependencies": {
     "@types/fs-extra": "^11.0.4",
@@ -335,6 +445,7 @@
     "@typescript-eslint/eslint-plugin": "^8.0.0",
     "@typescript-eslint/parser": "^8.0.0",
     "@vscode/test-electron": "^2.3.9",
+    "@vscode/vsce": "^3.9.1",
     "eslint": "^9.3.0",
     "ts-loader": "^9.5.1",
     "typescript": "^5.4.5",

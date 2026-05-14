@@ -1,4 +1,4 @@
-.PHONY: all build build-server build-server-local build-ext install clean test
+.PHONY: all build build-server build-server-local build-ext install package publish clean test
 
 BINARY_NAME := phpls
 BIN_DIR     := bin
@@ -71,6 +71,16 @@ package: build
 	@echo "==> Packaging extension..."
 	npx vsce package --no-dependencies -o $(VSIX)
 	@echo "    Package: $(VSIX)"
+
+## publish: build, package, and publish the VSIX to the VS Code Marketplace
+publish: package
+	@if [ -z "$$VSCE_PAT" ]; then \
+		echo "ERROR: VSCE_PAT is not set. Export your Marketplace token and re-run make publish."; \
+		exit 1; \
+	fi
+	@echo "==> Publishing extension to Marketplace..."
+	npx vsce publish --packagePath $(VSIX)
+	@echo "==> Published $(VSIX)"
 
 ## test-server: run Go unit tests
 test-server:
