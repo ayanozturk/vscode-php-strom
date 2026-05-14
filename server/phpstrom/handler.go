@@ -22,6 +22,11 @@ type Handler struct {
 	prov      *providers.Registry
 }
 
+type saveAnalysisFinishedParams struct {
+	URI       string `json:"uri"`
+	Published bool   `json:"published"`
+}
+
 func NewHandler(srv *Server) *Handler {
 	cfg := DefaultConfig()
 	docs := NewDocumentStore()
@@ -151,7 +156,13 @@ func (h *Handler) HandleNotification(method string, raw json.RawMessage) {
 				}
 			}
 			h.idx.IndexDocument(doc.URI, doc.Text)
-			go h.publishDiagnostics(doc.URI, doc.Text, doc.Version)
+			go func(uri, text string, version int) {
+				published := h.publishDiagnostics(uri, text, version)
+				h.srv.Notify("phpstrom/saveAnalysisFinished", saveAnalysisFinishedParams{
+					URI:       uri,
+					Published: published,
+				})
+			}(doc.URI, doc.Text, doc.Version)
 		}
 
 	case "textDocument/didClose":
@@ -250,12 +261,15 @@ func (h *Handler) initialize(raw json.RawMessage) (interface{}, *lsp.ResponseErr
 
 func (h *Handler) publishDiagnostics(uri, text string, version int) bool {
 	diags := h.prov.Diagnostics.Analyse(uri, text)
+	if diags == nil {
+		diags = []lsp.Diagnostic{}
+	}
 	current, ok := h.documents.Snapshot(uri)
 	if !ok || current.Version != version || current.Text != text {
 		return false
 	}
 	h.srv.Notify("textDocument/publishDiagnostics", lsp.PublishDiagnosticsParams{
-		URI: uri, Version: &version, Diagnostics: diags,
+		URI: uri, Diagnostics: diags,
 	})
 	return true
 }

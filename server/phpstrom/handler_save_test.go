@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -99,4 +100,67 @@ func TestPublishDiagnosticsDropsStaleResults(t *testing.T) {
 	if out.Len() == 0 {
 		t.Fatal("expected diagnostics notification for current document version")
 	}
+	if strings.Contains(out.String(), `"version"`) {
+		t.Fatalf("expected diagnostics notification to omit version, got %q", out.String())
+	}
+}
+
+func TestDidSavePublishesEmptyDiagnosticsWhenIssueIsFixed(t *testing.T) {
+	tmpDir := t.TempDir()
+	filePath := filepath.Join(tmpDir, "SessionTest.php")
+	uri := "file://" + filepath.ToSlash(filePath)
+
+	badText := "<?php\nclass Foo {\n\tfunction BAD_METHOD_NAME() {}\n}\n"
+	goodText := "<?php\n\nclass Foo\n{\n    public function goodMethodName(): void\n    {\n    }\n}\n"
+
+	if err := os.WriteFile(filePath, []byte(badText), 0o644); err != nil {
+		t.Fatalf("write initial file: %v", err)
+	}
+
+	var out bytes.Buffer
+	srv := &Server{out: &out}
+	h := NewHandler(srv)
+	h.cfg.Diagnostics.Run = "onSave"
+	h.documents.Open(lsp.TextDocumentItem{
+		URI:        uri,
+		LanguageID: "php",
+		Version:    1,
+		Text:       badText,
+	})
+
+	changeParams, err := json.Marshal(lsp.DidChangeTextDocumentParams{
+		TextDocument: lsp.VersionedTextDocumentIdentifier{URI: uri, Version: 2},
+		ContentChanges: []lsp.TextDocumentContentChangeEvent{{
+			Range: nil,
+			Text:  goodText,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("marshal didChange: %v", err)
+	}
+	h.HandleNotification("textDocument/didChange", changeParams)
+
+	if err := os.WriteFile(filePath, []byte(goodText), 0o644); err != nil {
+		t.Fatalf("write saved file: %v", err)
+	}
+
+	saveParams, err := json.Marshal(lsp.DidSaveTextDocumentParams{
+		TextDocument: lsp.TextDocumentIdentifier{URI: uri},
+	})
+	if err != nil {
+		t.Fatalf("marshal didSave: %v", err)
+	}
+
+	h.HandleNotification("textDocument/didSave", saveParams)
+
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		payload := out.String()
+		if strings.Contains(payload, `"method":"textDocument/publishDiagnostics"`) && strings.Contains(payload, `"diagnostics":[]`) {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	t.Fatalf("expected empty diagnostics notification after save, got %q", out.String())
 }

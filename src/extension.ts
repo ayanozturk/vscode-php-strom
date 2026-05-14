@@ -14,7 +14,7 @@ let indexingStatusItem: vscode.StatusBarItem;
 let indexingHideTimer: NodeJS.Timeout | undefined;
 let analysisStatusItem: vscode.StatusBarItem;
 let analysisHideTimer: NodeJS.Timeout | undefined;
-const pendingAnalysisUris = new Set<string>();
+const pendingAnalysisUris = new Map<string, number>();
 
 type PhpExtensionConflict = {
   id: string;
@@ -79,7 +79,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return;
       }
 
-      pendingAnalysisUris.add(document.uri.toString());
+      const uri = document.uri.toString();
+      pendingAnalysisUris.set(uri, (pendingAnalysisUris.get(uri) ?? 0) + 1);
       showAnalysisStatus(`$(sync~spin) PHP Strom: Analysing ${path.basename(document.fileName)}`, `PHP Strom is analysing ${document.fileName}`);
     }),
   );
@@ -125,20 +126,10 @@ async function startClient(context: vscode.ExtensionContext, clearCache = false)
       handleDiagnostics: (uri, diagnostics, next) => {
         next(uri, diagnostics);
 
-        const uriString = uri.toString();
-        if (!pendingAnalysisUris.has(uriString)) {
-          return;
-        }
-
-        pendingAnalysisUris.delete(uriString);
-        if (pendingAnalysisUris.size > 0) {
-          return;
-        }
-
         const text = diagnostics.length > 0
           ? `$(warning) PHP Strom: ${diagnostics.length.toLocaleString()} diagnostics updated`
           : '$(check) PHP Strom: Analysis updated';
-        showAnalysisStatus(text, 'PHP Strom finished publishing diagnostics for the saved file', 2500);
+        finishAnalysis(uri.toString(), text, 'PHP Strom finished publishing diagnostics for the saved file');
       },
     },
   };
@@ -188,6 +179,17 @@ async function startClient(context: vscode.ExtensionContext, clearCache = false)
     },
   );
 
+  client.onNotification(
+    'phpstrom/saveAnalysisFinished',
+    (params: { uri: string; published: boolean }) => {
+      finishAnalysis(
+        params.uri,
+        '$(check) PHP Strom: Analysis updated',
+        'PHP Strom finished analysing the saved file',
+      );
+    },
+  );
+
   await client.start();
 }
 
@@ -217,6 +219,25 @@ function showAnalysisStatus(text: string, tooltip: string, hideAfterMs?: number)
       analysisHideTimer = undefined;
     }, hideAfterMs);
   }
+}
+
+function finishAnalysis(uri: string, text: string, tooltip: string): void {
+  const pendingCount = pendingAnalysisUris.get(uri);
+  if (pendingCount === undefined) {
+    return;
+  }
+
+  if (pendingCount > 1) {
+    pendingAnalysisUris.set(uri, pendingCount - 1);
+    return;
+  }
+
+  pendingAnalysisUris.delete(uri);
+  if (pendingAnalysisUris.size > 0) {
+    return;
+  }
+
+  showAnalysisStatus(text, tooltip, 2500);
 }
 
 async function stopClient(): Promise<void> {
