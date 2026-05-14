@@ -209,8 +209,13 @@ function getConfiguration(): Record<string, unknown> {
 
 async function warnAboutConflictingPhpExtensions(): Promise<void> {
   const conflicts = getPotentialPhpExtensionConflicts();
+  const builtInPhpExtensionId = 'vscode.php-language-features';
 
   if (conflicts.length === 0) {
+    return;
+  }
+
+  if (conflicts.every((conflict) => conflict.id.toLowerCase() === builtInPhpExtensionId)) {
     return;
   }
 
