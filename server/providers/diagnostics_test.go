@@ -67,6 +67,29 @@ class Foo
 	_ = diags
 }
 
+func TestDiagnosticsProvider_MethodClosingBraceOnOwnLine(t *testing.T) {
+	p := &DiagnosticsProvider{}
+	diags := p.Analyse("file:///test.php", `<?php
+
+class SessionTest
+{
+    public function getIsNullable(): void
+    {
+        $result = $this->session->get(null);
+
+        $this->assertNull($result); }
+}
+`)
+
+	for _, diag := range diags {
+		if code, ok := diag.Code.(string); ok && code == "PSR12.Classes.ClosingBraceOnOwnLine" {
+			return
+		}
+	}
+
+	t.Fatalf("expected PSR12.Classes.ClosingBraceOnOwnLine diagnostic, got %+v", diags)
+}
+
 func TestDiagnosticsProvider_DoesNotReportUnreachableAfterIfReturnWithNullsafeCall(t *testing.T) {
 	p := &DiagnosticsProvider{}
 	diags := p.Analyse("file:///test.php", `<?php
