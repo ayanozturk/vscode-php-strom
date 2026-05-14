@@ -8,7 +8,7 @@
  *   - Parent      : "overrides ParentClass::method" → go to parent declaration
  *   - Usages      : "N usages" (traits)
  *
- * Each lens is individually toggle-able via phpls.codeLens.* settings.
+ * Each lens is individually toggle-able via phpstrom.codeLens.* settings.
  */
 
 import { CodeLens, Range } from 'vscode-languageserver/node';

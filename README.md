@@ -36,17 +36,32 @@ Install from the VS Code Marketplace.
 
 Important settings include:
 
-- `phpls.enable`
-- `phpls.environment.phpVersion`
-- `phpls.environment.includePaths`
-- `phpls.environment.documentRoot`
-- `phpls.files.exclude`
-- `phpls.diagnostics.*`
-- `phpls.format.*`
-- `phpls.codeLens.*`
-- `phpls.inlayHints.*`
+- `phpstrom.enable`
+- `phpstrom.environment.phpVersion`
+- `phpstrom.environment.includePaths`
+- `phpstrom.environment.documentRoot`
+- `phpstrom.files.exclude`
+- `phpstrom.diagnostics.*`
+- `phpstrom.diagnostics.overrides`
+- `phpstrom.format.*`
+- `phpstrom.codeLens.*`
+- `phpstrom.inlayHints.*`
 
 See [FEATURES.md](./FEATURES.md) for the full configuration reference.
+
+`phpstrom.diagnostics.overrides` accepts rule-specific matchers. For example:
+
+```json
+{
+	"phpstrom.diagnostics.overrides": {
+		"PSR1.Classes.ClassDeclaration.PascalCase": {
+			"classes": ["/^Legacy_/", "SpecialClass"]
+		}
+	}
+}
+```
+
+Matching classes are ignored by the scanner for that diagnostic code.
 
 ## Cross-platform Packaging
 

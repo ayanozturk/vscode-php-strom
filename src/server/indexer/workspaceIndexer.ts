@@ -73,7 +73,7 @@ export class WorkspaceIndexer {
       }
     }
 
-    this.connection.console.log(`[phpls] Indexed ${indexed} files (${this.index.size} symbols).`);
+    this.connection.console.log(`[phpstrom] Indexed ${indexed} files (${this.index.size} symbols).`);
   }
 
   onDocumentOpen(doc: TextDocument): void {

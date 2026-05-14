@@ -1,6 +1,8 @@
 package providers
 
 import (
+	"go-phpcs/overrides"
+
 	"github.com/ayanozturk/vscode-php-strom/indexer"
 )
 
@@ -20,6 +22,7 @@ type Config struct {
 	InlayHintsParamNames    bool
 	InlayHintsParamTypes    bool
 	InlayHintsReturnTypes   bool
+	DiagnosticsOverrides    *overrides.Compiled
 }
 
 // Registry holds all LSP feature providers and is the single point of access
@@ -73,7 +76,7 @@ func NewRegistry(idx *indexer.WorkspaceIndexer, cfg Config) *Registry {
 	r.InlayHints = &InlayHintsProvider{idx: idx, cfg: cfg}
 	r.DocumentLinks = &DocumentLinksProvider{}
 	r.TypeHierarchy = &TypeHierarchyProvider{idx: idx}
-	r.Diagnostics = &DiagnosticsProvider{idx: idx}
+	r.Diagnostics = &DiagnosticsProvider{idx: idx, cfg: cfg}
 	r.InlineValues = &InlineValuesProvider{}
 	return r
 }

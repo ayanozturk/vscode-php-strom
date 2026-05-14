@@ -5,8 +5,8 @@ server/**
 test/**
 out/**
 node_modules/**
-bin/phpls
-bin/phpls.exe
+bin/phpstrom
+bin/phpstrom.exe
 bin/windows-*/**
 **/*.map
 tsconfig*.json

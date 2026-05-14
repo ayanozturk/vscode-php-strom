@@ -11,7 +11,7 @@
  *   - Intersection and union types
  *   - Special types: self, static, $this, parent
  *
- * The TypeInferrer is the analytical heart of phpls.  All other providers
+ * The TypeInferrer is the analytical heart of phpstrom. All other providers
  * (completion, diagnostics, hover, inlay hints) delegate to it.
  */
 

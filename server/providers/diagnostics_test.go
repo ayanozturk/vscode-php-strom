@@ -1,6 +1,7 @@
 package providers
 
 import (
+	"go-phpcs/overrides"
 	"testing"
 )
 
@@ -27,6 +28,27 @@ class Foo {
 `)
 	if len(diags) == 0 {
 		t.Fatal("expected style diagnostics for visibility/naming issues, got none")
+	}
+}
+
+func TestDiagnosticsProvider_StyleOverrideSuppressesMatchingClass(t *testing.T) {
+	matcher, err := overrides.Compile(overrides.RuleOverrides{
+		"PSR1.Classes.ClassDeclaration.PascalCase": {
+			Classes: []string{"/^Legacy_/"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Compile returned error: %v", err)
+	}
+
+	p := &DiagnosticsProvider{cfg: Config{DiagnosticsOverrides: matcher}}
+	diags := p.Analyse("file:///test.php", `<?php
+class Legacy_service {}
+`)
+	for _, diag := range diags {
+		if code, ok := diag.Code.(string); ok && code == "PSR1.Classes.ClassDeclaration.PascalCase" {
+			t.Fatalf("expected PascalCase diagnostic to be suppressed, got %+v", diag)
+		}
 	}
 }
 

@@ -15,7 +15,10 @@ import (
 
 // DiagnosticsProvider produces LSP diagnostics by running go-phpcs analysis
 // and style rules against the document text.
-type DiagnosticsProvider struct{ idx *indexer.WorkspaceIndexer }
+type DiagnosticsProvider struct {
+	idx *indexer.WorkspaceIndexer
+	cfg Config
+}
 
 func (p *DiagnosticsProvider) Analyse(uri, text string) []lsp.Diagnostic {
 	filename := uriToFilename(uri)
@@ -28,7 +31,7 @@ func (p *DiagnosticsProvider) Analyse(uri, text string) []lsp.Diagnostic {
 	var diags []lsp.Diagnostic
 
 	// Run analysis rules (assignment-in-condition, empty statements, etc.)
-	for _, issue := range analyse.RunAnalysisRules(filename, nodes) {
+	for _, issue := range analyse.FilterIssues(analyse.RunAnalysisRules(filename, nodes), p.cfg.DiagnosticsOverrides) {
 		sev := lsp.DiagSeverityWarning
 		diags = append(diags, lsp.Diagnostic{
 			Range:    lineColToRange(issue.Line, issue.Column),
@@ -40,7 +43,7 @@ func (p *DiagnosticsProvider) Analyse(uri, text string) []lsp.Diagnostic {
 	}
 
 	// Run style rules (PSR-1/PSR-12 etc.) — "all" runs every registered rule.
-	for _, issue := range style.RunSelectedRules(filename, []byte(text), nodes, []string{"all"}) {
+	for _, issue := range style.FilterIssues(style.RunSelectedRules(filename, []byte(text), nodes, []string{"all"}), p.cfg.DiagnosticsOverrides) {
 		sev := lsp.DiagSeverityWarning
 		if issue.Type == style.Error {
 			sev = lsp.DiagSeverityError

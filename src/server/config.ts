@@ -1,5 +1,9 @@
 import { ClientCapabilities } from 'vscode-languageserver/node';
 
+export interface DiagnosticsOverride {
+  classes?: string[];
+}
+
 export interface DiagnosticsConfig {
   enable: boolean;
   run: 'onType' | 'onSave';
@@ -11,6 +15,7 @@ export interface DiagnosticsConfig {
   noMixedTypeCheck: boolean;
   typeCheckDocumentedTypes: boolean;
   exclude: Record<string, string[]>;
+  overrides: Record<string, DiagnosticsOverride>;
 }
 
 export interface CompletionConfig {
@@ -106,6 +111,7 @@ export class ServerConfig implements ServerConfig {
       noMixedTypeCheck: true,
       typeCheckDocumentedTypes: false,
       exclude: {},
+      overrides: {},
     };
     this.completion = {
       insertUseDeclaration: true,
@@ -139,45 +145,45 @@ export class ServerConfig implements ServerConfig {
   }
 
   update(settings: Record<string, unknown>): void {
-    const phpls = (settings['phpls'] ?? settings) as Record<string, unknown>;
+    const phpstrom = (settings['phpstrom'] ?? settings) as Record<string, unknown>;
 
-    if (phpls['environment']) {
-      Object.assign(this.environment, phpls['environment']);
+    if (phpstrom['environment']) {
+      Object.assign(this.environment, phpstrom['environment']);
     }
-    if (phpls['files']) {
-      Object.assign(this.files, phpls['files']);
+    if (phpstrom['files']) {
+      Object.assign(this.files, phpstrom['files']);
     }
-    if (phpls['stubs']) {
-      this.stubs = phpls['stubs'] as string[];
+    if (phpstrom['stubs']) {
+      this.stubs = phpstrom['stubs'] as string[];
     }
-    if (phpls['diagnostics']) {
-      Object.assign(this.diagnostics, phpls['diagnostics']);
+    if (phpstrom['diagnostics']) {
+      Object.assign(this.diagnostics, phpstrom['diagnostics']);
     }
-    if (phpls['completion']) {
-      Object.assign(this.completion, phpls['completion']);
+    if (phpstrom['completion']) {
+      Object.assign(this.completion, phpstrom['completion']);
     }
-    if (phpls['format']) {
-      Object.assign(this.format, phpls['format']);
+    if (phpstrom['format']) {
+      Object.assign(this.format, phpstrom['format']);
     }
-    if (phpls['phpdoc']) {
-      Object.assign(this.phpdoc, phpls['phpdoc']);
+    if (phpstrom['phpdoc']) {
+      Object.assign(this.phpdoc, phpstrom['phpdoc']);
     }
-    if (phpls['codeLens']) {
-      const cl = phpls['codeLens'] as Record<string, Record<string, boolean>>;
+    if (phpstrom['codeLens']) {
+      const cl = phpstrom['codeLens'] as Record<string, Record<string, boolean>>;
       this.codeLens.references = cl['references']?.['enable'] ?? this.codeLens.references;
       this.codeLens.implementations = cl['implementations']?.['enable'] ?? this.codeLens.implementations;
       this.codeLens.overrides = cl['overrides']?.['enable'] ?? this.codeLens.overrides;
       this.codeLens.parent = cl['parent']?.['enable'] ?? this.codeLens.parent;
       this.codeLens.usages = cl['usages']?.['enable'] ?? this.codeLens.usages;
     }
-    if (phpls['inlayHints']) {
-      const ih = phpls['inlayHints'] as Record<string, Record<string, boolean>>;
+    if (phpstrom['inlayHints']) {
+      const ih = phpstrom['inlayHints'] as Record<string, Record<string, boolean>>;
       this.inlayHints.parameterNames = ih['parameterNames']?.['enable'] ?? this.inlayHints.parameterNames;
       this.inlayHints.parameterTypes = ih['parameterTypes']?.['enable'] ?? this.inlayHints.parameterTypes;
       this.inlayHints.returnTypes = ih['returnTypes']?.['enable'] ?? this.inlayHints.returnTypes;
     }
-    if (phpls['compatibility']) {
-      const compat = phpls['compatibility'] as Record<string, boolean>;
+    if (phpstrom['compatibility']) {
+      const compat = phpstrom['compatibility'] as Record<string, boolean>;
       this.preferPsalmPhpstanPrefixedAnnotations =
         compat['preferPsalmPhpstanPrefixedAnnotations'] ?? this.preferPsalmPhpstanPrefixedAnnotations;
     }

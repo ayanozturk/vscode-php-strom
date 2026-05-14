@@ -1,4 +1,4 @@
-# phpls — PHP Strom: Feature Specification
+# phpstrom — PHP Strom: Feature Specification
 
 > A fully open-source, MIT-licensed, high-performance PHP Strom for VS Code and any LSP-capable editor.  
 > All features listed here are **free**. There is no premium tier.
@@ -7,7 +7,7 @@
 
 ## Table of Contents
 
-- [phpls — PHP Strom: Feature Specification](#phpls--php-strom-feature-specification)
+- [phpstrom — PHP Strom: Feature Specification](#phpstrom--php-strom-feature-specification)
   - [Table of Contents](#table-of-contents)
   - [1. Architecture Overview](#1-architecture-overview)
   - [2. Free Features](#2-free-features)
@@ -311,7 +311,7 @@ $undefined->method(); // suppressed
 
 ### 2.11 Embedded Languages
 
-PHP files may contain HTML, CSS, and JavaScript.  phpls provides:
+PHP files may contain HTML, CSS, and JavaScript.  phpstrom provides:
 
 - Syntax highlighting delegation (via VS Code's built-in grammar contributions)
 - Code completion for HTML attributes and tags within PHP template files
@@ -443,7 +443,7 @@ More precise than indent or regex-based providers.
 ### 3.9 Code Lens
 
 **LSP method:** `textDocument/codeLens` + `codeLens/resolve`  
-**Trigger:** inline above declarations (disabled by default, configure via `phpls.codeLens.*`)
+**Trigger:** inline above declarations (disabled by default, configure via `phpstrom.codeLens.*`)
 
 | Lens | Description |
 |---|---|
@@ -458,7 +458,7 @@ More precise than indent or regex-based providers.
 ### 3.10 Inlay Hints
 
 **LSP method:** `textDocument/inlayHint`  
-**Trigger:** inline (enabled by default, configure via `phpls.inlayHints.*`)
+**Trigger:** inline (enabled by default, configure via `phpstrom.inlayHints.*`)
 
 | Hint | Example |
 |---|---|
@@ -477,13 +477,13 @@ Clickable links for:
 
 - `require` / `require_once` / `include` / `include_once` paths
 - `@see` PHPDoc annotations referencing local files
-- Respects `phpls.environment.documentRoot` for document-root-relative paths
+- Respects `phpstrom.environment.documentRoot` for document-root-relative paths
 
 ---
 
 ### 3.12 @mixin Support
 
-Classes that delegate to another class via `__call`, `__callStatic`, `__get`, or `__set` can annotate the mixin with `@mixin ClassName`.  phpls merges the mixin's members into the containing class for completion, hover, and definition navigation.
+Classes that delegate to another class via `__call`, `__callStatic`, `__get`, or `__set` can annotate the mixin with `@mixin ClassName`.  phpstrom merges the mixin's members into the containing class for completion, hover, and definition navigation.
 
 ---
 
@@ -611,7 +611,7 @@ All standard PHPDoc tags are supported. Non-standard extensions:
 | `@type-alias Name = Type` | Declare a file-scoped type alias |
 | `@import-type Name as Alias` | Import a type alias from another file |
 
-Psalm-prefixed (`@psalm-*`) and PHPStan-prefixed (`@phpstan-*`) variants are recognised and can be preferred via `phpls.compatibility.preferPsalmPhpstanPrefixedAnnotations`.
+Psalm-prefixed (`@psalm-*`) and PHPStan-prefixed (`@phpstan-*`) variants are recognised and can be preferred via `phpstrom.compatibility.preferPsalmPhpstanPrefixedAnnotations`.
 
 ---
 
@@ -619,7 +619,7 @@ Psalm-prefixed (`@psalm-*`) and PHPStan-prefixed (`@phpstan-*`) variants are rec
 
 ### 5.1 Tree-sitter Parser Backend
 
-phpls uses [tree-sitter-php](https://github.com/tree-sitter/tree-sitter-php) as its parser backend:
+phpstrom uses [tree-sitter-php](https://github.com/tree-sitter/tree-sitter-php) as its parser backend:
 
 - **Incremental parsing** — only re-parses changed ranges, not the entire file
 - **Error recovery** — continues building a useful AST even with syntax errors
@@ -642,7 +642,7 @@ Built-in support for popular PHP frameworks (no IDE helper files needed):
 
 Implemented via:
 
-- Static metadata files (`.phpls/stubs/`)
+- Static metadata files (`.phpstrom/stubs/`)
 - Composer plugin detection (`composer.json` `require` key scanning)
 - Dynamic stub generation (replaces the need for `laravel-ide-helper`)
 
@@ -691,7 +691,7 @@ public function process(array $items, int $limit = 10): Generator
 
 - Infers generic array element types from usage
 - Detects `throw` statements and lists `@throws` tags
-- Respects `phpls.phpdoc.*` configuration
+- Respects `phpstrom.phpdoc.*` configuration
 - Uses snippet placeholders for missing descriptions
 
 ---
@@ -711,7 +711,7 @@ public function process(array $items, int $limit = 10): Generator
 
 ### 5.6 AI-Assisted Completions (Optional)
 
-When `phpls.ai.enable` is `true` and a compatible AI provider is configured:
+When `phpstrom.ai.enable` is `true` and a compatible AI provider is configured:
 
 - Context-aware multi-line completions (GitHub Copilot / Ollama / any OpenAI-compatible endpoint)
 - AI-powered PHPDoc generation that includes business logic descriptions
@@ -734,7 +734,7 @@ AI completions are opt-in, privacy-preserving (local models supported), and neve
 
 - Automatic cross-project dependency detection via `composer.json` `path` repositories
 - Symbols from symlinked vendor packages are navigable
-- Per-folder configuration via `.phpls/config.json` (overrides workspace settings)
+- Per-folder configuration via `.phpstrom/config.json` (overrides workspace settings)
 
 ---
 
@@ -742,34 +742,35 @@ AI completions are opt-in, privacy-preserving (local models supported), and neve
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `phpls.enable` | boolean | `true` | Enable/disable the server |
-| `phpls.environment.phpVersion` | string | `"8.3"` | PHP version for analysis |
-| `phpls.environment.includePaths` | string[] | `[]` | Extra paths to index |
-| `phpls.environment.documentRoot` | string | `""` | Document root for include/require links |
-| `phpls.files.associations` | string[] | `["**/*.php",…]` | Glob patterns for PHP files |
-| `phpls.files.exclude` | string[] | `["**/.git/**",…]` | Glob patterns to exclude |
-| `phpls.files.maxSize` | number | `1000000` | Max file size to index (bytes) |
-| `phpls.stubs` | string[] | _(all core)_ | Built-in PHP stubs to include |
-| `phpls.completion.insertUseDeclaration` | boolean | `true` | Auto-insert `use` on completion |
-| `phpls.completion.fullyQualifyGlobalSymbols` | boolean | `false` | Use FQN instead of `use` for globals |
-| `phpls.completion.maxItems` | number | `100` | Max completion items per request |
-| `phpls.diagnostics.enable` | boolean | `true` | Enable diagnostics |
-| `phpls.diagnostics.run` | enum | `"onType"` | `"onType"` or `"onSave"` |
-| `phpls.diagnostics.undefinedSymbols` | boolean | `true` | Report undefined symbols |
-| `phpls.diagnostics.undefinedVariables` | boolean | `true` | Report undefined variables |
-| `phpls.diagnostics.typeErrors` | boolean | `true` | Report type mismatches |
-| `phpls.diagnostics.strictTypes` | boolean | `false` | Global `strict_types=1` equivalent |
-| `phpls.diagnostics.relaxedTypeCheck` | boolean | `true` | Allow super-types for sub-type constraints |
-| `phpls.diagnostics.noMixedTypeCheck` | boolean | `true` | Suppress mixed→narrower errors |
-| `phpls.diagnostics.exclude` | object | `{}` | Glob → code[] suppression map |
-| `phpls.format.braceStyle` | enum | `"per"` | `"per"`, `"allman"`, `"k&r"` |
-| `phpls.phpdoc.returnVoid` | boolean | `true` | Add `@return void` in generated docs |
-| `phpls.codeLens.references.enable` | boolean | `false` | Show reference count lens |
-| `phpls.codeLens.implementations.enable` | boolean | `false` | Show implementation count lens |
-| `phpls.inlayHints.parameterNames.enable` | boolean | `true` | Show parameter name hints |
-| `phpls.inlayHints.returnTypes.enable` | boolean | `true` | Show inferred return type hints |
-| `phpls.compatibility.preferPsalmPhpstanPrefixedAnnotations` | boolean | `false` | Prefer `@psalm-*` / `@phpstan-*` tags |
-| `phpls.trace.server` | enum | `"off"` | LSP trace level for debugging |
+| `phpstrom.enable` | boolean | `true` | Enable/disable the server |
+| `phpstrom.environment.phpVersion` | string | `"8.3"` | PHP version for analysis |
+| `phpstrom.environment.includePaths` | string[] | `[]` | Extra paths to index |
+| `phpstrom.environment.documentRoot` | string | `""` | Document root for include/require links |
+| `phpstrom.files.associations` | string[] | `["**/*.php",…]` | Glob patterns for PHP files |
+| `phpstrom.files.exclude` | string[] | `["**/.git/**",…]` | Glob patterns to exclude |
+| `phpstrom.files.maxSize` | number | `1000000` | Max file size to index (bytes) |
+| `phpstrom.stubs` | string[] | _(all core)_ | Built-in PHP stubs to include |
+| `phpstrom.completion.insertUseDeclaration` | boolean | `true` | Auto-insert `use` on completion |
+| `phpstrom.completion.fullyQualifyGlobalSymbols` | boolean | `false` | Use FQN instead of `use` for globals |
+| `phpstrom.completion.maxItems` | number | `100` | Max completion items per request |
+| `phpstrom.diagnostics.enable` | boolean | `true` | Enable diagnostics |
+| `phpstrom.diagnostics.run` | enum | `"onType"` | `"onType"` or `"onSave"` |
+| `phpstrom.diagnostics.undefinedSymbols` | boolean | `true` | Report undefined symbols |
+| `phpstrom.diagnostics.undefinedVariables` | boolean | `true` | Report undefined variables |
+| `phpstrom.diagnostics.typeErrors` | boolean | `true` | Report type mismatches |
+| `phpstrom.diagnostics.strictTypes` | boolean | `false` | Global `strict_types=1` equivalent |
+| `phpstrom.diagnostics.relaxedTypeCheck` | boolean | `true` | Allow super-types for sub-type constraints |
+| `phpstrom.diagnostics.noMixedTypeCheck` | boolean | `true` | Suppress mixed→narrower errors |
+| `phpstrom.diagnostics.exclude` | object | `{}` | Glob → code[] suppression map |
+| `phpstrom.diagnostics.overrides` | object | `{}` | Rule → selectors map, e.g. class-name regex overrides |
+| `phpstrom.format.braceStyle` | enum | `"per"` | `"per"`, `"allman"`, `"k&r"` |
+| `phpstrom.phpdoc.returnVoid` | boolean | `true` | Add `@return void` in generated docs |
+| `phpstrom.codeLens.references.enable` | boolean | `false` | Show reference count lens |
+| `phpstrom.codeLens.implementations.enable` | boolean | `false` | Show implementation count lens |
+| `phpstrom.inlayHints.parameterNames.enable` | boolean | `true` | Show parameter name hints |
+| `phpstrom.inlayHints.returnTypes.enable` | boolean | `true` | Show inferred return type hints |
+| `phpstrom.compatibility.preferPsalmPhpstanPrefixedAnnotations` | boolean | `false` | Prefer `@psalm-*` / `@phpstan-*` tags |
+| `phpstrom.trace.server` | enum | `"off"` | LSP trace level for debugging |
 
 ---
 
@@ -801,13 +802,13 @@ AI completions are opt-in, privacy-preserving (local models supported), and neve
 
 ## 8. Extension Points / API
 
-phpls exposes a VS Code extension API for other extensions to consume:
+phpstrom exposes a VS Code extension API for other extensions to consume:
 
 ```typescript
-// Get the phpls extension API
-const phpls = vscode.extensions.getExtension('phpls.phpls')?.exports as PhplsApi;
+// Get the phpstrom extension API
+const phpstrom = vscode.extensions.getExtension('aossoftware.phpstrom')?.exports as PhpstromApi;
 
-interface PhplsApi {
+interface PhpstromApi {
   // Wait until workspace indexing is complete
   onIndexingComplete(callback: () => void): vscode.Disposable;
 
@@ -826,9 +827,9 @@ interface PhplsApi {
 }
 ```
 
-This API allows framework-specific extensions to contribute additional stubs, diagnostics, and completions without forking phpls.
+This API allows framework-specific extensions to contribute additional stubs, diagnostics, and completions without forking phpstrom.
 
 ---
 
-_phpls is fully open source under the MIT licence._  
+_phpstrom is fully open source under the MIT licence._  
 _Contributions are welcome — see `CONTRIBUTING.md` for guidelines._

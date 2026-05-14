@@ -5,7 +5,7 @@
  * textDocument/rangeFormatting — format a selection
  *
  * Targets PSR-12 / PER Coding Style by default.
- * Brace style is configurable via phpls.format.braceStyle.
+ * Brace style is configurable via phpstrom.format.braceStyle.
  *
  * Supports mixed PHP/HTML/CSS/JS files.
  */

@@ -55,12 +55,12 @@
     "configuration": {
       "title": "PHP Strom",
       "properties": {
-        "phpls.enable": {
+        "phpstrom.enable": {
           "type": "boolean",
           "default": true,
           "description": "Enable/disable the PHP Strom."
         },
-        "phpls.environment.phpVersion": {
+        "phpstrom.environment.phpVersion": {
           "type": "string",
           "default": "8.3",
           "enum": [
@@ -73,7 +73,7 @@
           ],
           "description": "The PHP version to use for analysis and stubs."
         },
-        "phpls.environment.includePaths": {
+        "phpstrom.environment.includePaths": {
           "type": "array",
           "items": {
             "type": "string"
@@ -81,12 +81,12 @@
           "default": [],
           "description": "Additional paths to include for symbol indexing (e.g. global vendor directories)."
         },
-        "phpls.environment.documentRoot": {
+        "phpstrom.environment.documentRoot": {
           "type": "string",
           "default": "",
           "description": "Document root path used for resolving include/require document links."
         },
-        "phpls.files.associations": {
+        "phpstrom.files.associations": {
           "type": "array",
           "items": {
             "type": "string"
@@ -98,7 +98,7 @@
           ],
           "description": "Glob patterns identifying PHP files to index."
         },
-        "phpls.files.exclude": {
+        "phpstrom.files.exclude": {
           "type": "array",
           "items": {
             "type": "string"
@@ -110,12 +110,12 @@
           ],
           "description": "Glob patterns for files and folders to exclude from indexing."
         },
-        "phpls.files.maxSize": {
+        "phpstrom.files.maxSize": {
           "type": "number",
           "default": 1000000,
           "description": "Maximum file size (bytes) to index and analyse."
         },
-        "phpls.stubs": {
+        "phpstrom.stubs": {
           "type": "array",
           "items": {
             "type": "string"
@@ -197,32 +197,32 @@
           ],
           "description": "Built-in PHP stubs to include for symbol resolution."
         },
-        "phpls.completion.insertUseDeclaration": {
+        "phpstrom.completion.insertUseDeclaration": {
           "type": "boolean",
           "default": true,
           "description": "Automatically add use declarations when completing fully-qualified symbols."
         },
-        "phpls.completion.fullyQualifyGlobalSymbols": {
+        "phpstrom.completion.fullyQualifyGlobalSymbols": {
           "type": "boolean",
           "default": false,
           "description": "Use fully-qualified names for global symbols instead of importing them."
         },
-        "phpls.completion.triggerParameterHints": {
+        "phpstrom.completion.triggerParameterHints": {
           "type": "boolean",
           "default": true,
           "description": "Trigger signature help automatically after completing a function or method call."
         },
-        "phpls.completion.maxItems": {
+        "phpstrom.completion.maxItems": {
           "type": "number",
           "default": 100,
           "description": "Maximum number of completion items to return per request."
         },
-        "phpls.diagnostics.enable": {
+        "phpstrom.diagnostics.enable": {
           "type": "boolean",
           "default": true,
           "description": "Enable diagnostics."
         },
-        "phpls.diagnostics.run": {
+        "phpstrom.diagnostics.run": {
           "type": "string",
           "default": "onType",
           "enum": [
@@ -231,47 +231,64 @@
           ],
           "description": "Run diagnostics while typing and on save, or only on save."
         },
-        "phpls.diagnostics.undefinedSymbols": {
+        "phpstrom.diagnostics.undefinedSymbols": {
           "type": "boolean",
           "default": true,
           "description": "Report undefined classes, functions, and constants."
         },
-        "phpls.diagnostics.undefinedVariables": {
+        "phpstrom.diagnostics.undefinedVariables": {
           "type": "boolean",
           "default": true,
           "description": "Report undefined variables."
         },
-        "phpls.diagnostics.typeErrors": {
+        "phpstrom.diagnostics.typeErrors": {
           "type": "boolean",
           "default": true,
           "description": "Report type errors."
         },
-        "phpls.diagnostics.strictTypes": {
+        "phpstrom.diagnostics.strictTypes": {
           "type": "boolean",
           "default": false,
           "description": "Treat all files as if they have declare(strict_types=1)."
         },
-        "phpls.diagnostics.relaxedTypeCheck": {
+        "phpstrom.diagnostics.relaxedTypeCheck": {
           "type": "boolean",
           "default": true,
           "description": "Allow super-types to satisfy sub-type constraints (reduces false positives)."
         },
-        "phpls.diagnostics.noMixedTypeCheck": {
+        "phpstrom.diagnostics.noMixedTypeCheck": {
           "type": "boolean",
           "default": true,
           "description": "Allow mixed to satisfy any type constraint."
         },
-        "phpls.diagnostics.typeCheckDocumentedTypes": {
+        "phpstrom.diagnostics.typeCheckDocumentedTypes": {
           "type": "boolean",
           "default": false,
           "description": "Include PHPDoc annotated types in type checking."
         },
-        "phpls.diagnostics.exclude": {
+        "phpstrom.diagnostics.exclude": {
           "type": "object",
           "default": {},
           "description": "Map of file glob patterns to arrays of diagnostic codes to suppress."
         },
-        "phpls.format.braceStyle": {
+        "phpstrom.diagnostics.overrides": {
+          "type": "object",
+          "default": {},
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "classes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "default": []
+              }
+            }
+          },
+          "description": "Rule-specific diagnostic overrides. Example: { \"PSR1.Classes.ClassDeclaration.PascalCase\": { \"classes\": [\"/^Legacy_/\", \"SpecialClass\"] } }."
+        },
+        "phpstrom.format.braceStyle": {
           "type": "string",
           "default": "per",
           "enum": [
@@ -281,27 +298,27 @@
           ],
           "description": "Brace style for code formatting."
         },
-        "phpls.format.insertSpaces": {
+        "phpstrom.format.insertSpaces": {
           "type": "boolean",
           "default": true,
           "description": "Use spaces for indentation."
         },
-        "phpls.format.tabSize": {
+        "phpstrom.format.tabSize": {
           "type": "number",
           "default": 4,
           "description": "Number of spaces per indent level."
         },
-        "phpls.phpdoc.useFullyQualifiedNames": {
+        "phpstrom.phpdoc.useFullyQualifiedNames": {
           "type": "boolean",
           "default": false,
           "description": "Use fully-qualified type names in generated PHPDoc."
         },
-        "phpls.phpdoc.returnVoid": {
+        "phpstrom.phpdoc.returnVoid": {
           "type": "boolean",
           "default": true,
           "description": "Add @return void to generated PHPDoc for void functions."
         },
-        "phpls.phpdoc.textFormat": {
+        "phpstrom.phpdoc.textFormat": {
           "type": "string",
           "default": "snippet",
           "enum": [
@@ -310,57 +327,57 @@
           ],
           "description": "Format for PHPDoc text in generated doc blocks."
         },
-        "phpls.codeLens.references.enable": {
+        "phpstrom.codeLens.references.enable": {
           "type": "boolean",
           "default": false,
           "description": "Show reference counts above declarations."
         },
-        "phpls.codeLens.implementations.enable": {
+        "phpstrom.codeLens.implementations.enable": {
           "type": "boolean",
           "default": false,
           "description": "Show implementation counts above interface/abstract declarations."
         },
-        "phpls.codeLens.overrides.enable": {
+        "phpstrom.codeLens.overrides.enable": {
           "type": "boolean",
           "default": false,
           "description": "Show override counts above method declarations."
         },
-        "phpls.codeLens.parent.enable": {
+        "phpstrom.codeLens.parent.enable": {
           "type": "boolean",
           "default": false,
           "description": "Show parent method link above overriding methods."
         },
-        "phpls.codeLens.usages.enable": {
+        "phpstrom.codeLens.usages.enable": {
           "type": "boolean",
           "default": false,
           "description": "Show trait usage counts above trait declarations."
         },
-        "phpls.inlayHints.parameterNames.enable": {
+        "phpstrom.inlayHints.parameterNames.enable": {
           "type": "boolean",
           "default": true,
           "description": "Show inferred parameter names as inlay hints."
         },
-        "phpls.inlayHints.parameterTypes.enable": {
+        "phpstrom.inlayHints.parameterTypes.enable": {
           "type": "boolean",
           "default": true,
           "description": "Show inferred closure parameter types as inlay hints."
         },
-        "phpls.inlayHints.returnTypes.enable": {
+        "phpstrom.inlayHints.returnTypes.enable": {
           "type": "boolean",
           "default": true,
           "description": "Show inferred return types as inlay hints."
         },
-        "phpls.compatibility.preferPsalmPhpstanPrefixedAnnotations": {
+        "phpstrom.compatibility.preferPsalmPhpstanPrefixedAnnotations": {
           "type": "boolean",
           "default": false,
           "description": "Prefer @psalm- and @phpstan- prefixed PHPDoc annotations over un-prefixed ones."
         },
-        "phpls.telemetry.enable": {
+        "phpstrom.telemetry.enable": {
           "type": "boolean",
           "default": false,
           "description": "Enable anonymous telemetry for improving the extension."
         },
-        "phpls.trace.server": {
+        "phpstrom.trace.server": {
           "type": "string",
           "default": "off",
           "enum": [
@@ -374,42 +391,42 @@
     },
     "commands": [
       {
-        "command": "phpls.restartServer",
+        "command": "phpstrom.restartServer",
         "title": "PHP Strom: Restart Server"
       },
       {
-        "command": "phpls.clearCache",
+        "command": "phpstrom.clearCache",
         "title": "PHP Strom: Clear Cache and Restart"
       },
       {
-        "command": "phpls.indexWorkspace",
+        "command": "phpstrom.indexWorkspace",
         "title": "PHP Strom: Re-index Workspace"
       },
       {
-        "command": "phpls.showOutputChannel",
+        "command": "phpstrom.showOutputChannel",
         "title": "PHP Strom: Show Output Channel"
       },
       {
-        "command": "phpls.showDetectedPhpExtensions",
+        "command": "phpstrom.showDetectedPhpExtensions",
         "title": "PHP Strom: Show Detected PHP Extensions"
       }
     ],
     "menus": {
       "commandPalette": [
         {
-          "command": "phpls.restartServer"
+          "command": "phpstrom.restartServer"
         },
         {
-          "command": "phpls.clearCache"
+          "command": "phpstrom.clearCache"
         },
         {
-          "command": "phpls.indexWorkspace"
+          "command": "phpstrom.indexWorkspace"
         },
         {
-          "command": "phpls.showOutputChannel"
+          "command": "phpstrom.showOutputChannel"
         },
         {
-          "command": "phpls.showDetectedPhpExtensions"
+          "command": "phpstrom.showDetectedPhpExtensions"
         }
       ]
     }
@@ -419,7 +436,7 @@
     "compile": "tsc -p ./tsconfig.json",
     "watch": "tsc -watch -p ./tsconfig.json",
     "package": "webpack --mode production --devtool hidden-source-map",
-    "vsix": "vsce package --no-dependencies -o phpls-universal.vsix",
+    "vsix": "vsce package --no-dependencies -o phpstrom-universal.vsix",
     "publish:marketplace": "vsce publish",
     "lint": "eslint src --ext ts",
     "test": "node ./out/test/runTest.js"

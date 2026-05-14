@@ -26,25 +26,25 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   // Commands
   context.subscriptions.push(
-    vscode.commands.registerCommand('phpls.restartServer', async () => {
+    vscode.commands.registerCommand('phpstrom.restartServer', async () => {
       await stopClient();
       await startClient(context);
     }),
 
-    vscode.commands.registerCommand('phpls.clearCache', async () => {
+    vscode.commands.registerCommand('phpstrom.clearCache', async () => {
       await stopClient();
       await startClient(context, true);
     }),
 
-    vscode.commands.registerCommand('phpls.indexWorkspace', () => {
-      client?.sendNotification('phpls/indexWorkspace');
+    vscode.commands.registerCommand('phpstrom.indexWorkspace', () => {
+      client?.sendNotification('phpstrom/indexWorkspace');
     }),
 
-    vscode.commands.registerCommand('phpls.showOutputChannel', () => {
+    vscode.commands.registerCommand('phpstrom.showOutputChannel', () => {
       outputChannel.show();
     }),
 
-    vscode.commands.registerCommand('phpls.showDetectedPhpExtensions', () => {
+    vscode.commands.registerCommand('phpstrom.showDetectedPhpExtensions', () => {
       showDetectedPhpExtensions();
     }),
   );
@@ -52,7 +52,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // Reload server on configuration change
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((event) => {
-      if (event.affectsConfiguration('phpls')) {
+      if (event.affectsConfiguration('phpstrom')) {
         client?.sendNotification('workspace/didChangeConfiguration', {
           settings: getConfiguration(),
         });
@@ -66,9 +66,9 @@ export async function deactivate(): Promise<void> {
 }
 
 async function startClient(context: vscode.ExtensionContext, clearCache = false): Promise<void> {
-  const config = vscode.workspace.getConfiguration('phpls');
+  const config = vscode.workspace.getConfiguration('phpstrom');
   if (!config.get<boolean>('enable', true)) {
-    outputChannel.appendLine('[phpls] Extension disabled via configuration.');
+    outputChannel.appendLine('[phpstrom] Extension disabled via configuration.');
     return;
   }
 
@@ -88,6 +88,7 @@ async function startClient(context: vscode.ExtensionContext, clearCache = false)
       storagePath: context.storageUri?.fsPath,
       globalStoragePath: context.globalStorageUri.fsPath,
       clearCache,
+      settings: getConfiguration(),
     },
     outputChannel,
     traceOutputChannel: outputChannel,
@@ -101,15 +102,15 @@ async function startClient(context: vscode.ExtensionContext, clearCache = false)
   };
 
   client = new LanguageClient(
-    'phpls',
+    'phpstrom',
     'PHP Strom',
     serverOptions,
     clientOptions,
   );
 
   // Indexing progress
-  client.onNotification('phpls/indexingStarted', () => {
-    outputChannel.appendLine('[phpls] Indexing workspace…');
+  client.onNotification('phpstrom/indexingStarted', () => {
+    outputChannel.appendLine('[phpstrom] Indexing workspace…');
     vscode.window.withProgress(
       {
         location: vscode.ProgressLocation.Notification,
@@ -122,7 +123,7 @@ async function startClient(context: vscode.ExtensionContext, clearCache = false)
           let lastPct = 0;
 
           const progressSub = client!.onNotification(
-            'phpls/indexingProgress',
+            'phpstrom/indexingProgress',
             (params: { done: number; total: number }) => {
               const pct = params.total > 0 ? Math.round((params.done / params.total) * 100) : 0;
               const increment = pct - lastPct;
@@ -135,13 +136,13 @@ async function startClient(context: vscode.ExtensionContext, clearCache = false)
           );
 
           const doneSub = client!.onNotification(
-            'phpls/indexingFinished',
+            'phpstrom/indexingFinished',
             (params: { symbolCount: number }) => {
               progress.report({ increment: 100 - lastPct, message: 'Done' });
               progressSub.dispose();
               doneSub.dispose();
               outputChannel.appendLine(
-                `[phpls] Indexing complete — ${params.symbolCount.toLocaleString()} symbols`,
+                `[phpstrom] Indexing complete — ${params.symbolCount.toLocaleString()} symbols`,
               );
               resolve();
             },
@@ -163,7 +164,7 @@ async function stopClient(): Promise<void> {
 async function resolveServerBinary(context: vscode.ExtensionContext): Promise<string> {
   const platform = os.platform();
   const arch = os.arch();
-  const binaryName = platform === 'win32' ? 'phpls.exe' : 'phpls';
+  const binaryName = platform === 'win32' ? 'phpstrom.exe' : 'phpstrom';
   const bundledBinary = context.asAbsolutePath(path.join('bin', `${platform}-${arch}`, binaryName));
 
   if (await pathExists(bundledBinary)) {
@@ -174,7 +175,7 @@ async function resolveServerBinary(context: vscode.ExtensionContext): Promise<st
   const legacyBinary = context.asAbsolutePath(path.join('bin', binaryName));
   if (await pathExists(legacyBinary)) {
     outputChannel.appendLine(
-      `[phpls] Falling back to legacy server binary layout for ${platform}-${arch}.`,
+      `[phpstrom] Falling back to legacy server binary layout for ${platform}-${arch}.`,
     );
     await ensureExecutable(legacyBinary, platform);
     return legacyBinary;
@@ -182,7 +183,7 @@ async function resolveServerBinary(context: vscode.ExtensionContext): Promise<st
 
   const supportedTargets = ['darwin-arm64', 'darwin-x64', 'linux-arm64', 'linux-x64', 'win32-arm64', 'win32-x64'];
   throw new Error(
-    `[phpls] No bundled server binary for ${platform}-${arch}. Supported targets: ${supportedTargets.join(', ')}`,
+    `[phpstrom] No bundled server binary for ${platform}-${arch}. Supported targets: ${supportedTargets.join(', ')}`,
   );
 }
 
@@ -204,7 +205,91 @@ async function ensureExecutable(targetPath: string, platform: NodeJS.Platform): 
 }
 
 function getConfiguration(): Record<string, unknown> {
-  return vscode.workspace.getConfiguration('phpls') as unknown as Record<string, unknown>;
+  const config = vscode.workspace.getConfiguration('phpstrom');
+
+  return {
+    enable: config.get<boolean>('enable', true),
+    environment: {
+      phpVersion: config.get<string>('environment.phpVersion', '8.3'),
+      includePaths: config.get<string[]>('environment.includePaths', []),
+      documentRoot: config.get<string>('environment.documentRoot', ''),
+    },
+    files: {
+      associations: config.get<string[]>('files.associations', ['**/*.php', '**/*.phtml', '**/*.phar']),
+      exclude: config.get<string[]>('files.exclude', ['**/.git/**', '**/node_modules/**']),
+      maxSize: config.get<number>('files.maxSize', 1_000_000),
+    },
+    stubs: config.get<string[]>('stubs', []),
+    diagnostics: {
+      enable: config.get<boolean>('diagnostics.enable', true),
+      run: config.get<string>('diagnostics.run', 'onType'),
+      undefinedSymbols: config.get<boolean>('diagnostics.undefinedSymbols', true),
+      undefinedVariables: config.get<boolean>('diagnostics.undefinedVariables', true),
+      typeErrors: config.get<boolean>('diagnostics.typeErrors', true),
+      strictTypes: config.get<boolean>('diagnostics.strictTypes', false),
+      relaxedTypeCheck: config.get<boolean>('diagnostics.relaxedTypeCheck', true),
+      noMixedTypeCheck: config.get<boolean>('diagnostics.noMixedTypeCheck', true),
+      typeCheckDocumentedTypes: config.get<boolean>('diagnostics.typeCheckDocumentedTypes', false),
+      exclude: config.get<Record<string, string[]>>('diagnostics.exclude', {}),
+      overrides: config.get<Record<string, unknown>>('diagnostics.overrides', {}),
+    },
+    completion: {
+      insertUseDeclaration: config.get<boolean>('completion.insertUseDeclaration', true),
+      fullyQualifyGlobalSymbols: config.get<boolean>('completion.fullyQualifyGlobalSymbols', false),
+      triggerParameterHints: config.get<boolean>('completion.triggerParameterHints', true),
+      maxItems: config.get<number>('completion.maxItems', 100),
+    },
+    format: {
+      braceStyle: config.get<string>('format.braceStyle', 'per'),
+      insertSpaces: config.get<boolean>('format.insertSpaces', true),
+      tabSize: config.get<number>('format.tabSize', 4),
+    },
+    phpdoc: {
+      useFullyQualifiedNames: config.get<boolean>('phpdoc.useFullyQualifiedNames', false),
+      returnVoid: config.get<boolean>('phpdoc.returnVoid', true),
+      textFormat: config.get<string>('phpdoc.textFormat', 'snippet'),
+    },
+    codeLens: {
+      references: {
+        enable: config.get<boolean>('codeLens.references.enable', false),
+      },
+      implementations: {
+        enable: config.get<boolean>('codeLens.implementations.enable', false),
+      },
+      overrides: {
+        enable: config.get<boolean>('codeLens.overrides.enable', false),
+      },
+      parent: {
+        enable: config.get<boolean>('codeLens.parent.enable', false),
+      },
+      usages: {
+        enable: config.get<boolean>('codeLens.usages.enable', false),
+      },
+    },
+    inlayHints: {
+      parameterNames: {
+        enable: config.get<boolean>('inlayHints.parameterNames.enable', true),
+      },
+      parameterTypes: {
+        enable: config.get<boolean>('inlayHints.parameterTypes.enable', true),
+      },
+      returnTypes: {
+        enable: config.get<boolean>('inlayHints.returnTypes.enable', true),
+      },
+    },
+    compatibility: {
+      preferPsalmPhpstanPrefixedAnnotations: config.get<boolean>(
+        'compatibility.preferPsalmPhpstanPrefixedAnnotations',
+        false,
+      ),
+    },
+    telemetry: {
+      enable: config.get<boolean>('telemetry.enable', false),
+    },
+    trace: {
+      server: config.get<string>('trace.server', 'off'),
+    },
+  };
 }
 
 async function warnAboutConflictingPhpExtensions(): Promise<void> {
@@ -244,7 +329,7 @@ function getPotentialPhpExtensionConflicts(): PhpExtensionConflict[] {
 
   for (const ext of vscode.extensions.all) {
     const id = ext.id.toLowerCase();
-    if (id === 'phpls.phpls') {
+    if (id === 'aossoftware.phpstrom') {
       continue;
     }
 
@@ -283,17 +368,17 @@ function isPotentialPhpConflict(ext: vscode.Extension<unknown>): boolean {
 }
 
 function logPhpExtensionConflicts(conflicts: PhpExtensionConflict[]): void {
-  outputChannel.appendLine('[phpls] Potentially conflicting PHP extensions detected:');
+  outputChannel.appendLine('[phpstrom] Potentially conflicting PHP extensions detected:');
   for (const conflict of conflicts) {
-    outputChannel.appendLine(`[phpls]   - ${conflict.label} (${conflict.id})`);
+    outputChannel.appendLine(`[phpstrom]   - ${conflict.label} (${conflict.id})`);
   }
-  outputChannel.appendLine('[phpls] VS Code merges navigation results from all enabled definition providers.');
+  outputChannel.appendLine('[phpstrom] VS Code merges navigation results from all enabled definition providers.');
 }
 
 function showDetectedPhpExtensions(conflicts = getPotentialPhpExtensionConflicts()): void {
   outputChannel.show(true);
   if (conflicts.length === 0) {
-    outputChannel.appendLine('[phpls] No potentially conflicting PHP extensions detected.');
+    outputChannel.appendLine('[phpstrom] No potentially conflicting PHP extensions detected.');
     return;
   }
   logPhpExtensionConflicts(conflicts);

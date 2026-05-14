@@ -145,7 +145,7 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
       documentRangeFormattingProvider: true,
       inlineValueProvider: true,
 
-      // Premium-equivalent features (all free in phpls)
+      // Premium-equivalent features (all free in phpstrom)
       renameProvider: { prepareProvider: true },
       foldingRangeProvider: true,
       implementationProvider: true,
@@ -166,7 +166,7 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
       typeHierarchyProvider: true,
     },
     serverInfo: {
-      name: 'phpls',
+      name: 'phpstrom',
       version: '0.1.0',
     },
   };
@@ -175,9 +175,9 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
 });
 
 connection.onInitialized(async () => {
-  connection.sendNotification('phpls/indexingStarted');
+  connection.sendNotification('phpstrom/indexingStarted');
   await indexer.indexWorkspace();
-  connection.sendNotification('phpls/indexingFinished');
+  connection.sendNotification('phpstrom/indexingFinished');
 });
 
 // ─── Document Lifecycle ──────────────────────────────────────────────────────
@@ -272,7 +272,7 @@ connection.onDocumentRangeFormatting((params: DocumentRangeFormattingParams) => 
   return doc ? formattingProvider.formatRange(doc, params.range, params.options) : null;
 });
 
-// Premium-equivalent handlers (all free in phpls)
+// Premium-equivalent handlers (all free in phpstrom)
 
 connection.onRenameRequest((params: RenameParams) => {
   const doc = documents.get(params.textDocument.uri);
@@ -348,10 +348,10 @@ connection.languages.typeHierarchy.onSubtypes((params) =>
 
 // ─── Custom Notifications ────────────────────────────────────────────────────
 
-connection.onNotification('phpls/indexWorkspace', async () => {
-  connection.sendNotification('phpls/indexingStarted');
+connection.onNotification('phpstrom/indexWorkspace', async () => {
+  connection.sendNotification('phpstrom/indexingStarted');
   await indexer.indexWorkspace();
-  connection.sendNotification('phpls/indexingFinished');
+  connection.sendNotification('phpstrom/indexingFinished');
 });
 
 connection.onNotification('workspace/didChangeConfiguration', (params) => {

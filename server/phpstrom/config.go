@@ -1,6 +1,10 @@
-package phpls
+package phpstrom
 
 import (
+	"log"
+
+	"go-phpcs/overrides"
+
 	"github.com/ayanozturk/vscode-php-strom/indexer"
 	"github.com/ayanozturk/vscode-php-strom/providers"
 )
@@ -28,6 +32,7 @@ type Config struct {
 		NoMixedTypeCheck         bool
 		TypeCheckDocumentedTypes bool
 		Exclude                  map[string][]string
+		Overrides                overrides.RuleOverrides
 	}
 	Completion struct {
 		InsertUseDeclaration      bool
@@ -73,6 +78,7 @@ func DefaultConfig() *Config {
 	c.Diagnostics.RelaxedTypeCheck = true
 	c.Diagnostics.NoMixedTypeCheck = true
 	c.Diagnostics.Exclude = map[string][]string{}
+	c.Diagnostics.Overrides = overrides.RuleOverrides{}
 	c.Completion.InsertUseDeclaration = true
 	c.Completion.MaxItems = 100
 	c.Format.BraceStyle = "per"
@@ -94,14 +100,44 @@ func (c *Config) ApplyInitOptions(opts map[string]interface{}) {
 	if v, ok := opts["clearCache"].(bool); ok {
 		c.ClearCache = v
 	}
+	if v, ok := opts["settings"].(map[string]interface{}); ok {
+		c.Update(v)
+	}
 }
 
 func (c *Config) Update(settings map[string]interface{}) {
-	inner, ok := settings["phpls"].(map[string]interface{})
+	inner, ok := settings["phpstrom"].(map[string]interface{})
 	if !ok {
 		inner = settings
 	}
-	_ = inner
+	if diagnostics, ok := diagnosticsSection(inner); ok {
+		if v, ok := diagnostics["enable"].(bool); ok {
+			c.Diagnostics.Enable = v
+		}
+		if v, ok := diagnostics["run"].(string); ok {
+			c.Diagnostics.Run = v
+		}
+		if overridesMap, ok := parseRuleOverrides(diagnostics["overrides"]); ok {
+			c.Diagnostics.Overrides = overridesMap
+		}
+	}
+	if overridesMap, ok := parseRuleOverrides(inner["diagnostics.overrides"]); ok {
+		c.Diagnostics.Overrides = overridesMap
+	}
+	if v, ok := inner["diagnostics.enable"].(bool); ok {
+		c.Diagnostics.Enable = v
+	}
+	if v, ok := inner["diagnostics.run"].(string); ok {
+		c.Diagnostics.Run = v
+	}
+}
+
+func diagnosticsSection(settings map[string]interface{}) (map[string]interface{}, bool) {
+	diagnostics, ok := settings["diagnostics"].(map[string]interface{})
+	if ok {
+		return diagnostics, true
+	}
+	return nil, false
 }
 
 func (c *Config) toIndexerConfig() indexer.Config {
@@ -113,6 +149,12 @@ func (c *Config) toIndexerConfig() indexer.Config {
 }
 
 func (c *Config) toProviderConfig() providers.Config {
+	matcher, err := overrides.Compile(c.Diagnostics.Overrides)
+	if err != nil {
+		log.Printf("[phpstrom] ignoring invalid diagnostics overrides: %v", err)
+		matcher = nil
+	}
+
 	return providers.Config{
 		PHPVersion:              c.Environment.PHPVersion,
 		InsertUseDeclaration:    c.Completion.InsertUseDeclaration,
@@ -128,5 +170,43 @@ func (c *Config) toProviderConfig() providers.Config {
 		InlayHintsParamNames:    c.InlayHints.ParameterNames,
 		InlayHintsParamTypes:    c.InlayHints.ParameterTypes,
 		InlayHintsReturnTypes:   c.InlayHints.ReturnTypes,
+		DiagnosticsOverrides:    matcher,
 	}
+}
+
+func parseRuleOverrides(raw interface{}) (overrides.RuleOverrides, bool) {
+	overridesMap, ok := raw.(map[string]interface{})
+	if !ok {
+		return nil, false
+	}
+
+	parsed := make(overrides.RuleOverrides, len(overridesMap))
+	for code, rawOverride := range overridesMap {
+		overrideMap, ok := rawOverride.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		parsed[code] = overrides.RuleOverride{
+			Classes: toStringSlice(overrideMap["classes"]),
+		}
+	}
+	return parsed, true
+}
+
+func toStringSlice(raw interface{}) []string {
+	items, ok := raw.([]interface{})
+	if !ok {
+		if strings, ok := raw.([]string); ok {
+			return append([]string(nil), strings...)
+		}
+		return nil
+	}
+
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		if value, ok := item.(string); ok {
+			out = append(out, value)
+		}
+	}
+	return out
 }

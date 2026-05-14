@@ -6,7 +6,7 @@
  *   - Parameter types : inferred types for un-typed closure parameters
  *   - Return types    : inferred return type for un-typed functions/methods
  *
- * Each hint type is individually toggle-able via phpls.inlayHints.* settings.
+ * Each hint type is individually toggle-able via phpstrom.inlayHints.* settings.
  */
 
 import { InlayHint, InlayHintKind, Range } from 'vscode-languageserver/node';

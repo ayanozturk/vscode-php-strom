@@ -1,7 +1,7 @@
-// Package phpls contains the JSON-RPC 2.0 stdio transport and LSP request
-// handler for the phpls language server. It is separate from the `lsp` package
+// Package phpstrom contains the JSON-RPC 2.0 stdio transport and LSP request
+// handler for the phpstrom language server. It is separate from the `lsp` package
 // (protocol types only) to avoid import cycles with the providers package.
-package phpls
+package phpstrom
 
 import (
 	"bufio"

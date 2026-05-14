@@ -5,7 +5,7 @@
  *   - require / require_once / include / include_once paths
  *   - @see annotations referencing local files
  *
- * Respects phpls.environment.documentRoot for resolving document-root-relative
+ * Respects phpstrom.environment.documentRoot for resolving document-root-relative
  * paths (e.g. $_SERVER['DOCUMENT_ROOT'] . '/path/to/file.php').
  */
 

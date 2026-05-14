@@ -1,6 +1,6 @@
 .PHONY: all deps build build-server build-server-local build-ext install package publish clean test
 
-BINARY_NAME := phpls
+BINARY_NAME := phpstrom
 BIN_DIR     := bin
 SERVER_DIR  := server
 GO          := go
@@ -16,7 +16,7 @@ else
 endif
 
 # VSIX package name
-VSIX := $(shell node -p "require('./package.json').name + '-' + require('./package.json').version + '.vsix'" 2>/dev/null || echo "phpls-0.1.0.vsix")
+VSIX := $(shell node -p "require('./package.json').name + '-' + require('./package.json').version + '.vsix'" 2>/dev/null || echo "phpstrom-0.1.0.vsix")
 
 all: build
 

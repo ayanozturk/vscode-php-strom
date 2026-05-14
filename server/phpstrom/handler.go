@@ -1,4 +1,4 @@
-package phpls
+package phpstrom
 
 import (
 	"encoding/json"
@@ -30,12 +30,12 @@ func NewHandler(srv *Server) *Handler {
 
 	h := &Handler{srv: srv, cfg: cfg, documents: docs, idx: idx, prov: prov}
 
-	idx.OnIndexingStart(func() { srv.Notify("phpls/indexingStarted", nil) })
+	idx.OnIndexingStart(func() { srv.Notify("phpstrom/indexingStarted", nil) })
 	idx.OnIndexingProgress(func(done, total int) {
-		srv.Notify("phpls/indexingProgress", map[string]int{"done": done, "total": total})
+		srv.Notify("phpstrom/indexingProgress", map[string]int{"done": done, "total": total})
 	})
 	idx.OnIndexingDone(func(count int) {
-		srv.Notify("phpls/indexingFinished", map[string]int{"symbolCount": count})
+		srv.Notify("phpstrom/indexingFinished", map[string]int{"symbolCount": count})
 	})
 
 	return h
@@ -172,8 +172,9 @@ func (h *Handler) HandleNotification(method string, raw json.RawMessage) {
 			return
 		}
 		h.cfg.Update(p.Settings)
+		h.prov = providers.NewRegistry(h.idx, h.cfg.toProviderConfig())
 
-	case "phpls/indexWorkspace":
+	case "phpstrom/indexWorkspace":
 		go h.idx.IndexWorkspace()
 
 	case "exit":
@@ -194,6 +195,7 @@ func (h *Handler) initialize(raw json.RawMessage) (interface{}, *lsp.ResponseErr
 	}
 	h.idx.SetWorkspaceFolders(folders)
 	h.cfg.ApplyInitOptions(p.InitializationOptions)
+	h.prov = providers.NewRegistry(h.idx, h.cfg.toProviderConfig())
 
 	return lsp.InitializeResult{
 		Capabilities: lsp.ServerCapabilities{
@@ -242,7 +244,7 @@ func (h *Handler) initialize(raw json.RawMessage) (interface{}, *lsp.ResponseErr
 				},
 			},
 		},
-		ServerInfo: &lsp.ServerInfo{Name: "phpls", Version: "0.1.0"},
+		ServerInfo: &lsp.ServerInfo{Name: "phpstrom", Version: "0.1.0"},
 	}, nil
 }
 

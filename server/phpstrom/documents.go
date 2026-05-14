@@ -1,4 +1,4 @@
-package phpls
+package phpstrom
 
 import (
 	"sync"

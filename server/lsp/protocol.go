@@ -1,4 +1,4 @@
-// Package lsp implements the Language Server Protocol types for phpls.
+// Package lsp implements the Language Server Protocol types for phpstrom.
 package lsp
 
 import "encoding/json"
