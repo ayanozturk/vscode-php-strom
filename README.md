@@ -30,12 +30,7 @@ A full feature specification is available in [FEATURES.md](./FEATURES.md).
 
 ## Installation
 
-Install from the VS Code Marketplace, or build locally:
-
-```sh
-npm install
-make install
-```
+Install from the VS Code Marketplace.
 
 ## Configuration
 
@@ -64,20 +59,7 @@ The extension bundles platform-specific language server binaries for:
 - `win32-arm64`
 - `win32-x64`
 
-This allows a single published VSIX to work across supported macOS, Linux, and Windows environments.
-
-## Build and Publish
-
-```sh
-make package
-```
-
-To publish:
-
-```sh
-export VSCE_PAT=your_marketplace_token
-make publish
-```
+This allows a single VSIX to work across supported macOS, Linux, and Windows environments.
 
 ## Repository
 
