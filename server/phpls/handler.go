@@ -3,6 +3,10 @@ package phpls
 import (
 	"encoding/json"
 	"log"
+	"net/url"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/ayanozturk/vscode-php-strom/indexer"
 	"github.com/ayanozturk/vscode-php-strom/lsp"
@@ -141,6 +145,12 @@ func (h *Handler) HandleNotification(method string, raw json.RawMessage) {
 			return
 		}
 		if doc, ok := h.documents.Get(p.TextDocument.URI); ok {
+			if text, err := readDocumentTextFromDisk(p.TextDocument.URI); err == nil {
+				if updated, ok := h.documents.SetText(p.TextDocument.URI, text); ok {
+					doc = updated
+				}
+			}
+			h.idx.IndexDocument(doc.URI, doc.Text)
 			go h.publishDiagnostics(doc.URI, doc.Text)
 		}
 
@@ -241,6 +251,36 @@ func (h *Handler) publishDiagnostics(uri, text string) {
 	h.srv.Notify("textDocument/publishDiagnostics", lsp.PublishDiagnosticsParams{
 		URI: uri, Diagnostics: diags,
 	})
+}
+
+func readDocumentTextFromDisk(uri string) (string, error) {
+	path, err := uriToPath(uri)
+	if err != nil {
+		return "", err
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+func uriToPath(uri string) (string, error) {
+	parsed, err := url.Parse(uri)
+	if err != nil {
+		return "", err
+	}
+	if parsed.Scheme == "" || parsed.Scheme == "file" {
+		path := parsed.Path
+		if path == "" {
+			path = strings.TrimPrefix(uri, "file://")
+		}
+		if unescaped, err := url.PathUnescape(path); err == nil {
+			path = unescaped
+		}
+		return filepath.FromSlash(path), nil
+	}
+	return "", os.ErrInvalid
 }
 
 // ─── Request helpers ──────────────────────────────────────────────────────────

@@ -57,6 +57,17 @@ func (s *DocumentStore) Get(uri string) (*Document, bool) {
 	return doc, ok
 }
 
+func (s *DocumentStore) SetText(uri string, text string) (*Document, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	doc, ok := s.docs[uri]
+	if !ok {
+		return nil, false
+	}
+	doc.Text = text
+	return doc, true
+}
+
 func (s *DocumentStore) Close(uri string) {
 	s.mu.Lock()
 	delete(s.docs, uri)
