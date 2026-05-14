@@ -1,10 +1,11 @@
-.PHONY: all build build-server build-ext install clean test
+.PHONY: all build build-server build-server-local build-ext install clean test
 
 BINARY_NAME := phpls
 BIN_DIR     := bin
 SERVER_DIR  := server
 GO          := go
 GOFLAGS     :=
+TARGETS     := darwin-arm64 darwin-x64 linux-arm64 linux-x64 win32-arm64 win32-x64
 
 # Detect OS for binary extension
 ifeq ($(OS),Windows_NT)
@@ -21,9 +22,29 @@ all: build
 ## build: compile Go server + TypeScript extension
 build: build-server build-ext
 
-## build-server: compile the Go language server binary into bin/
+## build-server: compile the Go language server binaries for all marketplace targets
 build-server:
-	@echo "==> Building Go language server..."
+	@echo "==> Building Go language server for all targets..."
+	@mkdir -p $(BIN_DIR)
+	@for target in $(TARGETS); do \
+		PLATFORM=$${target%-*}; \
+		ARCH=$${target#*-}; \
+		GOOS="$$PLATFORM"; \
+		GOARCH="$$ARCH"; \
+		if [ "$$GOOS" = "win32" ]; then GOOS="windows"; fi; \
+		if [ "$$GOARCH" = "x64" ]; then GOARCH="amd64"; fi; \
+		OUT_DIR="$(BIN_DIR)/$$PLATFORM-$$ARCH"; \
+		OUT_NAME="$(BINARY_NAME)"; \
+		if [ "$$GOOS" = "windows" ]; then OUT_NAME="$(BINARY_NAME).exe"; fi; \
+		echo "    $$PLATFORM/$$ARCH -> $$OUT_DIR/$$OUT_NAME"; \
+		mkdir -p "$$OUT_DIR"; \
+		cd $(SERVER_DIR) && GOOS="$$GOOS" GOARCH="$$GOARCH" $(GO) build $(GOFLAGS) -o "../$$OUT_DIR/$$OUT_NAME" .; \
+		cd ..; \
+	done
+
+## build-server-local: compile the Go language server binary into the legacy bin/ path for local workflows
+build-server-local:
+	@echo "==> Building Go language server for the host platform..."
 	@mkdir -p $(BIN_DIR)
 	cd $(SERVER_DIR) && $(GO) build $(GOFLAGS) -o ../$(BINARY) .
 	@echo "    Binary: $(BINARY)"
@@ -68,6 +89,7 @@ test: test-server test-ext
 clean:
 	@echo "==> Cleaning..."
 	rm -f $(BINARY) $(BIN_DIR)/$(BINARY_NAME).exe *.vsix
+	rm -rf $(BIN_DIR)/darwin-arm64 $(BIN_DIR)/darwin-x64 $(BIN_DIR)/linux-arm64 $(BIN_DIR)/linux-x64 $(BIN_DIR)/win32-arm64 $(BIN_DIR)/win32-x64
 	rm -rf dist out
 
 ## dev: watch-compile TypeScript (for development)

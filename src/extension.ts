@@ -1,5 +1,6 @@
 import * as path from 'path';
 import * as os from 'os';
+import * as fs from 'fs/promises';
 import * as vscode from 'vscode';
 import {
   LanguageClient,
@@ -71,8 +72,7 @@ async function startClient(context: vscode.ExtensionContext, clearCache = false)
     return;
   }
 
-  const binaryName = os.platform() === 'win32' ? 'phpls.exe' : 'phpls';
-  const serverBinary = context.asAbsolutePath(path.join('bin', binaryName));
+  const serverBinary = await resolveServerBinary(context);
 
   const serverOptions: ServerOptions = {
     command: serverBinary,
@@ -158,6 +158,49 @@ async function stopClient(): Promise<void> {
     await client.stop();
     client = undefined;
   }
+}
+
+async function resolveServerBinary(context: vscode.ExtensionContext): Promise<string> {
+  const platform = os.platform();
+  const arch = os.arch();
+  const binaryName = platform === 'win32' ? 'phpls.exe' : 'phpls';
+  const bundledBinary = context.asAbsolutePath(path.join('bin', `${platform}-${arch}`, binaryName));
+
+  if (await pathExists(bundledBinary)) {
+    await ensureExecutable(bundledBinary, platform);
+    return bundledBinary;
+  }
+
+  const legacyBinary = context.asAbsolutePath(path.join('bin', binaryName));
+  if (await pathExists(legacyBinary)) {
+    outputChannel.appendLine(
+      `[phpls] Falling back to legacy server binary layout for ${platform}-${arch}.`,
+    );
+    await ensureExecutable(legacyBinary, platform);
+    return legacyBinary;
+  }
+
+  const supportedTargets = ['darwin-arm64', 'darwin-x64', 'linux-arm64', 'linux-x64', 'win32-arm64', 'win32-x64'];
+  throw new Error(
+    `[phpls] No bundled server binary for ${platform}-${arch}. Supported targets: ${supportedTargets.join(', ')}`,
+  );
+}
+
+async function pathExists(targetPath: string): Promise<boolean> {
+  try {
+    await fs.access(targetPath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function ensureExecutable(targetPath: string, platform: NodeJS.Platform): Promise<void> {
+  if (platform === 'win32') {
+    return;
+  }
+
+  await fs.chmod(targetPath, 0o755);
 }
 
 function getConfiguration(): Record<string, unknown> {
