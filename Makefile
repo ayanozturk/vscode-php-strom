@@ -1,9 +1,10 @@
-.PHONY: all build build-server build-server-local build-ext install package publish clean test
+.PHONY: all deps build build-server build-server-local build-ext install package publish clean test
 
 BINARY_NAME := phpls
 BIN_DIR     := bin
 SERVER_DIR  := server
 GO          := go
+NPM         := npm
 GOFLAGS     :=
 TARGETS     := darwin-arm64 darwin-x64 linux-arm64 linux-x64 win32-arm64 win32-x64
 
@@ -18,6 +19,13 @@ endif
 VSIX := $(shell node -p "require('./package.json').name + '-' + require('./package.json').version + '.vsix'" 2>/dev/null || echo "phpls-0.1.0.vsix")
 
 all: build
+
+## deps: install Node.js dependencies when node_modules is missing
+deps:
+	@if [ ! -d node_modules ]; then \
+		echo "==> Installing Node.js dependencies..."; \
+		$(NPM) ci; \
+	fi
 
 ## build: compile Go server + TypeScript extension
 build: build-server build-ext
@@ -50,7 +58,7 @@ build-server-local:
 	@echo "    Binary: $(BINARY)"
 
 ## build-ext: compile the TypeScript extension
-build-ext:
+build-ext: deps
 	@echo "==> Compiling TypeScript extension..."
 	npm run compile
 
@@ -67,7 +75,7 @@ install: build
 	@echo "==> Done. Reload VS Code to activate the new version."
 
 ## package: build + produce VSIX only (no install)
-package: build
+package: build deps
 	@echo "==> Packaging extension..."
 	npx vsce package --no-dependencies -o $(VSIX)
 	@echo "    Package: $(VSIX)"
