@@ -7,6 +7,7 @@ package providers
 import (
 	"strings"
 
+	"go-phpcs/analyse"
 	"go-phpcs/ast"
 	goplexer "go-phpcs/lexer"
 	goparser "go-phpcs/parser"
@@ -17,26 +18,56 @@ import (
 
 // ─── Hover ────────────────────────────────────────────────────────────────────
 
-type HoverProvider struct{ idx *indexer.WorkspaceIndexer }
+type HoverProvider struct {
+	idx   *indexer.WorkspaceIndexer
+	cache *semanticDocumentCache
+}
 
 func (p *HoverProvider) Provide(uri, text string, pos lsp.Position) *lsp.Hover {
-	word := wordAt(text, pos)
-	if word == "" {
-		return nil
-	}
-	sym := p.idx.GetIndex().GetByFQN(`\` + word)
-	if sym == nil {
-		syms := p.idx.GetIndex().Search(word)
-		if len(syms) > 0 {
-			sym = syms[0]
+	var inferredType string
+	ident := identifierAt(text, pos)
+	if ident != "" {
+		snapshot := p.cache.snapshot(uri, text)
+		analysisCtx := p.cache.analysisContext(p.idx)
+		if resolvedType, ok := analyse.InferTypeAtPosition(snapshot.nodes, int(pos.Line)+1, int(pos.Character)+1, unqualifiedName(ident), analysisCtx); ok {
+			inferredType = resolvedType
 		}
 	}
-	if sym == nil {
+
+	word := wordAt(text, pos)
+	var sym *indexer.Symbol
+	if word != "" && p.idx != nil {
+		sym = p.idx.GetIndex().GetByFQN(`\` + word)
+		if sym == nil {
+			syms := p.idx.GetIndex().Search(word)
+			if len(syms) > 0 {
+				sym = syms[0]
+			}
+		}
+	}
+
+	value := formatHoverContents(inferredType, sym)
+	if value == "" {
 		return nil
 	}
 	return &lsp.Hover{
-		Contents: lsp.MarkupContent{Kind: "markdown", Value: "**" + sym.FQN + "**\n\n" + sym.DocComment},
+		Contents: lsp.MarkupContent{Kind: "markdown", Value: value},
 	}
+}
+
+func formatHoverContents(inferredType string, sym *indexer.Symbol) string {
+	parts := make([]string, 0, 2)
+	if inferredType != "" {
+		parts = append(parts, "```php\n"+inferredType+"\n```")
+	}
+	if sym != nil {
+		doc := "**" + sym.FQN + "**"
+		if sym.DocComment != "" {
+			doc += "\n\n" + sym.DocComment
+		}
+		parts = append(parts, doc)
+	}
+	return strings.Join(parts, "\n\n")
 }
 
 // ─── Definition ───────────────────────────────────────────────────────────────

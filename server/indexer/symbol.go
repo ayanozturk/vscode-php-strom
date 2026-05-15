@@ -64,6 +64,7 @@ type Symbol struct {
 
 	// For methods/functions: return type and parameter names
 	ReturnType string
+	Type       string
 	Params     []SymbolParam
 
 	// Visibility & modifiers

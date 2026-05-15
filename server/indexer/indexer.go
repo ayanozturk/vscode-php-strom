@@ -394,6 +394,7 @@ func extractClassMembers(class *ast.ClassNode, uri, classFQN string, syms *[]*Sy
 			Kind:       KindProperty,
 			URI:        uri,
 			Range:      positionRange(property.GetPos()),
+			Type:       property.TypeHint,
 			IsStatic:   property.IsStatic,
 			IsReadonly: property.IsReadonly,
 			Visibility: defaultVisibility(property.Visibility),

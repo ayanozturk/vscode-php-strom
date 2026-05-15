@@ -57,8 +57,9 @@ type Registry struct {
 // NewRegistry creates a fully-initialised provider registry.
 func NewRegistry(idx *indexer.WorkspaceIndexer, cfg Config) *Registry {
 	r := &Registry{idx: idx, cfg: cfg}
+	semanticCache := newSemanticDocumentCache()
 	r.Completion = &CompletionProvider{idx: idx, cfg: cfg}
-	r.Hover = &HoverProvider{idx: idx}
+	r.Hover = &HoverProvider{idx: idx, cache: semanticCache}
 	r.Definition = &DefinitionProvider{idx: idx}
 	r.Declaration = &DeclarationProvider{idx: idx}
 	r.TypeDefinition = &TypeDefinitionProvider{idx: idx}
@@ -76,7 +77,7 @@ func NewRegistry(idx *indexer.WorkspaceIndexer, cfg Config) *Registry {
 	r.InlayHints = &InlayHintsProvider{idx: idx, cfg: cfg}
 	r.DocumentLinks = &DocumentLinksProvider{}
 	r.TypeHierarchy = &TypeHierarchyProvider{idx: idx}
-	r.Diagnostics = &DiagnosticsProvider{idx: idx, cfg: cfg}
+	r.Diagnostics = &DiagnosticsProvider{idx: idx, cfg: cfg, cache: semanticCache}
 	r.InlineValues = &InlineValuesProvider{}
 	return r
 }

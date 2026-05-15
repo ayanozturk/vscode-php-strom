@@ -3,6 +3,8 @@ package providers
 import (
 	"go-phpcs/overrides"
 	"testing"
+
+	"github.com/ayanozturk/vscode-php-strom/indexer"
 )
 
 func TestDiagnosticsProvider_ParseError(t *testing.T) {
@@ -158,6 +160,106 @@ class AuditTrail
 			t.Fatalf("unexpected class instantiation diagnostic: %+v", diag)
 		}
 	}
+}
+
+func TestDiagnosticsProvider_UsesWorkspaceResolverForMethodReturnTypes(t *testing.T) {
+	idx := indexer.New(indexer.Config{})
+	idx.IndexDocument("file:///workspace/User.php", `<?php
+class User {}
+`)
+	idx.IndexDocument("file:///workspace/UserRepository.php", `<?php
+class UserRepository
+{
+    public function current(): User
+    {
+        return new User();
+    }
+}
+`)
+
+	p := &DiagnosticsProvider{idx: idx}
+	diags := p.Analyse("file:///workspace/Controller.php", `<?php
+class Controller
+{
+    private UserRepository $repo;
+
+    public function show(): User
+    {
+        return $this->repo->current();
+    }
+}
+`)
+
+	for _, diag := range diags {
+		if code, ok := diag.Code.(string); ok && code == "A.RETURN.TYPE" {
+			t.Fatalf("unexpected return type diagnostic with workspace resolver: %+v", diag)
+		}
+	}
+}
+
+func TestDiagnosticsProvider_UsesWorkspaceResolverForMethodArgumentTypes(t *testing.T) {
+	idx := indexer.New(indexer.Config{})
+	idx.IndexDocument("file:///workspace/UserRepository.php", `<?php
+class UserRepository
+{
+    public function findById(int $id): User
+    {
+        return new User();
+    }
+}
+`)
+	idx.IndexDocument("file:///workspace/User.php", `<?php
+class User {}
+`)
+
+	p := &DiagnosticsProvider{idx: idx}
+	diags := p.Analyse("file:///workspace/Controller.php", `<?php
+class Controller
+{
+    private UserRepository $repo;
+
+    public function show(): User
+    {
+        return $this->repo->findById("bad");
+    }
+}
+`)
+
+	for _, diag := range diags {
+		if code, ok := diag.Code.(string); ok && code == "A.ARG.TYPE" {
+			return
+		}
+	}
+
+	t.Fatalf("expected A.ARG.TYPE diagnostic for workspace-resolved method argument mismatch, got %+v", diags)
+}
+
+func TestDiagnosticsProvider_UsesWorkspaceResolverForPropertyAssignments(t *testing.T) {
+	idx := indexer.New(indexer.Config{})
+	idx.IndexDocument("file:///workspace/UserRepository.php", `<?php
+class UserRepository {}
+`)
+
+	p := &DiagnosticsProvider{idx: idx}
+	diags := p.Analyse("file:///workspace/Controller.php", `<?php
+class Controller
+{
+    private UserRepository $repo;
+
+    public function replace(): void
+    {
+        $this->repo = "bad";
+    }
+}
+`)
+
+	for _, diag := range diags {
+		if code, ok := diag.Code.(string); ok && code == "A.PROP.TYPE" {
+			return
+		}
+	}
+
+	t.Fatalf("expected A.PROP.TYPE diagnostic for typed property assignment mismatch, got %+v", diags)
 }
 
 func TestLineColToRange(t *testing.T) {
