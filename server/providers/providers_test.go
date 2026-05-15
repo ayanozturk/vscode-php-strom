@@ -118,3 +118,50 @@ class Example
 		t.Fatalf("expected symbol details in hover, got %q", hover.Contents.Value)
 	}
 }
+
+func TestHoverProviderPrefersCurrentFileDeclaration(t *testing.T) {
+	idx := indexer.New(indexer.Config{})
+	text := `<?php
+class Session
+{
+    /** Store a value in the current session. */
+    public function set($name, $value): void
+    {
+    }
+}
+`
+	idx.IndexDocument("file:///workspace/Session.php", text)
+	idx.IndexDocument("file:///workspace/Other.php", `<?php
+class Other
+{
+    public function set() {}
+}
+`)
+
+	provider := &HoverProvider{idx: idx}
+	hover := provider.Provide("file:///workspace/Session.php", text, lsp.Position{Line: 4, Character: 20})
+	if hover == nil {
+		t.Fatal("expected hover for method declaration, got nil")
+	}
+	if !strings.Contains(hover.Contents.Value, `**\Session::set**`) {
+		t.Fatalf("expected current-file method symbol in hover, got %q", hover.Contents.Value)
+	}
+}
+
+func TestHoverProviderUsesDeterministicExactMatchOrdering(t *testing.T) {
+	idx := indexer.New(indexer.Config{})
+	idx.IndexDocument("file:///workspace/Beta.php", "<?php\nclass Beta { public function set() {} }\n")
+	idx.IndexDocument("file:///workspace/Alpha.php", "<?php\nclass Alpha { public function set() {} }\n")
+
+	provider := &HoverProvider{idx: idx}
+	text := "<?php\nset();\n"
+
+	first := provider.Provide("file:///workspace/Use.php", text, lsp.Position{Line: 1, Character: 2})
+	second := provider.Provide("file:///workspace/Use.php", text, lsp.Position{Line: 1, Character: 2})
+	if first == nil || second == nil {
+		t.Fatal("expected hover for exact symbol match, got nil")
+	}
+	if first.Contents.Value != second.Contents.Value {
+		t.Fatalf("expected deterministic hover contents, got %q then %q", first.Contents.Value, second.Contents.Value)
+	}
+}

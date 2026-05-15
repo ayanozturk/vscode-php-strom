@@ -5,6 +5,7 @@ package providers
 // Real logic will be added incrementally.
 
 import (
+	"sort"
 	"strings"
 
 	"go-phpcs/analyse"
@@ -34,16 +35,9 @@ func (p *HoverProvider) Provide(uri, text string, pos lsp.Position) *lsp.Hover {
 		}
 	}
 
-	word := wordAt(text, pos)
 	var sym *indexer.Symbol
-	if word != "" && p.idx != nil {
-		sym = p.idx.GetIndex().GetByFQN(`\` + word)
-		if sym == nil {
-			syms := p.idx.GetIndex().Search(word)
-			if len(syms) > 0 {
-				sym = syms[0]
-			}
-		}
+	if p.idx != nil {
+		sym = resolveHoverSymbol(p.idx, uri, text, pos)
 	}
 
 	value := formatHoverContents(inferredType, sym)
@@ -489,12 +483,205 @@ func prioritizeDefinitionMatches(symbols []*indexer.Symbol, lookup string) []*in
 	}
 
 	if len(exactClassLike) > 0 {
+		sortSymbols(exactClassLike)
 		return exactClassLike
 	}
 	if len(exact) > 0 {
+		sortSymbols(exact)
 		return exact
 	}
+	sortSymbols(symbols)
 	return symbols
+}
+
+func resolveHoverSymbol(idx *indexer.WorkspaceIndexer, uri, text string, pos lsp.Position) *indexer.Symbol {
+	ident := identifierAt(text, pos)
+	lookup := unqualifiedName(ident)
+	if lookup == "" {
+		lookup = unqualifiedName(wordAt(text, pos))
+	}
+	if lookup == "" {
+		return nil
+	}
+
+	if sym := symbolDeclaredAtPosition(idx.GetIndex().GetByURI(uri), lookup, pos); sym != nil {
+		return sym
+	}
+
+	for _, candidate := range resolveTypeCandidates(text, ident) {
+		sym := idx.GetIndex().GetByFQN(candidate)
+		if sym == nil {
+			continue
+		}
+		if isClassLikeKind(sym.Kind) {
+			return sym
+		}
+		return sym
+	}
+
+	if sym := idx.GetIndex().GetByFQN(ensureLeadingSlash(ident)); sym != nil {
+		return sym
+	}
+
+	matched := prioritizeDefinitionMatches(idx.GetIndex().Search(lookup), lookup)
+	if len(matched) == 0 {
+		return nil
+	}
+	return matched[0]
+}
+
+func symbolDeclaredAtPosition(symbols []*indexer.Symbol, lookup string, pos lsp.Position) *indexer.Symbol {
+	var containing []*indexer.Symbol
+	var sameLine []*indexer.Symbol
+	var matches []*indexer.Symbol
+	for _, sym := range symbols {
+		if !strings.EqualFold(sym.Name, lookup) {
+			continue
+		}
+		matches = append(matches, sym)
+		if positionWithinRange(pos, rangeToLSP(sym)) {
+			containing = append(containing, sym)
+		}
+		if sym.StartLine == pos.Line {
+			sameLine = append(sameLine, sym)
+		}
+	}
+	if len(containing) > 0 {
+		sort.SliceStable(containing, func(i, j int) bool {
+			left := symbolSpan(containing[i])
+			right := symbolSpan(containing[j])
+			if left != right {
+				return left < right
+			}
+			return compareSymbols(containing[i], containing[j]) < 0
+		})
+		return containing[0]
+	}
+	if len(sameLine) > 0 {
+		sort.SliceStable(sameLine, func(i, j int) bool {
+			left := symbolDistanceFromPosition(sameLine[i], pos)
+			right := symbolDistanceFromPosition(sameLine[j], pos)
+			if left != right {
+				return left < right
+			}
+			return compareSymbols(sameLine[i], sameLine[j]) < 0
+		})
+		return sameLine[0]
+	}
+	if len(matches) == 0 {
+		return nil
+	}
+	sort.SliceStable(matches, func(i, j int) bool {
+		left := symbolDistanceFromPosition(matches[i], pos)
+		right := symbolDistanceFromPosition(matches[j], pos)
+		if left != right {
+			return left < right
+		}
+		return compareSymbols(matches[i], matches[j]) < 0
+	})
+	return matches[0]
+}
+
+func positionWithinRange(pos lsp.Position, r lsp.Range) bool {
+	if pos.Line < r.Start.Line || pos.Line > r.End.Line {
+		return false
+	}
+	if pos.Line == r.Start.Line && pos.Character < r.Start.Character {
+		return false
+	}
+	if pos.Line == r.End.Line && pos.Character > r.End.Character {
+		return false
+	}
+	return true
+}
+
+func symbolSpan(sym *indexer.Symbol) uint64 {
+	start := uint64(sym.StartLine)*1_000_000 + uint64(sym.StartChar)
+	end := uint64(sym.EndLine)*1_000_000 + uint64(sym.EndChar)
+	if end <= start {
+		return 0
+	}
+	return end - start
+}
+
+func symbolDistanceFromPosition(sym *indexer.Symbol, pos lsp.Position) uint64 {
+	lineDelta := absDiff(sym.StartLine, pos.Line)
+	charDelta := absDiff(sym.StartChar, pos.Character)
+	return uint64(lineDelta)*1_000_000 + uint64(charDelta)
+}
+
+func absDiff(left, right uint32) uint32 {
+	if left > right {
+		return left - right
+	}
+	return right - left
+}
+
+func sortSymbols(symbols []*indexer.Symbol) {
+	sort.SliceStable(symbols, func(i, j int) bool {
+		return compareSymbols(symbols[i], symbols[j]) < 0
+	})
+}
+
+func compareSymbols(left, right *indexer.Symbol) int {
+	if left == nil || right == nil {
+		switch {
+		case left == nil && right == nil:
+			return 0
+		case left == nil:
+			return 1
+		default:
+			return -1
+		}
+	}
+	if left.Kind != right.Kind {
+		if kindRank(left.Kind) < kindRank(right.Kind) {
+			return -1
+		}
+		return 1
+	}
+	if left.FQN != right.FQN {
+		if left.FQN < right.FQN {
+			return -1
+		}
+		return 1
+	}
+	if left.URI != right.URI {
+		if left.URI < right.URI {
+			return -1
+		}
+		return 1
+	}
+	if left.StartLine != right.StartLine {
+		if left.StartLine < right.StartLine {
+			return -1
+		}
+		return 1
+	}
+	if left.StartChar != right.StartChar {
+		if left.StartChar < right.StartChar {
+			return -1
+		}
+		return 1
+	}
+	return 0
+}
+
+func kindRank(kind indexer.SymbolKind) int {
+	switch kind {
+	case indexer.KindClass, indexer.KindInterface, indexer.KindModule, indexer.KindEnum:
+		return 0
+	case indexer.KindConstructor:
+		return 1
+	case indexer.KindMethod:
+		return 2
+	case indexer.KindProperty:
+		return 3
+	case indexer.KindFunction:
+		return 4
+	default:
+		return 5
+	}
 }
 
 func isClassLikeKind(kind indexer.SymbolKind) bool {
