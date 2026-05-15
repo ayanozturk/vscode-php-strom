@@ -43,3 +43,31 @@ func TestUpdateLoadsFlattenedDiagnosticsOverrides(t *testing.T) {
 		t.Fatalf("unexpected override classes: %#v", override.Classes)
 	}
 }
+
+func TestDefaultConfigIncludesVendorTestsExclude(t *testing.T) {
+	cfg := DefaultConfig()
+	want := "**/vendor/**/{Tests,tests}/**"
+	for _, pattern := range cfg.Files.Exclude {
+		if pattern == want {
+			return
+		}
+	}
+	t.Fatalf("expected default files exclude to contain %q, got %#v", want, cfg.Files.Exclude)
+}
+
+func TestUpdateLoadsFilesSettings(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Update(map[string]interface{}{
+		"files": map[string]interface{}{
+			"exclude": []interface{}{"**/vendor/**", "**/.cache/**"},
+			"maxSize": float64(2048),
+		},
+	})
+
+	if len(cfg.Files.Exclude) != 2 || cfg.Files.Exclude[0] != "**/vendor/**" || cfg.Files.Exclude[1] != "**/.cache/**" {
+		t.Fatalf("unexpected files.exclude: %#v", cfg.Files.Exclude)
+	}
+	if cfg.Files.MaxSize != 2048 {
+		t.Fatalf("expected files.maxSize=2048, got %d", cfg.Files.MaxSize)
+	}
+}

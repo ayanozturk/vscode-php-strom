@@ -68,7 +68,7 @@ func DefaultConfig() *Config {
 	c := &Config{}
 	c.Environment.PHPVersion = "8.3"
 	c.Files.Associations = []string{"**/*.php", "**/*.phtml", "**/*.phar"}
-	c.Files.Exclude = []string{"**/.git/**", "**/node_modules/**"}
+	c.Files.Exclude = []string{"**/.git/**", "**/node_modules/**", "**/vendor/**/{Tests,tests}/**"}
 	c.Files.MaxSize = 1_000_000
 	c.Diagnostics.Enable = true
 	c.Diagnostics.Run = "onType"
@@ -121,6 +121,18 @@ func (c *Config) Update(settings map[string]interface{}) {
 			c.Diagnostics.Overrides = overridesMap
 		}
 	}
+	if files, ok := inner["files"].(map[string]interface{}); ok {
+		applyFilesConfig(&c.Files, files)
+	}
+	if associations, ok := toStringSliceSetting(inner["files.associations"]); ok {
+		c.Files.Associations = associations
+	}
+	if exclude, ok := toStringSliceSetting(inner["files.exclude"]); ok {
+		c.Files.Exclude = exclude
+	}
+	if maxSize, ok := toInt64(inner["files.maxSize"]); ok {
+		c.Files.MaxSize = maxSize
+	}
 	if overridesMap, ok := parseRuleOverrides(inner["diagnostics.overrides"]); ok {
 		c.Diagnostics.Overrides = overridesMap
 	}
@@ -129,6 +141,58 @@ func (c *Config) Update(settings map[string]interface{}) {
 	}
 	if v, ok := inner["diagnostics.run"].(string); ok {
 		c.Diagnostics.Run = v
+	}
+}
+
+func applyFilesConfig(dst *struct {
+	Associations []string
+	Exclude      []string
+	MaxSize      int64
+}, settings map[string]interface{}) {
+	if associations, ok := toStringSliceSetting(settings["associations"]); ok {
+		dst.Associations = associations
+	}
+	if exclude, ok := toStringSliceSetting(settings["exclude"]); ok {
+		dst.Exclude = exclude
+	}
+	if maxSize, ok := toInt64(settings["maxSize"]); ok {
+		dst.MaxSize = maxSize
+	}
+}
+
+func toStringSliceSetting(raw interface{}) ([]string, bool) {
+	values, ok := raw.([]interface{})
+	if !ok {
+		strings, ok := raw.([]string)
+		if !ok {
+			return nil, false
+		}
+		return append([]string(nil), strings...), true
+	}
+
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		text, ok := value.(string)
+		if !ok {
+			return nil, false
+		}
+		result = append(result, text)
+	}
+	return result, true
+}
+
+func toInt64(raw interface{}) (int64, bool) {
+	switch value := raw.(type) {
+	case int:
+		return int64(value), true
+	case int32:
+		return int64(value), true
+	case int64:
+		return value, true
+	case float64:
+		return int64(value), true
+	default:
+		return 0, false
 	}
 }
 

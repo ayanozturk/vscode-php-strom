@@ -4,6 +4,7 @@ import (
 	"io/fs"
 	"log"
 	"os"
+	pathpkg "path"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -198,9 +199,8 @@ func (wi *WorkspaceIndexer) indexFileWithTimeout(path string) {
 }
 
 func (wi *WorkspaceIndexer) shouldExcludeDir(path string) bool {
-	base := filepath.Base(path)
 	for _, pat := range wi.cfg.Exclude {
-		if matchSimple(pat, base) {
+		if matchSimple(pat, path) {
 			return true
 		}
 	}
@@ -361,6 +361,10 @@ func extractFromNodes(nodes []ast.Node, uri, ns string, syms *[]*Symbol) {
 }
 
 func extractClassMembers(class *ast.ClassNode, uri, classFQN string, syms *[]*Symbol) {
+	for _, property := range promotedPropertySymbols(class, uri, classFQN) {
+		*syms = append(*syms, property)
+	}
+
 	for _, methodNode := range class.Methods {
 		method, ok := methodNode.(*ast.FunctionNode)
 		if !ok {
@@ -415,6 +419,40 @@ func extractClassMembers(class *ast.ClassNode, uri, classFQN string, syms *[]*Sy
 			Visibility: defaultVisibility(constant.Visibility),
 		})
 	}
+}
+
+func promotedPropertySymbols(class *ast.ClassNode, uri, classFQN string) []*Symbol {
+	if class == nil {
+		return nil
+	}
+
+	var symbols []*Symbol
+	for _, methodNode := range class.Methods {
+		method, ok := methodNode.(*ast.FunctionNode)
+		if !ok || method == nil || !strings.EqualFold(method.Name, "__construct") {
+			continue
+		}
+		for _, paramNode := range method.Params {
+			param, ok := paramNode.(*ast.ParamNode)
+			if !ok || !param.IsPromoted {
+				continue
+			}
+			typeHint := param.TypeHint
+			if typeHint == "" && param.UnionType != nil {
+				typeHint = param.UnionType.TokenLiteral()
+			}
+			symbols = append(symbols, &Symbol{
+				FQN:        classFQN + "::$" + param.Name,
+				Name:       param.Name,
+				Kind:       KindProperty,
+				URI:        uri,
+				Range:      positionRange(param.GetPos()),
+				Type:       typeHint,
+				Visibility: defaultVisibility(param.Visibility),
+			})
+		}
+	}
+	return symbols
 }
 
 func extractTraitMembers(members []ast.Node, uri, traitFQN string, syms *[]*Symbol) {
@@ -630,8 +668,73 @@ func uriToPath(uri string) string {
 }
 
 func matchSimple(pattern, name string) bool {
-	// Simple glob: only support leading/trailing *
-	pattern = strings.TrimPrefix(pattern, "**/")
-	pattern = strings.TrimSuffix(pattern, "/**")
-	return strings.Contains(name, strings.Trim(pattern, "*"))
+	variants := expandBracePattern(filepath.ToSlash(pattern))
+	normalizedName := filepath.ToSlash(name)
+	for _, variant := range variants {
+		if matchPathSegments(variant, normalizedName) {
+			return true
+		}
+	}
+	return false
+}
+
+func expandBracePattern(pattern string) []string {
+	start := strings.IndexByte(pattern, '{')
+	if start == -1 {
+		return []string{pattern}
+	}
+	end := strings.IndexByte(pattern[start:], '}')
+	if end == -1 {
+		return []string{pattern}
+	}
+	end += start
+	parts := strings.Split(pattern[start+1:end], ",")
+	variants := make([]string, 0, len(parts))
+	for _, part := range parts {
+		variants = append(variants, expandBracePattern(pattern[:start]+part+pattern[end+1:])...)
+	}
+	return variants
+}
+
+func matchPathSegments(pattern, candidate string) bool {
+	pattern = strings.TrimPrefix(pathpkg.Clean(pattern), "./")
+	candidate = strings.TrimPrefix(pathpkg.Clean(candidate), "./")
+
+	patternSegments := strings.Split(strings.Trim(pattern, "/"), "/")
+	candidateSegments := strings.Split(strings.Trim(candidate, "/"), "/")
+	if len(patternSegments) == 1 && patternSegments[0] == "." {
+		patternSegments = nil
+	}
+	if len(candidateSegments) == 1 && candidateSegments[0] == "." {
+		candidateSegments = nil
+	}
+	return matchSegmentSequence(patternSegments, candidateSegments)
+}
+
+func matchSegmentSequence(patternSegments, candidateSegments []string) bool {
+	if len(patternSegments) == 0 {
+		return len(candidateSegments) == 0
+	}
+
+	segment := patternSegments[0]
+	if segment == "**" {
+		if len(patternSegments) == 1 {
+			return true
+		}
+		for idx := 0; idx <= len(candidateSegments); idx++ {
+			if matchSegmentSequence(patternSegments[1:], candidateSegments[idx:]) {
+				return true
+			}
+		}
+		return false
+	}
+
+	if len(candidateSegments) == 0 {
+		return false
+	}
+	matched, err := pathpkg.Match(segment, candidateSegments[0])
+	if err != nil || !matched {
+		return false
+	}
+	return matchSegmentSequence(patternSegments[1:], candidateSegments[1:])
 }

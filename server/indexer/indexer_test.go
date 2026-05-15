@@ -86,3 +86,49 @@ class Example {
 		t.Fatalf("expected public visibility, got %q", property.Visibility)
 	}
 }
+
+func TestExtractSymbolsCreatesPromotedPropertySymbols(t *testing.T) {
+	src := `<?php
+class SessionStore {}
+
+class Session {
+	public function __construct(private SessionStore $session) {}
+}
+`
+
+	syms := extractSymbols("file:///test.php", src)
+	for _, sym := range syms {
+		if sym.Kind == KindProperty && sym.Name == "session" {
+			if sym.Type != "SessionStore" {
+				t.Fatalf("expected promoted property type SessionStore, got %q", sym.Type)
+			}
+			if sym.Visibility != "private" {
+				t.Fatalf("expected promoted property visibility private, got %q", sym.Visibility)
+			}
+			return
+		}
+	}
+
+	t.Fatal("expected promoted constructor param to be indexed as property symbol")
+}
+
+func TestMatchSimpleMatchesVendorRootPattern(t *testing.T) {
+	if !matchSimple("**/vendor/**", "/workspace/project/vendor") {
+		t.Fatal("expected vendor root to match exclude pattern")
+	}
+	if !matchSimple("**/vendor/**", "/workspace/project/vendor/symfony/http-foundation") {
+		t.Fatal("expected nested vendor path to match exclude pattern")
+	}
+}
+
+func TestMatchSimpleMatchesVendorTestsPattern(t *testing.T) {
+	if !matchSimple("**/vendor/**/{Tests,tests}/**", "/workspace/project/vendor/symfony/http-foundation/Tests") {
+		t.Fatal("expected Tests directory under vendor to match exclude pattern")
+	}
+	if !matchSimple("**/vendor/**/{Tests,tests}/**", "/workspace/project/vendor/symfony/http-foundation/tests/Unit") {
+		t.Fatal("expected tests subtree under vendor to match exclude pattern")
+	}
+	if matchSimple("**/vendor/**/{Tests,tests}/**", "/workspace/project/vendor/symfony/http-foundation") {
+		t.Fatal("did not expect non-test vendor directory to match vendor test exclude pattern")
+	}
+}

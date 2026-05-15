@@ -88,6 +88,36 @@ class Example
 	}
 }
 
+func TestHoverProviderShowsPromotedPropertyType(t *testing.T) {
+	idx := indexer.New(indexer.Config{})
+	provider := &HoverProvider{idx: idx}
+	text := `<?php
+class SessionStore {}
+
+class Session
+{
+	public function __construct(private SessionStore $session)
+	{
+	}
+
+	public function current(): SessionStore
+	{
+		return $this->session;
+	}
+}`
+
+	hover := provider.Provide("file:///workspace/Session.php", text, lsp.Position{Line: 11, Character: 18})
+	if hover == nil {
+		t.Fatal("expected hover for promoted property type, got nil")
+	}
+	if !strings.Contains(hover.Contents.Value, "SessionStore") {
+		t.Fatalf("expected promoted property type SessionStore in hover, got %q", hover.Contents.Value)
+	}
+	if !strings.Contains(hover.Contents.Value, `**\Session::$session**`) {
+		t.Fatalf("expected promoted property symbol details in hover, got %q", hover.Contents.Value)
+	}
+}
+
 func TestHoverProviderCombinesInferredTypeAndSymbolDocs(t *testing.T) {
 	idx := indexer.New(indexer.Config{})
 	idx.IndexDocument("file:///workspace/UserRepository.php", `<?php
