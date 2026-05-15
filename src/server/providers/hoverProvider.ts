@@ -9,20 +9,13 @@ import { Hover, MarkupKind, Position } from 'vscode-languageserver/node';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 
 import { WorkspaceIndexer } from '../indexer/workspaceIndexer.js';
+import { resolveSymbolsAtPosition } from './symbolResolver.js';
 
 export class HoverProvider {
   constructor(private readonly indexer: WorkspaceIndexer) {}
 
   provide(doc: TextDocument, position: Position): Hover | null {
-    // TODO:
-    //   1. Resolve the symbol at position (same as definition).
-    //   2. Build a markdown string: signature + PHPDoc + PHP manual link.
-    //   3. For built-in functions: link to https://www.php.net/manual/en/function.{name}.php
-
-    const word = wordAt(doc, position);
-    if (!word) return null;
-
-    const symbols = this.indexer.symbolIndex.getByName(word);
+    const symbols = resolveSymbolsAtPosition(this.indexer.symbolIndex, doc, position);
     if (symbols.length === 0) return null;
 
     const sym = symbols[0];
@@ -38,14 +31,4 @@ export class HoverProvider {
       },
     };
   }
-}
-
-function wordAt(doc: TextDocument, pos: Position): string {
-  const text = doc.getText();
-  const offset = doc.offsetAt(pos);
-  let start = offset;
-  let end = offset;
-  while (start > 0 && /\w/.test(text[start - 1])) start--;
-  while (end < text.length && /\w/.test(text[end])) end++;
-  return text.slice(start, end);
 }
