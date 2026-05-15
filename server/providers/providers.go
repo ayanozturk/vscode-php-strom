@@ -25,19 +25,31 @@ type HoverProvider struct {
 }
 
 func (p *HoverProvider) Provide(uri, text string, pos lsp.Position) *lsp.Hover {
+	if p.idx != nil {
+		p.idx.IndexDocument(uri, text)
+	}
+
 	var inferredType string
+	var hoverTarget analyse.HoverTarget
+	var hasHoverTarget bool
 	ident := identifierAt(text, pos)
 	if ident != "" {
 		snapshot := p.cache.snapshot(uri, text)
 		analysisCtx := p.cache.analysisContext(p.idx)
-		if resolvedType, ok := analyse.InferTypeAtPosition(snapshot.nodes, int(pos.Line)+1, int(pos.Character)+1, unqualifiedName(ident), analysisCtx); ok {
-			inferredType = resolvedType
+		hoverTarget, hasHoverTarget = analyse.InferHoverTargetAtPosition(snapshot.nodes, int(pos.Line)+1, int(pos.Character)+1, unqualifiedName(ident), analysisCtx)
+		if hasHoverTarget {
+			inferredType = hoverTarget.Type
 		}
 	}
 
 	var sym *indexer.Symbol
 	if p.idx != nil {
-		sym = resolveHoverSymbol(p.idx, uri, text, pos)
+		sym = resolveHoverSymbol(p.idx, uri, text, pos, ident, hoverTarget, hasHoverTarget)
+	}
+	if inferredType == "" || inferredType == "mixed" {
+		if memberType := hoverTypeFromSymbol(sym); memberType != "" {
+			inferredType = memberType
+		}
 	}
 
 	value := formatHoverContents(inferredType, sym)
@@ -62,6 +74,19 @@ func formatHoverContents(inferredType string, sym *indexer.Symbol) string {
 		parts = append(parts, doc)
 	}
 	return strings.Join(parts, "\n\n")
+}
+
+func hoverTypeFromSymbol(sym *indexer.Symbol) string {
+	if sym == nil {
+		return ""
+	}
+	if sym.Kind == indexer.KindMethod && sym.ReturnType != "" {
+		return sym.ReturnType
+	}
+	if sym.Kind == indexer.KindProperty && sym.Type != "" {
+		return sym.Type
+	}
+	return ""
 }
 
 // ─── Definition ───────────────────────────────────────────────────────────────
@@ -494,8 +519,7 @@ func prioritizeDefinitionMatches(symbols []*indexer.Symbol, lookup string) []*in
 	return symbols
 }
 
-func resolveHoverSymbol(idx *indexer.WorkspaceIndexer, uri, text string, pos lsp.Position) *indexer.Symbol {
-	ident := identifierAt(text, pos)
+func resolveHoverSymbol(idx *indexer.WorkspaceIndexer, uri, text string, pos lsp.Position, ident string, hoverTarget analyse.HoverTarget, hasHoverTarget bool) *indexer.Symbol {
 	lookup := unqualifiedName(ident)
 	if lookup == "" {
 		lookup = unqualifiedName(wordAt(text, pos))
@@ -504,8 +528,30 @@ func resolveHoverSymbol(idx *indexer.WorkspaceIndexer, uri, text string, pos lsp
 		return nil
 	}
 
+	if hasHoverTarget && hoverTarget.ReceiverClass != "" {
+		switch hoverTarget.Kind {
+		case analyse.HoverTargetMethod:
+			if sym := resolveMethodSymbol(idx, hoverTarget.ReceiverClass, lookup); sym != nil {
+				return sym
+			}
+		case analyse.HoverTargetProperty:
+			if sym := resolvePropertySymbol(idx, hoverTarget.ReceiverClass, lookup); sym != nil {
+				return sym
+			}
+		}
+	}
+
 	if sym := symbolDeclaredAtPosition(idx.GetIndex().GetByURI(uri), lookup, pos); sym != nil {
 		return sym
+	}
+
+	if hasHoverTarget {
+		switch hoverTarget.Kind {
+		case analyse.HoverTargetMethod, analyse.HoverTargetProperty:
+			// Receiver-aware accesses should not degrade into arbitrary global
+			// short-name matches when the receiver type cannot be resolved.
+			return nil
+		}
 	}
 
 	for _, candidate := range resolveTypeCandidates(text, ident) {
@@ -528,6 +574,60 @@ func resolveHoverSymbol(idx *indexer.WorkspaceIndexer, uri, text string, pos lsp
 		return nil
 	}
 	return matched[0]
+}
+
+func resolveMethodSymbol(idx *indexer.WorkspaceIndexer, className, methodName string) *indexer.Symbol {
+	if idx == nil {
+		return nil
+	}
+	resolver := workspaceSymbolResolver{idx: idx}
+	classSym, ok := resolver.resolveClassSymbol(className)
+	if !ok {
+		return nil
+	}
+	index := idx.GetIndex()
+	if sym := index.GetByFQN(classSym.FQN + "::" + methodName); sym != nil && sym.Kind == indexer.KindMethod {
+		return sym
+	}
+	for _, sym := range prioritizeDefinitionMatches(index.Search(methodName), methodName) {
+		if sym.Kind != indexer.KindMethod {
+			continue
+		}
+		if !strings.HasPrefix(sym.FQN, classSym.FQN+"::") {
+			continue
+		}
+		if strings.EqualFold(sym.Name, methodName) {
+			return sym
+		}
+	}
+	return nil
+}
+
+func resolvePropertySymbol(idx *indexer.WorkspaceIndexer, className, propertyName string) *indexer.Symbol {
+	if idx == nil {
+		return nil
+	}
+	resolver := workspaceSymbolResolver{idx: idx}
+	classSym, ok := resolver.resolveClassSymbol(className)
+	if !ok {
+		return nil
+	}
+	index := idx.GetIndex()
+	if sym := index.GetByFQN(classSym.FQN + "::$" + propertyName); sym != nil && sym.Kind == indexer.KindProperty {
+		return sym
+	}
+	for _, sym := range prioritizeDefinitionMatches(index.Search(propertyName), propertyName) {
+		if sym.Kind != indexer.KindProperty {
+			continue
+		}
+		if !strings.HasPrefix(sym.FQN, classSym.FQN+"::$") {
+			continue
+		}
+		if strings.EqualFold(sym.Name, propertyName) {
+			return sym
+		}
+	}
+	return nil
 }
 
 func symbolDeclaredAtPosition(symbols []*indexer.Symbol, lookup string, pos lsp.Position) *indexer.Symbol {

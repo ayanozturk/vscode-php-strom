@@ -165,3 +165,98 @@ func TestHoverProviderUsesDeterministicExactMatchOrdering(t *testing.T) {
 		t.Fatalf("expected deterministic hover contents, got %q then %q", first.Contents.Value, second.Contents.Value)
 	}
 }
+
+func TestHoverProviderPrefersReceiverTypeForChainedMethodCalls(t *testing.T) {
+	idx := indexer.New(indexer.Config{})
+	idx.IndexDocument("file:///workspace/MetadataBag.php", `<?php
+class MetadataBag
+{
+	public function getLifetime(): int
+	{
+		return 123;
+	}
+}
+`)
+	idx.IndexDocument("file:///workspace/Noise.php", `<?php
+class Noise
+{
+	public function getLifetime(): mixed
+	{
+		return null;
+	}
+}
+`)
+
+	provider := &HoverProvider{idx: idx}
+	text := `<?php
+class Session
+{
+	private MetadataBag $bag;
+
+	public function getMetadataBag(): MetadataBag
+	{
+		return $this->bag;
+	}
+
+	public function getDuration(): int
+	{
+		return $this->getMetadataBag()->getLifetime();
+	}
+}
+`
+
+	hover := provider.Provide("file:///workspace/Session.php", text, lsp.Position{Line: 12, Character: 35})
+	if hover == nil {
+		t.Fatal("expected hover for chained method call, got nil")
+	}
+	if !strings.Contains(hover.Contents.Value, "```php\nint\n```") {
+		t.Fatalf("expected int type in hover, got %q", hover.Contents.Value)
+	}
+	if !strings.Contains(hover.Contents.Value, `**\MetadataBag::getLifetime**`) {
+		t.Fatalf("expected MetadataBag::getLifetime symbol in hover, got %q", hover.Contents.Value)
+	}
+}
+
+func TestHoverProviderDoesNotFallbackToGlobalMatchForUnresolvedReceiverChain(t *testing.T) {
+	idx := indexer.New(indexer.Config{})
+	idx.IndexDocument("file:///workspace/Noise.php", `<?php
+class Certificate
+{
+	public function getLifetime(): mixed
+	{
+		return null;
+	}
+}
+`)
+
+	provider := &HoverProvider{idx: idx}
+	text := `<?php
+interface SessionLike {}
+
+class Session
+{
+	private SessionLike $session;
+
+	public function getDuration(): int
+	{
+		return $this->session->getMetadataBag()->getLifetime();
+	}
+}
+`
+
+	lines := strings.Split(text, "\n")
+	methodOffset := strings.Index(lines[9], "getLifetime")
+	if methodOffset < 0 {
+		t.Fatal("expected getLifetime call in test fixture")
+	}
+	hover := provider.Provide("file:///workspace/Session.php", text, lsp.Position{Line: 9, Character: uint32(methodOffset + 2)})
+	if hover == nil {
+		t.Fatal("expected hover result for unresolved chain, got nil")
+	}
+	if strings.Contains(hover.Contents.Value, `**\Certificate::getLifetime**`) {
+		t.Fatalf("expected unresolved chain hover to avoid unrelated global symbol, got %q", hover.Contents.Value)
+	}
+	if !strings.Contains(hover.Contents.Value, "mixed") {
+		t.Fatalf("expected unresolved chain hover to still show mixed type, got %q", hover.Contents.Value)
+	}
+}
