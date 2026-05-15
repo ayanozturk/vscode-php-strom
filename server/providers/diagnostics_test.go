@@ -141,6 +141,25 @@ class Company
 	}
 }
 
+func TestDiagnosticsProvider_DoesNotReportClassInstantiationForVariableNamesContainingNew(t *testing.T) {
+	p := &DiagnosticsProvider{}
+	diags := p.Analyse("file:///test.php", `<?php
+class AuditTrail
+{
+	public function capture(LoggerInterface $logger): void
+    {
+		$newToken = build_identifier();
+		$logger->record($newToken);
+    }
+}
+`)
+	for _, diag := range diags {
+		if code, ok := diag.Code.(string); ok && code == "PSR1.Classes.ClassInstantiation" {
+			t.Fatalf("unexpected class instantiation diagnostic: %+v", diag)
+		}
+	}
+}
+
 func TestLineColToRange(t *testing.T) {
 	r := lineColToRange(5, 10)
 	if r.Start.Line != 4 || r.Start.Character != 9 {
