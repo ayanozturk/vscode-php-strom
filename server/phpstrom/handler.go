@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 
@@ -326,20 +327,42 @@ func (h *Handler) runWorkspaceDiagnostics() {
 
 	workspaceURIs := h.idx.WorkspaceFileURIs()
 	seen := make(map[string]struct{}, len(workspaceURIs))
+	jobs := make(chan string, len(workspaceURIs))
+	workerCount := runtime.GOMAXPROCS(0)
+	if workerCount < 1 {
+		workerCount = 1
+	}
+	if workerCount > len(workspaceURIs) && len(workspaceURIs) > 0 {
+		workerCount = len(workspaceURIs)
+	}
+	var wg sync.WaitGroup
+
 	for _, uri := range workspaceURIs {
 		seen[uri] = struct{}{}
-
-		if doc, ok := h.documents.Snapshot(uri); ok {
-			_ = h.publishDiagnostics(uri, doc.Text, doc.Version)
-			continue
-		}
-
-		text, err := readDocumentTextFromDisk(uri)
-		if err != nil {
-			continue
-		}
-		h.publishWorkspaceDocumentDiagnostics(uri, text)
+		jobs <- uri
 	}
+	close(jobs)
+
+	for worker := 0; worker < workerCount; worker++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for uri := range jobs {
+				if doc, ok := h.documents.Snapshot(uri); ok {
+					_ = h.publishDiagnostics(uri, doc.Text, doc.Version)
+					continue
+				}
+
+				text, err := readDocumentTextFromDisk(uri)
+				if err != nil {
+					continue
+				}
+				h.publishWorkspaceDocumentDiagnostics(uri, text)
+			}
+		}()
+	}
+
+	wg.Wait()
 
 	h.clearDiagnosticsOutsideWorkspace(seen)
 }

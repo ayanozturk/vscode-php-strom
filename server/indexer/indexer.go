@@ -22,6 +22,7 @@ type WorkspaceIndexer struct {
 	cfg          Config
 	index        *Index
 	folders      []WorkspaceFolder
+	workspaceURIs []string
 	mu           sync.RWMutex
 	onStart      func()
 	onDone       func(int)
@@ -63,6 +64,14 @@ func (wi *WorkspaceIndexer) IndexWorkspace() {
 	wi.mu.RUnlock()
 
 	paths := wi.collectWorkspaceFilePaths(folders)
+	uris := make([]string, 0, len(paths))
+	for _, filePath := range paths {
+		uris = append(uris, pathToURI(filePath))
+	}
+
+	wi.mu.Lock()
+	wi.workspaceURIs = uris
+	wi.mu.Unlock()
 
 	total := len(paths)
 	log.Printf("[indexer] discovered %d files across %d workspace folder(s)", total, len(folders))
@@ -121,16 +130,23 @@ func (wi *WorkspaceIndexer) IndexWorkspace() {
 func (wi *WorkspaceIndexer) IndexDocument(uri, text string) {
 	syms := extractSymbols(uri, text)
 	wi.index.PutFile(uri, syms)
+	wi.trackWorkspaceURI(uri)
 }
 
 // RemoveDocument removes all symbols for a document URI from the index.
 func (wi *WorkspaceIndexer) RemoveDocument(uri string) {
 	wi.index.RemoveFile(uri)
+	wi.untrackWorkspaceURI(uri)
 }
 
 // WorkspaceFileURIs returns every PHP file currently discovered under the workspace folders.
 func (wi *WorkspaceIndexer) WorkspaceFileURIs() []string {
 	wi.mu.RLock()
+	if len(wi.workspaceURIs) > 0 {
+		uris := append([]string(nil), wi.workspaceURIs...)
+		wi.mu.RUnlock()
+		return uris
+	}
 	folders := append([]WorkspaceFolder(nil), wi.folders...)
 	wi.mu.RUnlock()
 
@@ -168,6 +184,29 @@ func (wi *WorkspaceIndexer) collectWorkspaceFilePaths(folders []WorkspaceFolder)
 		})
 	}
 	return paths
+}
+
+func (wi *WorkspaceIndexer) trackWorkspaceURI(uri string) {
+	wi.mu.Lock()
+	defer wi.mu.Unlock()
+	for _, existing := range wi.workspaceURIs {
+		if existing == uri {
+			return
+		}
+	}
+	wi.workspaceURIs = append(wi.workspaceURIs, uri)
+}
+
+func (wi *WorkspaceIndexer) untrackWorkspaceURI(uri string) {
+	wi.mu.Lock()
+	defer wi.mu.Unlock()
+	for index, existing := range wi.workspaceURIs {
+		if existing != uri {
+			continue
+		}
+		wi.workspaceURIs = append(wi.workspaceURIs[:index], wi.workspaceURIs[index+1:]...)
+		return
+	}
 }
 
 // indexFileWithTimeout parses a file inside a goroutine with a 5s deadline.
