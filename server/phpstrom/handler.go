@@ -32,6 +32,10 @@ type saveAnalysisFinishedParams struct {
 	Published bool   `json:"published"`
 }
 
+type workspaceDiagnosticsFinishedParams struct {
+	FilesWithDiagnostics int `json:"filesWithDiagnostics"`
+}
+
 func NewHandler(srv *Server) *Handler {
 	cfg := DefaultConfig()
 	docs := NewDocumentStore()
@@ -200,7 +204,7 @@ func (h *Handler) HandleNotification(method string, raw json.RawMessage) {
 		}
 		h.cfg.Update(p.Settings)
 		h.prov = providers.NewRegistry(h.idx, h.cfg.toProviderConfig())
-		go h.runWorkspaceDiagnostics()
+		go h.runWorkspaceDiagnosticsScan(false)
 
 	case "phpstrom/indexWorkspace":
 		go h.indexAndPublishWorkspaceDiagnostics()
@@ -290,7 +294,24 @@ func (h *Handler) publishDiagnostics(uri, text string, version int) bool {
 }
 
 func (h *Handler) indexAndPublishWorkspaceDiagnostics() {
+	h.srv.Notify("phpstrom/workspaceDiagnosticsStarted", nil)
+	defer h.srv.Notify("phpstrom/workspaceDiagnosticsFinished", workspaceDiagnosticsFinishedParams{
+		FilesWithDiagnostics: h.publishedDiagnosticsCount(),
+	})
+
 	h.idx.IndexWorkspace()
+	h.runWorkspaceDiagnostics()
+}
+
+func (h *Handler) runWorkspaceDiagnosticsScan(indexWorkspace bool) {
+	h.srv.Notify("phpstrom/workspaceDiagnosticsStarted", nil)
+	defer h.srv.Notify("phpstrom/workspaceDiagnosticsFinished", workspaceDiagnosticsFinishedParams{
+		FilesWithDiagnostics: h.publishedDiagnosticsCount(),
+	})
+
+	if indexWorkspace {
+		h.idx.IndexWorkspace()
+	}
 	h.runWorkspaceDiagnostics()
 }
 
@@ -382,6 +403,12 @@ func (h *Handler) clearDiagnosticsOutsideWorkspace(seen map[string]struct{}) {
 			URI: uri, Diagnostics: []lsp.Diagnostic{},
 		})
 	}
+}
+
+func (h *Handler) publishedDiagnosticsCount() int {
+	h.publishedDiagnosticsMu.Lock()
+	defer h.publishedDiagnosticsMu.Unlock()
+	return len(h.publishedDiagnostics)
 }
 
 func readDocumentTextFromDisk(uri string) (string, error) {

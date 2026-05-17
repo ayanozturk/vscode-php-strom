@@ -67,6 +67,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       client?.sendNotification('phpstrom/indexWorkspace');
     }),
 
+    vscode.commands.registerCommand('phpstrom.refreshProblemsScan', () => {
+      client?.sendNotification('phpstrom/indexWorkspace');
+    }),
+
     vscode.commands.registerCommand('phpstrom.showOutputChannel', () => {
       outputChannel.show();
     }),
@@ -203,6 +207,21 @@ async function startClient(context: vscode.ExtensionContext, clearCache = false)
         params.uri,
         '$(check) PHP Strom: Analysis updated',
         'PHP Strom finished analysing the saved file',
+      );
+    },
+  );
+
+  client.onNotification('phpstrom/workspaceDiagnosticsStarted', () => {
+    diagnosticsTreeProvider.beginWorkspaceScan();
+    outputChannel.appendLine('[phpstrom] Scanning project diagnostics…');
+  });
+
+  client.onNotification(
+    'phpstrom/workspaceDiagnosticsFinished',
+    (params: { filesWithDiagnostics: number }) => {
+      diagnosticsTreeProvider.finishWorkspaceScan();
+      outputChannel.appendLine(
+        `[phpstrom] Project diagnostics scan complete — ${params.filesWithDiagnostics.toLocaleString()} file(s) with diagnostics`,
       );
     },
   );

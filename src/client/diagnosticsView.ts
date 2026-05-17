@@ -39,8 +39,10 @@ type ViewStats = {
 
 export class ProjectDiagnosticsTreeProvider implements vscode.TreeDataProvider<DiagnosticsViewNode> {
   private readonly diagnosticsByUri = new Map<string, readonly vscode.Diagnostic[]>();
+  private stagedDiagnosticsByUri: Map<string, readonly vscode.Diagnostic[]> | undefined;
   private readonly treeDataEmitter = new vscode.EventEmitter<DiagnosticsViewNode | undefined | void>();
   private view: vscode.TreeView<DiagnosticsViewNode> | undefined;
+  private workspaceScanInProgress = false;
 
   readonly onDidChangeTreeData = this.treeDataEmitter.event;
 
@@ -50,18 +52,43 @@ export class ProjectDiagnosticsTreeProvider implements vscode.TreeDataProvider<D
   }
 
   updateDiagnostics(uri: vscode.Uri, diagnostics: readonly vscode.Diagnostic[]): void {
+    const target = this.stagedDiagnosticsByUri ?? this.diagnosticsByUri;
     if (diagnostics.length === 0) {
-      this.diagnosticsByUri.delete(uri.toString());
+      target.delete(uri.toString());
     } else {
-      this.diagnosticsByUri.set(uri.toString(), diagnostics);
+      target.set(uri.toString(), diagnostics);
     }
 
+    this.updateViewPresentation();
+    if (!this.workspaceScanInProgress) {
+      this.treeDataEmitter.fire();
+    }
+  }
+
+  beginWorkspaceScan(): void {
+    this.workspaceScanInProgress = true;
+    this.stagedDiagnosticsByUri = new Map<string, readonly vscode.Diagnostic[]>();
+    this.updateViewPresentation();
+  }
+
+  finishWorkspaceScan(): void {
+    if (this.stagedDiagnosticsByUri) {
+      this.diagnosticsByUri.clear();
+      for (const [uri, diagnostics] of this.stagedDiagnosticsByUri.entries()) {
+        this.diagnosticsByUri.set(uri, diagnostics);
+      }
+    }
+
+    this.stagedDiagnosticsByUri = undefined;
+    this.workspaceScanInProgress = false;
     this.updateViewPresentation();
     this.treeDataEmitter.fire();
   }
 
   clear(): void {
     this.diagnosticsByUri.clear();
+    this.stagedDiagnosticsByUri = undefined;
+    this.workspaceScanInProgress = false;
     this.updateViewPresentation();
     this.treeDataEmitter.fire();
   }
@@ -136,6 +163,12 @@ export class ProjectDiagnosticsTreeProvider implements vscode.TreeDataProvider<D
 
   private updateViewPresentation(): void {
     if (!this.view) {
+      return;
+    }
+
+    if (this.workspaceScanInProgress) {
+      this.view.message = 'Scanning project diagnostics…';
+      this.view.badge = undefined;
       return;
     }
 

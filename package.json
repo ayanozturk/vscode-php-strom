@@ -28,8 +28,7 @@
     "psalm"
   ],
   "activationEvents": [
-    "onLanguage:php",
-    "onView:phpstromProblems"
+    "onLanguage:php"
   ],
   "icon": "phpstrom-logo.png",
   "main": "./dist/extension.js",
@@ -39,7 +38,7 @@
         {
           "id": "phpstrom",
           "title": "PHP Strom",
-          "icon": "phpstrom-logo.png"
+          "icon": "media/phpstrom-activitybar.svg"
         }
       ]
     },
@@ -421,6 +420,11 @@
         "title": "PHP Strom: Re-index Workspace"
       },
       {
+        "command": "phpstrom.refreshProblemsScan",
+        "title": "PHP Strom: Refresh Problems Scan",
+        "icon": "$(refresh)"
+      },
+      {
         "command": "phpstrom.showOutputChannel",
         "title": "PHP Strom: Show Output Channel"
       },
@@ -441,10 +445,20 @@
           "command": "phpstrom.indexWorkspace"
         },
         {
+          "command": "phpstrom.refreshProblemsScan"
+        },
+        {
           "command": "phpstrom.showOutputChannel"
         },
         {
           "command": "phpstrom.showDetectedPhpExtensions"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "phpstrom.refreshProblemsScan",
+          "when": "view == phpstromProblems",
+          "group": "navigation"
         }
       ]
     }
