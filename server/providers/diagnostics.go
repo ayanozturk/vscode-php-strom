@@ -27,8 +27,9 @@ func (r workspaceSymbolResolver) ResolveClass(name string) (analyse.ResolvedClas
 		return analyse.ResolvedClass{}, false
 	}
 	return analyse.ResolvedClass{
-		Name:    sym.FQN,
-		Extends: append([]string(nil), sym.Extends...),
+		Name:       sym.FQN,
+		Extends:    append([]string(nil), sym.Extends...),
+		Implements: append([]string(nil), sym.Implements...),
 	}, true
 }
 

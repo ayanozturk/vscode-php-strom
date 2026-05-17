@@ -36,7 +36,7 @@ Install from the VS Code Marketplace.
 
 `make build-server`, `make build-server-local`, and `make test-server` no longer depend on a sibling checkout of the parser repo.
 
-Those targets fetch `go-php-parser` into `.cache/go-php-parser` on first use and generate a temporary Go workspace file so the server can build against that cached clone.
+Those targets prefer a sibling `../go-php-parser` checkout when it exists. Otherwise they fetch `go-php-parser` into `.cache/go-php-parser` on first use and generate a temporary Go workspace file so the server can build without any manual local setup.
 
 Override the source if needed:
 

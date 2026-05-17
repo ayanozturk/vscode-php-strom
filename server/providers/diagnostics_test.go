@@ -262,6 +262,45 @@ class Controller
 	t.Fatalf("expected A.PROP.TYPE diagnostic for typed property assignment mismatch, got %+v", diags)
 }
 
+func TestDiagnosticsProvider_AllowsInterfaceImplementationsForPropertyAssignments(t *testing.T) {
+	idx := indexer.New(indexer.Config{})
+	idx.IndexDocument("file:///workspace/Collection.php", `<?php
+namespace Doctrine\Common\Collections;
+
+interface Collection {}
+`)
+	idx.IndexDocument("file:///workspace/ArrayCollection.php", `<?php
+namespace Doctrine\Common\Collections;
+
+class ArrayCollection implements \Doctrine\Common\Collections\Collection {}
+`)
+
+	p := &DiagnosticsProvider{idx: idx}
+	diags := p.Analyse("file:///workspace/Entity.php", `<?php
+namespace App;
+
+use Doctrine\Common\Collections\ArrayCollection;
+use Doctrine\Common\Collections\Collection;
+
+class Entity
+{
+    /** @var Collection<string, Policy> */
+    private Collection $users;
+
+    public function __construct()
+    {
+        $this->users = new ArrayCollection();
+    }
+}
+`)
+
+	for _, diag := range diags {
+		if code, ok := diag.Code.(string); ok && code == "A.PROP.TYPE" {
+			t.Fatalf("expected no A.PROP.TYPE diagnostic for interface implementation assignment, got %+v", diags)
+		}
+	}
+}
+
 func TestLineColToRange(t *testing.T) {
 	r := lineColToRange(5, 10)
 	if r.Start.Line != 4 || r.Start.Character != 9 {

@@ -10,6 +10,7 @@ TARGETS     := darwin-arm64 darwin-x64 linux-arm64 linux-x64 win32-arm64 win32-x
 CACHE_DIR   := .cache
 PHP_PARSER_REPO ?= https://github.com/ayanozturk/go-php-parser.git
 PHP_PARSER_REF  ?= main
+LOCAL_PHP_PARSER_DIR ?= ../go-php-parser
 PHP_PARSER_DIR  := $(CACHE_DIR)/go-php-parser
 GO_WORK_FILE    := $(abspath $(CACHE_DIR)/phpstrom.build.work)
 
@@ -37,6 +38,10 @@ build: build-server build-ext
 
 ## prepare-parser: fetch the parser dependency into a local cache when it is not already present
 prepare-parser:
+	@if [ -d "$(LOCAL_PHP_PARSER_DIR)/.git" ]; then \
+		echo "==> Using local PHP parser sources at $(LOCAL_PHP_PARSER_DIR)"; \
+		exit 0; \
+	fi
 	@mkdir -p $(CACHE_DIR)
 	@if [ -d "$(PHP_PARSER_DIR)/.git" ]; then \
 		echo "==> Reusing cached PHP parser sources at $(PHP_PARSER_DIR)"; \
@@ -51,7 +56,9 @@ prepare-parser:
 ## prepare-go-work: generate a temporary Go workspace that wires phpstrom to the cached parser module
 prepare-go-work: prepare-parser
 	@mkdir -p $(CACHE_DIR)
-	@printf 'go 1.23\n\nuse (\n\t%s\n\t%s\n)\n' "$(abspath $(SERVER_DIR))" "$(abspath $(PHP_PARSER_DIR))" > "$(GO_WORK_FILE)"
+	@PARSER_PATH="$(abspath $(PHP_PARSER_DIR))"; \
+	if [ -d "$(LOCAL_PHP_PARSER_DIR)/.git" ]; then PARSER_PATH="$(abspath $(LOCAL_PHP_PARSER_DIR))"; fi; \
+	printf 'go 1.23\n\nuse (\n\t%s\n\t%s\n)\n' "$(abspath $(SERVER_DIR))" "$$PARSER_PATH" > "$(GO_WORK_FILE)"
 
 ## build-server: compile the Go language server binaries for all marketplace targets
 build-server: prepare-go-work
