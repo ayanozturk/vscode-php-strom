@@ -5,6 +5,7 @@ package providers
 
 import (
 	"go-phpcs/analyse"
+	"go-phpcs/ast"
 	"go-phpcs/style"
 	"strings"
 
@@ -159,8 +160,15 @@ type DiagnosticsProvider struct {
 func (p *DiagnosticsProvider) Analyse(uri, text string) []lsp.Diagnostic {
 	filename := uriToFilename(uri)
 	snapshot := p.cache.snapshot(uri, text)
-	nodes := snapshot.nodes
+	return p.analyseParsed(filename, text, snapshot.nodes, snapshot.errors)
+}
 
+func (p *DiagnosticsProvider) AnalyseParsed(uri, text string, nodes []ast.Node, parseErrors []string) []lsp.Diagnostic {
+	filename := uriToFilename(uri)
+	return p.analyseParsed(filename, text, nodes, parseErrors)
+}
+
+func (p *DiagnosticsProvider) analyseParsed(filename, text string, nodes []ast.Node, parseErrors []string) []lsp.Diagnostic {
 	var diags []lsp.Diagnostic
 
 	// Run analysis rules (assignment-in-condition, empty statements, etc.)
@@ -192,7 +200,7 @@ func (p *DiagnosticsProvider) Analyse(uri, text string) []lsp.Diagnostic {
 	}
 
 	// Surface parse errors from go-phpcs as error diagnostics.
-	for _, errMsg := range snapshot.errors {
+	for _, errMsg := range parseErrors {
 		sev := lsp.DiagSeverityError
 		diags = append(diags, lsp.Diagnostic{
 			Range:    lineColToRange(0, 0),

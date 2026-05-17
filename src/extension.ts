@@ -218,10 +218,15 @@ async function startClient(context: vscode.ExtensionContext, clearCache = false)
 
   client.onNotification(
     'phpstrom/workspaceDiagnosticsFinished',
-    (params: { filesWithDiagnostics: number }) => {
-      diagnosticsTreeProvider.finishWorkspaceScan();
+    (params: { filesWithDiagnostics: number; totalDiagnostics: number; capped: boolean }) => {
+      diagnosticsTreeProvider.finishWorkspaceScan({
+        totalDiagnostics: params.totalDiagnostics,
+        capped: params.capped,
+      });
       outputChannel.appendLine(
-        `[phpstrom] Project diagnostics scan complete — ${params.filesWithDiagnostics.toLocaleString()} file(s) with diagnostics`,
+        params.capped
+          ? `[phpstrom] Project diagnostics scan stopped at ${params.totalDiagnostics.toLocaleString()} diagnostics across ${params.filesWithDiagnostics.toLocaleString()} file(s)`
+          : `[phpstrom] Project diagnostics scan complete — ${params.filesWithDiagnostics.toLocaleString()} file(s) with diagnostics`,
       );
     },
   );

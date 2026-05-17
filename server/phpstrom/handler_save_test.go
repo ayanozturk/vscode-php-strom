@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -232,5 +233,37 @@ func TestDidCloseRevertsToDiskDiagnostics(t *testing.T) {
 	}
 	if strings.Contains(payload, `"diagnostics":[]`) {
 		t.Fatalf("expected didClose to preserve disk diagnostics instead of clearing them, got %q", payload)
+	}
+}
+
+func TestWorkspaceDiagnosticsStopsAtLimit(t *testing.T) {
+	var out bytes.Buffer
+	srv := &Server{out: &out}
+	h := NewHandler(srv)
+	perFileDiagnostics := len(h.prov.Diagnostics.Analyse("file:///workspace/File0.php", "<?php\nclass Bad_Class_0 {}\n"))
+	if perFileDiagnostics == 0 {
+		t.Fatal("expected synthetic test file to emit diagnostics")
+	}
+
+	scan := newWorkspaceDiagnosticsScanState()
+	published := 0
+	for index := 0; index < workspaceDiagnosticsLimit+5; index++ {
+		uri := "file:///workspace/File" + strconv.Itoa(index) + ".php"
+		text := "<?php\nclass Bad_Class_" + strconv.Itoa(index) + " {}\n"
+		if h.publishWorkspaceDocumentDiagnosticsForScan(uri, text, scan) {
+			published++
+		}
+	}
+
+	expectedPublished := workspaceDiagnosticsLimit / perFileDiagnostics
+	expectedTotal := expectedPublished * perFileDiagnostics
+	if published != expectedPublished {
+		t.Fatalf("expected scan to stop after %d published files, got %d", expectedPublished, published)
+	}
+	if !scan.capped() {
+		t.Fatal("expected scan state to be marked capped")
+	}
+	if scan.total() != expectedTotal {
+		t.Fatalf("expected scan total %d, got %d", expectedTotal, scan.total())
 	}
 }

@@ -30,6 +30,15 @@ type WorkspaceIndexer struct {
 	indexedCount  int64
 }
 
+// ParsedFile contains the single-parse result used for both indexing and diagnostics.
+type ParsedFile struct {
+	URI     string
+	Text    string
+	Nodes   []ast.Node
+	Errors  []string
+	Symbols []*Symbol
+}
+
 // New creates a WorkspaceIndexer with the given configuration.
 func New(cfg Config) *WorkspaceIndexer {
 	return &WorkspaceIndexer{cfg: cfg, index: newIndex()}
@@ -55,6 +64,16 @@ func (wi *WorkspaceIndexer) OnIndexingProgress(fn func(done, total int)) { wi.on
 // IndexWorkspace scans all workspace folders and indexes every PHP file.
 // It uses a goroutine pool sized to GOMAXPROCS for parallel parsing.
 func (wi *WorkspaceIndexer) IndexWorkspace() {
+	wi.indexWorkspace(nil)
+}
+
+// IndexWorkspaceParsed scans all workspace folders, updates the symbol index,
+// and invokes visitor with the parsed representation for each file.
+func (wi *WorkspaceIndexer) IndexWorkspaceParsed(visitor func(ParsedFile)) {
+	wi.indexWorkspace(visitor)
+}
+
+func (wi *WorkspaceIndexer) indexWorkspace(visitor func(ParsedFile)) {
 	if wi.onStart != nil {
 		wi.onStart()
 	}
@@ -105,7 +124,7 @@ func (wi *WorkspaceIndexer) IndexWorkspace() {
 			defer wg.Done()
 			log.Printf("[indexer] worker %d started", workerID)
 			for filePath := range jobs {
-				wi.indexFileWithTimeout(filePath)
+				wi.indexFileWithTimeout(filePath, visitor)
 				done := int(atomic.AddInt64(&wi.indexedCount, 1))
 				if done%reportEvery == 0 || done == total {
 					log.Printf("[indexer] progress %d/%d", done, total)
@@ -212,11 +231,11 @@ func (wi *WorkspaceIndexer) untrackWorkspaceURI(uri string) {
 // indexFileWithTimeout parses a file inside a goroutine with a 5s deadline.
 // If parsing hangs (e.g. infinite loop in the parser), the file is skipped and
 // a warning is logged. The timed-out goroutine leaks but does not block others.
-func (wi *WorkspaceIndexer) indexFileWithTimeout(path string) {
+func (wi *WorkspaceIndexer) indexFileWithTimeout(path string, visitor func(ParsedFile)) {
 	const timeout = 5 * time.Second
 
 	type result struct {
-		syms []*Symbol
+		parsed *ParsedFile
 	}
 	done := make(chan result, 1)
 
@@ -245,15 +264,17 @@ func (wi *WorkspaceIndexer) indexFileWithTimeout(path string) {
 			return
 		}
 		uri := pathToURI(path)
-		syms := extractSymbols(uri, string(data))
-		done <- result{syms: syms}
+		parsed := ParseSource(uri, string(data))
+		done <- result{parsed: &parsed}
 	}()
 
 	select {
 	case res := <-done:
-		if len(res.syms) > 0 {
-			uri := pathToURI(path)
-			wi.index.PutFile(uri, res.syms)
+		if res.parsed != nil {
+			wi.index.PutFile(res.parsed.URI, res.parsed.Symbols)
+			if visitor != nil {
+				visitor(*res.parsed)
+			}
 		}
 	case <-time.After(timeout):
 		log.Printf("[indexer] TIMEOUT (>%s) parsing %s — skipping", timeout, path)
@@ -276,11 +297,28 @@ func (wi *WorkspaceIndexer) matchesAssociations(path string) bool {
 
 // ─── Symbol extraction ────────────────────────────────────────────────────────
 
-// extractSymbols parses PHP source and extracts top-level declarations.
-func extractSymbols(uri, src string) []*Symbol {
+// ParseSource parses PHP source once and derives both AST-backed diagnostics input
+// and the symbol index representation from the same node list.
+func ParseSource(uri, src string) ParsedFile {
 	l := goplexer.New(src)
 	p := goparser.New(l, false)
 	nodes := p.Parse()
+	errs := append([]string(nil), p.Errors()...)
+	return ParsedFile{
+		URI:     uri,
+		Text:    src,
+		Nodes:   nodes,
+		Errors:  errs,
+		Symbols: extractSymbolsFromNodes(uri, nodes),
+	}
+}
+
+// extractSymbols parses PHP source and extracts top-level declarations.
+func extractSymbols(uri, src string) []*Symbol {
+	return ParseSource(uri, src).Symbols
+}
+
+func extractSymbolsFromNodes(uri string, nodes []ast.Node) []*Symbol {
 	var syms []*Symbol
 	extractFromNodes(nodes, uri, extractionContext{aliases: make(map[string]string)}, &syms)
 	for _, sym := range syms {

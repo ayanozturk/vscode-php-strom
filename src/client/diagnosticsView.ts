@@ -37,12 +37,18 @@ type ViewStats = {
   totalProblemTypes: number;
 };
 
+type ScanSummary = {
+  totalDiagnostics: number;
+  capped: boolean;
+};
+
 export class ProjectDiagnosticsTreeProvider implements vscode.TreeDataProvider<DiagnosticsViewNode> {
   private readonly diagnosticsByUri = new Map<string, readonly vscode.Diagnostic[]>();
   private stagedDiagnosticsByUri: Map<string, readonly vscode.Diagnostic[]> | undefined;
   private readonly treeDataEmitter = new vscode.EventEmitter<DiagnosticsViewNode | undefined | void>();
   private view: vscode.TreeView<DiagnosticsViewNode> | undefined;
   private workspaceScanInProgress = false;
+  private lastScanSummary: ScanSummary | undefined;
 
   readonly onDidChangeTreeData = this.treeDataEmitter.event;
 
@@ -68,10 +74,11 @@ export class ProjectDiagnosticsTreeProvider implements vscode.TreeDataProvider<D
   beginWorkspaceScan(): void {
     this.workspaceScanInProgress = true;
     this.stagedDiagnosticsByUri = new Map<string, readonly vscode.Diagnostic[]>();
+    this.lastScanSummary = undefined;
     this.updateViewPresentation();
   }
 
-  finishWorkspaceScan(): void {
+  finishWorkspaceScan(summary?: ScanSummary): void {
     if (this.stagedDiagnosticsByUri) {
       this.diagnosticsByUri.clear();
       for (const [uri, diagnostics] of this.stagedDiagnosticsByUri.entries()) {
@@ -81,6 +88,7 @@ export class ProjectDiagnosticsTreeProvider implements vscode.TreeDataProvider<D
 
     this.stagedDiagnosticsByUri = undefined;
     this.workspaceScanInProgress = false;
+    this.lastScanSummary = summary;
     this.updateViewPresentation();
     this.treeDataEmitter.fire();
   }
@@ -174,12 +182,17 @@ export class ProjectDiagnosticsTreeProvider implements vscode.TreeDataProvider<D
 
     const stats = this.getStats();
     if (stats.totalDiagnostics === 0) {
-      this.view.message = 'No PHP Strom diagnostics in the current workspace.';
+      this.view.message = this.lastScanSummary?.capped
+        ? `Stopped after ${this.lastScanSummary.totalDiagnostics.toLocaleString()} diagnostics.`
+        : 'No PHP Strom diagnostics in the current workspace.';
       this.view.badge = undefined;
       return;
     }
 
-    this.view.message = `${stats.totalDiagnostics} diagnostics in ${stats.totalFiles} file${stats.totalFiles === 1 ? '' : 's'} across ${stats.totalProblemTypes} problem type${stats.totalProblemTypes === 1 ? '' : 's'}.`;
+    const suffix = this.lastScanSummary?.capped
+      ? ` Scan stopped at ${this.lastScanSummary.totalDiagnostics.toLocaleString()} diagnostics.`
+      : '';
+    this.view.message = `${stats.totalDiagnostics} diagnostics in ${stats.totalFiles} file${stats.totalFiles === 1 ? '' : 's'} across ${stats.totalProblemTypes} problem type${stats.totalProblemTypes === 1 ? '' : 's'}.${suffix}`;
     this.view.badge = {
       value: stats.totalDiagnostics,
       tooltip: 'PHP Strom diagnostics',

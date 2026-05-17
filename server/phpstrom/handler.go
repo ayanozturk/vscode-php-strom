@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/ayanozturk/vscode-php-strom/indexer"
 	"github.com/ayanozturk/vscode-php-strom/lsp"
@@ -28,6 +29,8 @@ type Handler struct {
 	publishedDiagnostics   map[string]struct{}
 }
 
+const workspaceDiagnosticsLimit = 10_000
+
 type saveAnalysisFinishedParams struct {
 	URI       string `json:"uri"`
 	Published bool   `json:"published"`
@@ -35,6 +38,8 @@ type saveAnalysisFinishedParams struct {
 
 type workspaceDiagnosticsFinishedParams struct {
 	FilesWithDiagnostics int `json:"filesWithDiagnostics"`
+	TotalDiagnostics     int `json:"totalDiagnostics"`
+	Capped               bool `json:"capped"`
 }
 
 func NewHandler(srv *Server) *Handler {
@@ -296,27 +301,59 @@ func (h *Handler) publishDiagnostics(uri, text string, version int) bool {
 
 func (h *Handler) indexAndPublishWorkspaceDiagnostics() {
 	h.srv.Notify("phpstrom/workspaceDiagnosticsStarted", nil)
+
+	h.workspaceDiagnosticsMu.Lock()
+	defer h.workspaceDiagnosticsMu.Unlock()
+	scan := newWorkspaceDiagnosticsScanState()
 	defer h.srv.Notify("phpstrom/workspaceDiagnosticsFinished", workspaceDiagnosticsFinishedParams{
 		FilesWithDiagnostics: h.publishedDiagnosticsCount(),
+		TotalDiagnostics:     scan.total(),
+		Capped:               scan.capped(),
 	})
 
-	h.idx.IndexWorkspace()
-	h.runWorkspaceDiagnostics()
+	if !h.cfg.Diagnostics.Enable {
+		h.idx.IndexWorkspace()
+		h.clearPublishedDiagnostics()
+		return
+	}
+
+	seen := make(map[string]struct{})
+	var seenMu sync.Mutex
+	h.idx.IndexWorkspaceParsed(func(parsed indexer.ParsedFile) {
+		if scan.capped() {
+			return
+		}
+
+		seenMu.Lock()
+		seen[parsed.URI] = struct{}{}
+		seenMu.Unlock()
+
+		if doc, ok := h.documents.Snapshot(parsed.URI); ok {
+			h.publishDiagnosticsForScan(parsed.URI, doc.Text, doc.Version, scan)
+			return
+		}
+
+		h.publishWorkspaceParsedDiagnosticsForScan(parsed, scan)
+	})
+	h.clearDiagnosticsOutsideWorkspace(seen)
 }
 
 func (h *Handler) runWorkspaceDiagnosticsScan(indexWorkspace bool) {
 	h.srv.Notify("phpstrom/workspaceDiagnosticsStarted", nil)
+	scan := newWorkspaceDiagnosticsScanState()
 	defer h.srv.Notify("phpstrom/workspaceDiagnosticsFinished", workspaceDiagnosticsFinishedParams{
 		FilesWithDiagnostics: h.publishedDiagnosticsCount(),
+		TotalDiagnostics:     scan.total(),
+		Capped:               scan.capped(),
 	})
 
 	if indexWorkspace {
 		h.idx.IndexWorkspace()
 	}
-	h.runWorkspaceDiagnostics()
+	h.runWorkspaceDiagnostics(scan)
 }
 
-func (h *Handler) runWorkspaceDiagnostics() {
+func (h *Handler) runWorkspaceDiagnostics(scan *workspaceDiagnosticsScanState) {
 	h.workspaceDiagnosticsMu.Lock()
 	defer h.workspaceDiagnosticsMu.Unlock()
 
@@ -348,8 +385,12 @@ func (h *Handler) runWorkspaceDiagnostics() {
 		go func() {
 			defer wg.Done()
 			for uri := range jobs {
+				if scan.capped() {
+					return
+				}
+
 				if doc, ok := h.documents.Snapshot(uri); ok {
-					_ = h.publishDiagnostics(uri, doc.Text, doc.Version)
+					h.publishDiagnosticsForScan(uri, doc.Text, doc.Version, scan)
 					continue
 				}
 
@@ -357,7 +398,7 @@ func (h *Handler) runWorkspaceDiagnostics() {
 				if err != nil {
 					continue
 				}
-				h.publishWorkspaceDocumentDiagnostics(uri, text)
+				h.publishWorkspaceDocumentDiagnosticsForScan(uri, text, scan)
 			}
 		}()
 	}
@@ -371,6 +412,55 @@ func (h *Handler) publishWorkspaceDocumentDiagnostics(uri, text string) bool {
 	diags := h.prov.Diagnostics.Analyse(uri, text)
 	if diags == nil {
 		diags = []lsp.Diagnostic{}
+	}
+	h.notifyDiagnostics(uri, diags)
+	return true
+}
+
+func (h *Handler) publishWorkspaceDocumentDiagnosticsForScan(uri, text string, scan *workspaceDiagnosticsScanState) bool {
+	diags := h.prov.Diagnostics.Analyse(uri, text)
+	if diags == nil {
+		diags = []lsp.Diagnostic{}
+	}
+	if !scan.allow(len(diags)) {
+		return false
+	}
+	h.notifyDiagnostics(uri, diags)
+	return true
+}
+
+func (h *Handler) publishWorkspaceParsedDiagnostics(parsed indexer.ParsedFile) bool {
+	diags := h.prov.Diagnostics.AnalyseParsed(parsed.URI, parsed.Text, parsed.Nodes, parsed.Errors)
+	if diags == nil {
+		diags = []lsp.Diagnostic{}
+	}
+	h.notifyDiagnostics(parsed.URI, diags)
+	return true
+}
+
+func (h *Handler) publishWorkspaceParsedDiagnosticsForScan(parsed indexer.ParsedFile, scan *workspaceDiagnosticsScanState) bool {
+	diags := h.prov.Diagnostics.AnalyseParsed(parsed.URI, parsed.Text, parsed.Nodes, parsed.Errors)
+	if diags == nil {
+		diags = []lsp.Diagnostic{}
+	}
+	if !scan.allow(len(diags)) {
+		return false
+	}
+	h.notifyDiagnostics(parsed.URI, diags)
+	return true
+}
+
+func (h *Handler) publishDiagnosticsForScan(uri, text string, version int, scan *workspaceDiagnosticsScanState) bool {
+	diags := h.prov.Diagnostics.Analyse(uri, text)
+	if diags == nil {
+		diags = []lsp.Diagnostic{}
+	}
+	if !scan.allow(len(diags)) {
+		return false
+	}
+	current, ok := h.documents.Snapshot(uri)
+	if !ok || current.Version != version || current.Text != text {
+		return false
 	}
 	h.notifyDiagnostics(uri, diags)
 	return true
@@ -432,6 +522,43 @@ func (h *Handler) publishedDiagnosticsCount() int {
 	h.publishedDiagnosticsMu.Lock()
 	defer h.publishedDiagnosticsMu.Unlock()
 	return len(h.publishedDiagnostics)
+}
+
+type workspaceDiagnosticsScanState struct {
+	totalDiagnostics atomic.Int64
+	isCapped         atomic.Bool
+}
+
+func newWorkspaceDiagnosticsScanState() *workspaceDiagnosticsScanState {
+	return &workspaceDiagnosticsScanState{}
+}
+
+func (s *workspaceDiagnosticsScanState) allow(count int) bool {
+	if count <= 0 {
+		return !s.capped()
+	}
+	for {
+		current := s.totalDiagnostics.Load()
+		if current >= workspaceDiagnosticsLimit {
+			s.isCapped.Store(true)
+			return false
+		}
+		if current+int64(count) > workspaceDiagnosticsLimit {
+			s.isCapped.Store(true)
+			return false
+		}
+		if s.totalDiagnostics.CompareAndSwap(current, current+int64(count)) {
+			return true
+		}
+	}
+}
+
+func (s *workspaceDiagnosticsScanState) capped() bool {
+	return s.isCapped.Load()
+}
+
+func (s *workspaceDiagnosticsScanState) total() int {
+	return int(s.totalDiagnostics.Load())
 }
 
 func readDocumentTextFromDisk(uri string) (string, error) {
