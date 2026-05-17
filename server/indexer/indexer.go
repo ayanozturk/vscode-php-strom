@@ -220,11 +220,16 @@ func extractSymbols(uri, src string) []*Symbol {
 	p := goparser.New(l, false)
 	nodes := p.Parse()
 	var syms []*Symbol
-	extractFromNodes(nodes, uri, "", &syms)
+	extractFromNodes(nodes, uri, extractionContext{aliases: make(map[string]string)}, &syms)
 	for _, sym := range syms {
 		populateLSPRange(sym)
 	}
 	return syms
+}
+
+type extractionContext struct {
+	namespace string
+	aliases   map[string]string
 }
 
 // buildLineOffsets returns a slice where element i is the byte offset of line i (0-based).
@@ -252,25 +257,35 @@ func offsetToLineChar(lineOffsets []int, offset int) (line, char uint32) {
 	return uint32(lo), uint32(offset - lineOffsets[lo])
 }
 
-func extractFromNodes(nodes []ast.Node, uri, ns string, syms *[]*Symbol) {
+func extractFromNodes(nodes []ast.Node, uri string, ctx extractionContext, syms *[]*Symbol) {
 	for _, node := range nodes {
 		switch n := node.(type) {
 		case *ast.NamespaceNode:
-			newNS := n.Name
+			namespaceCtx := extractionContext{namespace: n.Name, aliases: make(map[string]string)}
 			if len(n.Body) > 0 {
-				extractFromNodes(n.Body, uri, newNS, syms)
+				extractFromNodes(n.Body, uri, namespaceCtx, syms)
 			} else {
 				// Bracket-less namespace: subsequent top-level declarations use this namespace.
-				ns = newNS
+				ctx = namespaceCtx
 			}
 
+		case *ast.UseNode:
+			if n.Type != "" && n.Type != "class" {
+				continue
+			}
+			alias := n.Alias
+			if alias == "" {
+				alias = unqualifiedTypeName(n.Path)
+			}
+			ctx.aliases[strings.ToLower(alias)] = strings.TrimPrefix(n.Path, `\`)
+
 		case *ast.ClassNode:
-			classFQN := fqn(ns, n.Name)
+			classFQN := fqn(ctx.namespace, n.Name)
 			sym := &Symbol{
 				FQN:        classFQN,
 				Name:       n.Name,
 				Kind:       KindClass,
-				Namespace:  ns,
+				Namespace:  ctx.namespace,
 				URI:        uri,
 				Range:      positionRange(n.GetPos()),
 				DocComment: docRaw(n.PHPDoc),
@@ -279,23 +294,29 @@ func extractFromNodes(nodes []ast.Node, uri, ns string, syms *[]*Symbol) {
 				Visibility: "public",
 			}
 			if n.Extends != "" {
-				sym.Extends = []string{n.Extends}
+				sym.Extends = []string{resolveClassLike(ctx, n.Extends)}
 			}
-			sym.Implements = n.Implements
+			for _, implemented := range n.Implements {
+				sym.Implements = append(sym.Implements, resolveClassLike(ctx, implemented))
+			}
 			*syms = append(*syms, sym)
 			extractClassMembers(n, uri, classFQN, syms)
 
 		case *ast.InterfaceNode:
-			interfaceFQN := fqn(ns, n.Name)
+			interfaceFQN := fqn(ctx.namespace, n.Name)
+			extends := make([]string, 0, len(n.Extends))
+			for _, parent := range n.Extends {
+				extends = append(extends, resolveClassLike(ctx, parent))
+			}
 			*syms = append(*syms, &Symbol{
 				FQN:        interfaceFQN,
 				Name:       n.Name,
 				Kind:       KindInterface,
-				Namespace:  ns,
+				Namespace:  ctx.namespace,
 				URI:        uri,
 				Range:      positionRange(n.GetPos()),
 				DocComment: docRaw(n.PHPDoc),
-				Extends:    n.Extends,
+				Extends:    extends,
 				Visibility: "public",
 			})
 			extractInterfaceMembers(n.Members, uri, interfaceFQN, syms)
@@ -305,12 +326,12 @@ func extractFromNodes(nodes []ast.Node, uri, ns string, syms *[]*Symbol) {
 			if n.Name != nil {
 				traitName = n.Name.Name
 			}
-			traitFQN := fqn(ns, traitName)
+			traitFQN := fqn(ctx.namespace, traitName)
 			*syms = append(*syms, &Symbol{
 				FQN:        traitFQN,
 				Name:       traitName,
 				Kind:       KindModule,
-				Namespace:  ns,
+				Namespace:  ctx.namespace,
 				URI:        uri,
 				Range:      positionRange(n.GetPos()),
 				Visibility: "public",
@@ -318,12 +339,12 @@ func extractFromNodes(nodes []ast.Node, uri, ns string, syms *[]*Symbol) {
 			extractTraitMembers(n.Body, uri, traitFQN, syms)
 
 		case *ast.EnumNode:
-			enumFQN := fqn(ns, n.Name)
+			enumFQN := fqn(ctx.namespace, n.Name)
 			*syms = append(*syms, &Symbol{
 				FQN:        enumFQN,
 				Name:       n.Name,
 				Kind:       KindEnum,
-				Namespace:  ns,
+				Namespace:  ctx.namespace,
 				URI:        uri,
 				Range:      positionRange(n.GetPos()),
 				Visibility: "public",
@@ -331,12 +352,12 @@ func extractFromNodes(nodes []ast.Node, uri, ns string, syms *[]*Symbol) {
 			extractEnumCases(n.Cases, uri, enumFQN, syms)
 
 		case *ast.FunctionNode:
-			functionFQN := fqn(ns, n.Name)
+			functionFQN := fqn(ctx.namespace, n.Name)
 			*syms = append(*syms, &Symbol{
 				FQN:        functionFQN,
 				Name:       n.Name,
 				Kind:       KindFunction,
-				Namespace:  ns,
+				Namespace:  ctx.namespace,
 				URI:        uri,
 				Range:      positionRange(n.GetPos()),
 				DocComment: docRaw(n.PHPDoc),
@@ -346,18 +367,53 @@ func extractFromNodes(nodes []ast.Node, uri, ns string, syms *[]*Symbol) {
 			})
 
 		case *ast.ConstantNode:
-			constFQN := fqn(ns, n.Name)
+			constFQN := fqn(ctx.namespace, n.Name)
 			*syms = append(*syms, &Symbol{
 				FQN:        constFQN,
 				Name:       n.Name,
 				Kind:       KindConstant,
-				Namespace:  ns,
+				Namespace:  ctx.namespace,
 				URI:        uri,
 				Range:      positionRange(n.GetPos()),
 				Visibility: defaultVisibility(n.Visibility),
 			})
 		}
 	}
+}
+
+func resolveClassLike(ctx extractionContext, name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return ""
+	}
+	if strings.HasPrefix(name, `\`) {
+		return ensureLeadingSlash(name)
+	}
+
+	firstSegment := name
+	remainder := ""
+	if idx := strings.Index(name, `\`); idx >= 0 {
+		firstSegment = name[:idx]
+		remainder = name[idx+1:]
+	}
+	if target, ok := ctx.aliases[strings.ToLower(firstSegment)]; ok {
+		if remainder != "" {
+			return ensureLeadingSlash(target + `\` + remainder)
+		}
+		return ensureLeadingSlash(target)
+	}
+	if ctx.namespace != "" {
+		return ensureLeadingSlash(ctx.namespace + `\` + name)
+	}
+	return ensureLeadingSlash(name)
+}
+
+func unqualifiedTypeName(name string) string {
+	name = strings.TrimPrefix(strings.TrimSpace(name), `\`)
+	if idx := strings.LastIndex(name, `\`); idx >= 0 {
+		return name[idx+1:]
+	}
+	return name
 }
 
 func extractClassMembers(class *ast.ClassNode, uri, classFQN string, syms *[]*Symbol) {
@@ -650,6 +706,13 @@ func fqn(ns, name string) string {
 		return `\` + name
 	}
 	return `\` + ns + `\` + name
+}
+
+func ensureLeadingSlash(name string) string {
+	if name == "" || strings.HasPrefix(name, `\`) {
+		return name
+	}
+	return `\` + name
 }
 
 // ─── Path utilities ────────────────────────────────────────────────────────────

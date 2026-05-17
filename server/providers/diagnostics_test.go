@@ -272,7 +272,7 @@ interface Collection {}
 	idx.IndexDocument("file:///workspace/ArrayCollection.php", `<?php
 namespace Doctrine\Common\Collections;
 
-class ArrayCollection implements \Doctrine\Common\Collections\Collection {}
+class ArrayCollection implements Collection {}
 `)
 
 	p := &DiagnosticsProvider{idx: idx}

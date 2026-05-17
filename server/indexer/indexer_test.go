@@ -112,6 +112,28 @@ class Session {
 	t.Fatal("expected promoted constructor param to be indexed as property symbol")
 }
 
+func TestExtractSymbolsResolvesImplementedInterfacesToFQNs(t *testing.T) {
+	src := `<?php
+namespace Doctrine\Common\Collections;
+
+interface Collection {}
+
+class ArrayCollection implements Collection {}
+`
+
+	syms := extractSymbols("file:///test.php", src)
+	for _, sym := range syms {
+		if sym.Kind == KindClass && sym.Name == "ArrayCollection" {
+			if len(sym.Implements) != 1 || sym.Implements[0] != `\Doctrine\Common\Collections\Collection` {
+				t.Fatalf("expected fully-qualified implements entry, got %#v", sym.Implements)
+			}
+			return
+		}
+	}
+
+	t.Fatal("expected ArrayCollection symbol")
+}
+
 func TestMatchSimpleMatchesVendorRootPattern(t *testing.T) {
 	if !matchSimple("**/vendor/**", "/workspace/project/vendor") {
 		t.Fatal("expected vendor root to match exclude pattern")
