@@ -1,4 +1,4 @@
-.PHONY: all deps build build-server build-server-local build-ext install package publish clean test
+.PHONY: all deps prepare-parser prepare-go-work build build-server build-server-local build-ext install package publish clean test
 
 BINARY_NAME := phpstrom
 BIN_DIR     := bin
@@ -7,6 +7,11 @@ GO          := go
 NPM         := npm
 GOFLAGS     :=
 TARGETS     := darwin-arm64 darwin-x64 linux-arm64 linux-x64 win32-arm64 win32-x64
+CACHE_DIR   := .cache
+PHP_PARSER_REPO ?= https://github.com/ayanozturk/go-php-parser.git
+PHP_PARSER_REF  ?= main
+PHP_PARSER_DIR  := $(CACHE_DIR)/go-php-parser
+GO_WORK_FILE    := $(abspath $(CACHE_DIR)/phpstrom.build.work)
 
 # Detect OS for binary extension
 ifeq ($(OS),Windows_NT)
@@ -30,8 +35,26 @@ deps:
 ## build: compile Go server + TypeScript extension
 build: build-server build-ext
 
+## prepare-parser: fetch the parser dependency into a local cache when it is not already present
+prepare-parser:
+	@mkdir -p $(CACHE_DIR)
+	@if [ -d "$(PHP_PARSER_DIR)/.git" ]; then \
+		echo "==> Reusing cached PHP parser sources at $(PHP_PARSER_DIR)"; \
+	elif [ -d "$(PHP_PARSER_DIR)" ]; then \
+		echo "ERROR: $(PHP_PARSER_DIR) exists but is not a git clone."; \
+		exit 1; \
+	else \
+		echo "==> Fetching PHP parser sources from $(PHP_PARSER_REPO) ($(PHP_PARSER_REF))..."; \
+		git clone --depth 1 --branch "$(PHP_PARSER_REF)" "$(PHP_PARSER_REPO)" "$(PHP_PARSER_DIR)"; \
+	fi
+
+## prepare-go-work: generate a temporary Go workspace that wires phpstrom to the cached parser module
+prepare-go-work: prepare-parser
+	@mkdir -p $(CACHE_DIR)
+	@printf 'go 1.23\n\nuse (\n\t%s\n\t%s\n)\n' "$(abspath $(SERVER_DIR))" "$(abspath $(PHP_PARSER_DIR))" > "$(GO_WORK_FILE)"
+
 ## build-server: compile the Go language server binaries for all marketplace targets
-build-server:
+build-server: prepare-go-work
 	@echo "==> Building Go language server for all targets..."
 	@mkdir -p $(BIN_DIR)
 	@for target in $(TARGETS); do \
@@ -46,15 +69,15 @@ build-server:
 		if [ "$$GOOS" = "windows" ]; then OUT_NAME="$(BINARY_NAME).exe"; fi; \
 		echo "    $$PLATFORM/$$ARCH -> $$OUT_DIR/$$OUT_NAME"; \
 		mkdir -p "$$OUT_DIR"; \
-		cd $(SERVER_DIR) && GOOS="$$GOOS" GOARCH="$$GOARCH" $(GO) build $(GOFLAGS) -o "../$$OUT_DIR/$$OUT_NAME" .; \
+		cd $(SERVER_DIR) && GOWORK="$(GO_WORK_FILE)" GOOS="$$GOOS" GOARCH="$$GOARCH" $(GO) build $(GOFLAGS) -o "../$$OUT_DIR/$$OUT_NAME" .; \
 		cd ..; \
 	done
 
 ## build-server-local: compile the Go language server binary into the legacy bin/ path for local workflows
-build-server-local:
+build-server-local: prepare-go-work
 	@echo "==> Building Go language server for the host platform..."
 	@mkdir -p $(BIN_DIR)
-	cd $(SERVER_DIR) && $(GO) build $(GOFLAGS) -o ../$(BINARY) .
+	cd $(SERVER_DIR) && GOWORK="$(GO_WORK_FILE)" $(GO) build $(GOFLAGS) -o ../$(BINARY) .
 	@echo "    Binary: $(BINARY)"
 
 ## build-ext: compile the TypeScript extension
@@ -91,9 +114,9 @@ publish: package
 	@echo "==> Published $(VSIX)"
 
 ## test-server: run Go unit tests
-test-server:
+test-server: prepare-go-work
 	@echo "==> Running Go tests..."
-	cd $(SERVER_DIR) && $(GO) test ./...
+	cd $(SERVER_DIR) && GOWORK="$(GO_WORK_FILE)" $(GO) test ./...
 
 ## test-ext: run TypeScript/VS Code extension tests
 test-ext:
@@ -108,7 +131,7 @@ clean:
 	@echo "==> Cleaning..."
 	rm -f $(BINARY) $(BIN_DIR)/$(BINARY_NAME).exe *.vsix
 	rm -rf $(BIN_DIR)/darwin-arm64 $(BIN_DIR)/darwin-x64 $(BIN_DIR)/linux-arm64 $(BIN_DIR)/linux-x64 $(BIN_DIR)/win32-arm64 $(BIN_DIR)/win32-x64
-	rm -rf dist out
+	rm -rf $(CACHE_DIR) dist out
 
 ## dev: watch-compile TypeScript (for development)
 dev:

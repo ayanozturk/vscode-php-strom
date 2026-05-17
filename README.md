@@ -32,6 +32,18 @@ A full feature specification is available in [FEATURES.md](./FEATURES.md).
 
 Install from the VS Code Marketplace.
 
+## Development Build
+
+`make build-server`, `make build-server-local`, and `make test-server` no longer depend on a sibling checkout of the parser repo.
+
+Those targets fetch `go-php-parser` into `.cache/go-php-parser` on first use and generate a temporary Go workspace file so the server can build against that cached clone.
+
+Override the source if needed:
+
+```sh
+make build-server-local PHP_PARSER_REPO=https://github.com/ayanozturk/go-php-parser.git PHP_PARSER_REF=main
+```
+
 ## Configuration
 
 Important settings include:
