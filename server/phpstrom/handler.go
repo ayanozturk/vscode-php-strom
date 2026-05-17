@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/ayanozturk/vscode-php-strom/indexer"
 	"github.com/ayanozturk/vscode-php-strom/lsp"
@@ -20,6 +21,10 @@ type Handler struct {
 	documents *DocumentStore
 	idx       *indexer.WorkspaceIndexer
 	prov      *providers.Registry
+
+	workspaceDiagnosticsMu sync.Mutex
+	publishedDiagnosticsMu sync.Mutex
+	publishedDiagnostics   map[string]struct{}
 }
 
 type saveAnalysisFinishedParams struct {
@@ -33,7 +38,14 @@ func NewHandler(srv *Server) *Handler {
 	idx := indexer.New(cfg.toIndexerConfig())
 	prov := providers.NewRegistry(idx, cfg.toProviderConfig())
 
-	h := &Handler{srv: srv, cfg: cfg, documents: docs, idx: idx, prov: prov}
+	h := &Handler{
+		srv:                  srv,
+		cfg:                  cfg,
+		documents:            docs,
+		idx:                  idx,
+		prov:                 prov,
+		publishedDiagnostics: make(map[string]struct{}),
+	}
 
 	idx.OnIndexingStart(func() { srv.Notify("phpstrom/indexingStarted", nil) })
 	idx.OnIndexingProgress(func(done, total int) {
@@ -118,7 +130,7 @@ func (h *Handler) HandleRequest(method string, raw json.RawMessage) (interface{}
 func (h *Handler) HandleNotification(method string, raw json.RawMessage) {
 	switch method {
 	case "initialized":
-		go h.idx.IndexWorkspace()
+		go h.indexAndPublishWorkspaceDiagnostics()
 
 	case "textDocument/didOpen":
 		var p lsp.DidOpenTextDocumentParams
@@ -171,9 +183,13 @@ func (h *Handler) HandleNotification(method string, raw json.RawMessage) {
 			return
 		}
 		h.documents.Close(p.TextDocument.URI)
-		h.srv.Notify("textDocument/publishDiagnostics", lsp.PublishDiagnosticsParams{
-			URI: p.TextDocument.URI, Diagnostics: []lsp.Diagnostic{},
-		})
+		if text, err := readDocumentTextFromDisk(p.TextDocument.URI); err == nil {
+			h.idx.IndexDocument(p.TextDocument.URI, text)
+			h.publishWorkspaceDocumentDiagnostics(p.TextDocument.URI, text)
+			return
+		}
+		h.idx.RemoveDocument(p.TextDocument.URI)
+		h.notifyDiagnostics(p.TextDocument.URI, []lsp.Diagnostic{})
 
 	case "workspace/didChangeConfiguration":
 		var p struct {
@@ -184,9 +200,10 @@ func (h *Handler) HandleNotification(method string, raw json.RawMessage) {
 		}
 		h.cfg.Update(p.Settings)
 		h.prov = providers.NewRegistry(h.idx, h.cfg.toProviderConfig())
+		go h.runWorkspaceDiagnostics()
 
 	case "phpstrom/indexWorkspace":
-		go h.idx.IndexWorkspace()
+		go h.indexAndPublishWorkspaceDiagnostics()
 
 	case "exit":
 	}
@@ -268,10 +285,103 @@ func (h *Handler) publishDiagnostics(uri, text string, version int) bool {
 	if !ok || current.Version != version || current.Text != text {
 		return false
 	}
-	h.srv.Notify("textDocument/publishDiagnostics", lsp.PublishDiagnosticsParams{
-		URI: uri, Diagnostics: diags,
-	})
+	h.notifyDiagnostics(uri, diags)
 	return true
+}
+
+func (h *Handler) indexAndPublishWorkspaceDiagnostics() {
+	h.idx.IndexWorkspace()
+	h.runWorkspaceDiagnostics()
+}
+
+func (h *Handler) runWorkspaceDiagnostics() {
+	h.workspaceDiagnosticsMu.Lock()
+	defer h.workspaceDiagnosticsMu.Unlock()
+
+	if !h.cfg.Diagnostics.Enable {
+		h.clearPublishedDiagnostics()
+		return
+	}
+
+	workspaceURIs := h.idx.WorkspaceFileURIs()
+	seen := make(map[string]struct{}, len(workspaceURIs))
+	for _, uri := range workspaceURIs {
+		seen[uri] = struct{}{}
+
+		if doc, ok := h.documents.Snapshot(uri); ok {
+			_ = h.publishDiagnostics(uri, doc.Text, doc.Version)
+			continue
+		}
+
+		text, err := readDocumentTextFromDisk(uri)
+		if err != nil {
+			continue
+		}
+		h.publishWorkspaceDocumentDiagnostics(uri, text)
+	}
+
+	h.clearDiagnosticsOutsideWorkspace(seen)
+}
+
+func (h *Handler) publishWorkspaceDocumentDiagnostics(uri, text string) bool {
+	diags := h.prov.Diagnostics.Analyse(uri, text)
+	if diags == nil {
+		diags = []lsp.Diagnostic{}
+	}
+	h.notifyDiagnostics(uri, diags)
+	return true
+}
+
+func (h *Handler) notifyDiagnostics(uri string, diagnostics []lsp.Diagnostic) {
+	if diagnostics == nil {
+		diagnostics = []lsp.Diagnostic{}
+	}
+	h.srv.Notify("textDocument/publishDiagnostics", lsp.PublishDiagnosticsParams{
+		URI: uri, Diagnostics: diagnostics,
+	})
+
+	h.publishedDiagnosticsMu.Lock()
+	defer h.publishedDiagnosticsMu.Unlock()
+	if len(diagnostics) == 0 {
+		delete(h.publishedDiagnostics, uri)
+		return
+	}
+	h.publishedDiagnostics[uri] = struct{}{}
+}
+
+func (h *Handler) clearPublishedDiagnostics() {
+	h.publishedDiagnosticsMu.Lock()
+	uris := make([]string, 0, len(h.publishedDiagnostics))
+	for uri := range h.publishedDiagnostics {
+		uris = append(uris, uri)
+	}
+	h.publishedDiagnostics = make(map[string]struct{})
+	h.publishedDiagnosticsMu.Unlock()
+
+	for _, uri := range uris {
+		h.srv.Notify("textDocument/publishDiagnostics", lsp.PublishDiagnosticsParams{
+			URI: uri, Diagnostics: []lsp.Diagnostic{},
+		})
+	}
+}
+
+func (h *Handler) clearDiagnosticsOutsideWorkspace(seen map[string]struct{}) {
+	h.publishedDiagnosticsMu.Lock()
+	var stale []string
+	for uri := range h.publishedDiagnostics {
+		if _, ok := seen[uri]; ok {
+			continue
+		}
+		stale = append(stale, uri)
+		delete(h.publishedDiagnostics, uri)
+	}
+	h.publishedDiagnosticsMu.Unlock()
+
+	for _, uri := range stale {
+		h.srv.Notify("textDocument/publishDiagnostics", lsp.PublishDiagnosticsParams{
+			URI: uri, Diagnostics: []lsp.Diagnostic{},
+		})
+	}
 }
 
 func readDocumentTextFromDisk(uri string) (string, error) {

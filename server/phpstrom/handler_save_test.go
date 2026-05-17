@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ayanozturk/vscode-php-strom/indexer"
 	"github.com/ayanozturk/vscode-php-strom/lsp"
 )
 
@@ -163,4 +164,73 @@ func TestDidSavePublishesEmptyDiagnosticsWhenIssueIsFixed(t *testing.T) {
 	}
 
 	t.Fatalf("expected empty diagnostics notification after save, got %q", out.String())
+}
+
+func TestWorkspaceDiagnosticsPublishesClosedFiles(t *testing.T) {
+	tmpDir := t.TempDir()
+	filePath := filepath.Join(tmpDir, "BadClass.php")
+	uri := "file://" + filepath.ToSlash(filePath)
+	text := "<?php\nclass Bad_Class {}\n"
+
+	if err := os.WriteFile(filePath, []byte(text), 0o644); err != nil {
+		t.Fatalf("write workspace file: %v", err)
+	}
+
+	var out bytes.Buffer
+	srv := &Server{out: &out}
+	h := NewHandler(srv)
+	h.idx.SetWorkspaceFolders([]indexer.WorkspaceFolder{{URI: "file://" + filepath.ToSlash(tmpDir), Name: "tmp"}})
+
+	h.indexAndPublishWorkspaceDiagnostics()
+
+	payload := out.String()
+	if !strings.Contains(payload, uri) {
+		t.Fatalf("expected workspace diagnostics to include %s, got %q", uri, payload)
+	}
+	if !strings.Contains(payload, "PSR1.Classes.ClassDeclaration.PascalCase") {
+		t.Fatalf("expected workspace diagnostics payload to include the rule code, got %q", payload)
+	}
+}
+
+func TestDidCloseRevertsToDiskDiagnostics(t *testing.T) {
+	tmpDir := t.TempDir()
+	filePath := filepath.Join(tmpDir, "ClosedFile.php")
+	uri := "file://" + filepath.ToSlash(filePath)
+	diskText := "<?php\nclass Bad_Class {}\n"
+	cleanText := "<?php\nclass GoodClass {}\n"
+
+	if err := os.WriteFile(filePath, []byte(diskText), 0o644); err != nil {
+		t.Fatalf("write workspace file: %v", err)
+	}
+
+	var out bytes.Buffer
+	srv := &Server{out: &out}
+	h := NewHandler(srv)
+	h.documents.Open(lsp.TextDocumentItem{
+		URI:        uri,
+		LanguageID: "php",
+		Version:    1,
+		Text:       cleanText,
+	})
+	h.idx.IndexDocument(uri, cleanText)
+
+	params, err := json.Marshal(lsp.DidCloseTextDocumentParams{
+		TextDocument: lsp.TextDocumentIdentifier{URI: uri},
+	})
+	if err != nil {
+		t.Fatalf("marshal didClose: %v", err)
+	}
+
+	h.HandleNotification("textDocument/didClose", params)
+
+	payload := out.String()
+	if !strings.Contains(payload, uri) {
+		t.Fatalf("expected didClose to publish diagnostics for %s, got %q", uri, payload)
+	}
+	if !strings.Contains(payload, "PSR1.Classes.ClassDeclaration.PascalCase") {
+		t.Fatalf("expected didClose to republish disk diagnostics, got %q", payload)
+	}
+	if strings.Contains(payload, `"diagnostics":[]`) {
+		t.Fatalf("expected didClose to preserve disk diagnostics instead of clearing them, got %q", payload)
+	}
 }

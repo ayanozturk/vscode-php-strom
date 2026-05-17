@@ -62,26 +62,7 @@ func (wi *WorkspaceIndexer) IndexWorkspace() {
 	folders := wi.folders
 	wi.mu.RUnlock()
 
-	// Collect all PHP file paths
-	var paths []string
-	for _, folder := range folders {
-		root := uriToPath(folder.URI)
-		_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
-			if err != nil {
-				return nil
-			}
-			if d.IsDir() {
-				if wi.shouldExcludeDir(p) {
-					return filepath.SkipDir
-				}
-				return nil
-			}
-			if wi.matchesAssociations(p) {
-				paths = append(paths, p)
-			}
-			return nil
-		})
-	}
+	paths := wi.collectWorkspaceFilePaths(folders)
 
 	total := len(paths)
 	log.Printf("[indexer] discovered %d files across %d workspace folder(s)", total, len(folders))
@@ -142,10 +123,52 @@ func (wi *WorkspaceIndexer) IndexDocument(uri, text string) {
 	wi.index.PutFile(uri, syms)
 }
 
+// RemoveDocument removes all symbols for a document URI from the index.
+func (wi *WorkspaceIndexer) RemoveDocument(uri string) {
+	wi.index.RemoveFile(uri)
+}
+
+// WorkspaceFileURIs returns every PHP file currently discovered under the workspace folders.
+func (wi *WorkspaceIndexer) WorkspaceFileURIs() []string {
+	wi.mu.RLock()
+	folders := append([]WorkspaceFolder(nil), wi.folders...)
+	wi.mu.RUnlock()
+
+	paths := wi.collectWorkspaceFilePaths(folders)
+	uris := make([]string, 0, len(paths))
+	for _, filePath := range paths {
+		uris = append(uris, pathToURI(filePath))
+	}
+	return uris
+}
+
 // GetIndex returns the underlying symbol index for provider use.
 func (wi *WorkspaceIndexer) GetIndex() *Index { return wi.index }
 
 // ─── Internal ─────────────────────────────────────────────────────────────────
+
+func (wi *WorkspaceIndexer) collectWorkspaceFilePaths(folders []WorkspaceFolder) []string {
+	var paths []string
+	for _, folder := range folders {
+		root := uriToPath(folder.URI)
+		_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return nil
+			}
+			if d.IsDir() {
+				if wi.shouldExcludeDir(p) {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			if wi.matchesAssociations(p) {
+				paths = append(paths, p)
+			}
+			return nil
+		})
+	}
+	return paths
+}
 
 // indexFileWithTimeout parses a file inside a goroutine with a 5s deadline.
 // If parsing hangs (e.g. infinite loop in the parser), the file is skipped and

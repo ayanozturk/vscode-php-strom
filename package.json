@@ -28,11 +28,29 @@
     "psalm"
   ],
   "activationEvents": [
-    "onLanguage:php"
+    "onLanguage:php",
+    "onView:phpstromProblems"
   ],
   "icon": "phpstrom-logo.png",
   "main": "./dist/extension.js",
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "phpstrom",
+          "title": "PHP Strom",
+          "icon": "phpstrom-logo.png"
+        }
+      ]
+    },
+    "views": {
+      "phpstrom": [
+        {
+          "id": "phpstromProblems",
+          "name": "Problems"
+        }
+      ]
+    },
     "languages": [
       {
         "id": "php",

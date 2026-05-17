@@ -7,6 +7,10 @@ import {
   LanguageClientOptions,
   ServerOptions,
 } from 'vscode-languageclient/node';
+import {
+  openDiagnosticNode,
+  ProjectDiagnosticsTreeProvider,
+} from './client/diagnosticsView.js';
 
 let client: LanguageClient | undefined;
 let outputChannel: vscode.OutputChannel;
@@ -15,6 +19,7 @@ let indexingHideTimer: NodeJS.Timeout | undefined;
 let analysisStatusItem: vscode.StatusBarItem;
 let analysisHideTimer: NodeJS.Timeout | undefined;
 const pendingAnalysisUris = new Map<string, number>();
+let diagnosticsTreeProvider: ProjectDiagnosticsTreeProvider;
 
 type PhpExtensionConflict = {
   id: string;
@@ -24,6 +29,13 @@ type PhpExtensionConflict = {
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   outputChannel = vscode.window.createOutputChannel('PHP Strom');
   context.subscriptions.push(outputChannel);
+  diagnosticsTreeProvider = new ProjectDiagnosticsTreeProvider();
+  const diagnosticsTreeView = vscode.window.createTreeView('phpstromProblems', {
+    treeDataProvider: diagnosticsTreeProvider,
+    showCollapseAll: true,
+  });
+  diagnosticsTreeProvider.setView(diagnosticsTreeView);
+  context.subscriptions.push(diagnosticsTreeView);
   indexingStatusItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
   indexingStatusItem.name = 'PHP Strom Indexing';
   indexingStatusItem.command = 'phpstrom.showOutputChannel';
@@ -61,6 +73,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
     vscode.commands.registerCommand('phpstrom.showDetectedPhpExtensions', () => {
       showDetectedPhpExtensions();
+    }),
+
+    vscode.commands.registerCommand('phpstrom.problems.openDiagnostic', async (node) => {
+      await openDiagnosticNode(node);
     }),
   );
 
@@ -125,6 +141,7 @@ async function startClient(context: vscode.ExtensionContext, clearCache = false)
       },
       handleDiagnostics: (uri, diagnostics, next) => {
         next(uri, diagnostics);
+        diagnosticsTreeProvider.updateDiagnostics(uri, diagnostics);
 
         const text = diagnostics.length > 0
           ? `$(warning) PHP Strom: ${diagnostics.length.toLocaleString()} diagnostics updated`
@@ -245,6 +262,7 @@ async function stopClient(): Promise<void> {
     await client.stop();
     client = undefined;
   }
+  diagnosticsTreeProvider.clear();
   clearIndexingHideTimer();
   clearAnalysisHideTimer();
   pendingAnalysisUris.clear();
