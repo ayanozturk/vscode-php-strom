@@ -19,15 +19,15 @@ import (
 
 // WorkspaceIndexer discovers and indexes PHP files in workspace folders.
 type WorkspaceIndexer struct {
-	cfg          Config
-	index        *Index
-	folders      []WorkspaceFolder
+	cfg           Config
+	index         *Index
+	folders       []WorkspaceFolder
 	workspaceURIs []string
-	mu           sync.RWMutex
-	onStart      func()
-	onDone       func(int)
-	onProgress   func(done, total int)
-	indexedCount int64
+	mu            sync.RWMutex
+	onStart       func()
+	onDone        func(int)
+	onProgress    func(done, total int)
+	indexedCount  int64
 }
 
 // New creates a WorkspaceIndexer with the given configuration.
