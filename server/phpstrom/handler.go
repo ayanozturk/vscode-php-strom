@@ -37,8 +37,8 @@ type saveAnalysisFinishedParams struct {
 }
 
 type workspaceDiagnosticsFinishedParams struct {
-	FilesWithDiagnostics int `json:"filesWithDiagnostics"`
-	TotalDiagnostics     int `json:"totalDiagnostics"`
+	FilesWithDiagnostics int  `json:"filesWithDiagnostics"`
+	TotalDiagnostics     int  `json:"totalDiagnostics"`
 	Capped               bool `json:"capped"`
 }
 
