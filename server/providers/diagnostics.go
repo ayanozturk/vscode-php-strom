@@ -140,7 +140,12 @@ func resolveWorkspaceTypeCandidates(name string) []string {
 func resolvedMethod(sym *indexer.Symbol) analyse.ResolvedMethod {
 	params := make([]analyse.ResolvedParam, 0, len(sym.Params))
 	for _, param := range sym.Params {
-		params = append(params, analyse.ResolvedParam{Name: param.Name, Type: param.Type})
+		params = append(params, analyse.ResolvedParam{
+			Name:       param.Name,
+			Type:       param.Type,
+			HasDefault: param.HasDefault,
+			IsVariadic: param.IsVariadic,
+		})
 	}
 	return analyse.ResolvedMethod{
 		Name:       sym.Name,

@@ -258,6 +258,63 @@ class Controller
 	t.Fatalf("expected A.ARG.TYPE diagnostic for workspace-resolved method argument mismatch, got %+v", diags)
 }
 
+func TestDiagnosticsProvider_UsesWorkspaceResolverForConstructorArgumentCount(t *testing.T) {
+	idx := indexer.New(indexer.Config{})
+	idx.IndexDocument("file:///workspace/Auth2Service.php", `<?php
+class Auth2Service
+{
+	public function __construct(
+		string $clientId,
+		string $clientSecret,
+		string $issuer,
+		string $redirectUri,
+		string $scope,
+		string $grantType,
+		string $state,
+		string $nonce,
+		string $audience,
+		string $tenant,
+		string $region,
+		string $mode
+	) {
+	}
+}
+`)
+
+	p := &DiagnosticsProvider{idx: idx}
+	diags := p.Analyse("file:///workspace/Factory.php", `<?php
+class Factory
+{
+	public function make(): Auth2Service
+	{
+		return new Auth2Service(
+			"a",
+			"b",
+			"c",
+			"d",
+			"e",
+			"f",
+			"g",
+			"h",
+			"i",
+			"j",
+			"k",
+			"l",
+			"m"
+		);
+	}
+}
+`)
+
+	for _, diag := range diags {
+		if code, ok := diag.Code.(string); ok && code == "A.ARG.COUNT" {
+			return
+		}
+	}
+
+	t.Fatalf("expected A.ARG.COUNT diagnostic for workspace-resolved constructor arg mismatch, got %+v", diags)
+}
+
 func TestDiagnosticsProvider_DoesNotReportAliasedWorkspaceMethodArgumentTypes(t *testing.T) {
 	idx := indexer.New(indexer.Config{})
 	idx.IndexDocument("file:///workspace/RG_Scheme_SchemeFilter.php", `<?php
