@@ -116,6 +116,24 @@ function bootstrap(): void
 	}
 }
 
+func TestDiagnosticsProvider_DoesNotReportControlSpacingForMethodNamedDo(t *testing.T) {
+	p := &DiagnosticsProvider{}
+	diags := p.Analyse("file:///test.php", `<?php
+class GenerateCoverageTodoCommand
+{
+    public static function do($container, $lazyLoad = true)
+    {
+        return self::do($container, $lazyLoad);
+    }
+}
+`)
+	for _, diag := range diags {
+		if code, ok := diag.Code.(string); ok && code == "PSR12.ControlStructures.ControlStructureSpacing" {
+			t.Fatalf("unexpected control structure spacing diagnostic for method named do: %+v", diag)
+		}
+	}
+}
+
 func TestDiagnosticsProvider_DoesNotReportUnreachableAfterIfReturnWithNullsafeCall(t *testing.T) {
 	p := &DiagnosticsProvider{}
 	diags := p.Analyse("file:///test.php", `<?php
