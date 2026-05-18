@@ -7,7 +7,18 @@ type ProblemTypeNode = {
   diagnosticsCount: number;
   fileCount: number;
   maxSeverity: vscode.DiagnosticSeverity;
-  files: ProblemFileNode[];
+  children: ProblemChildNode[];
+};
+
+type ProblemFolderNode = {
+  kind: 'folder';
+  id: string;
+  label: string;
+  relativePath: string;
+  diagnosticsCount: number;
+  fileCount: number;
+  maxSeverity: vscode.DiagnosticSeverity;
+  children: ProblemChildNode[];
 };
 
 type ProblemFileNode = {
@@ -29,7 +40,20 @@ type ProblemDiagnosticNode = {
   description: string;
 };
 
-type DiagnosticsViewNode = ProblemTypeNode | ProblemFileNode | ProblemDiagnosticNode;
+type ProblemChildNode = ProblemFolderNode | ProblemFileNode;
+
+type DiagnosticsViewNode = ProblemTypeNode | ProblemFolderNode | ProblemFileNode | ProblemDiagnosticNode;
+
+type FolderAccumulator = {
+  id: string;
+  label: string;
+  relativePath: string;
+  diagnosticsCount: number;
+  fileCount: number;
+  maxSeverity: vscode.DiagnosticSeverity;
+  folders: Map<string, FolderAccumulator>;
+  files: ProblemFileNode[];
+};
 
 type ViewStats = {
   totalDiagnostics: number;
@@ -126,6 +150,17 @@ export class ProjectDiagnosticsTreeProvider implements vscode.TreeDataProvider<D
         item.tooltip = `${element.relativePath}\n${element.diagnosticsCount} diagnostic${element.diagnosticsCount === 1 ? '' : 's'}`;
         return item;
       }
+      case 'folder': {
+        const item = new vscode.TreeItem(
+          element.label,
+          vscode.TreeItemCollapsibleState.Collapsed,
+        );
+        item.id = element.id;
+        item.description = `${element.diagnosticsCount} in ${element.fileCount} file${element.fileCount === 1 ? '' : 's'}`;
+        item.iconPath = new vscode.ThemeIcon('folder');
+        item.tooltip = `${element.relativePath}\n${element.diagnosticsCount} diagnostic${element.diagnosticsCount === 1 ? '' : 's'} in ${element.fileCount} file${element.fileCount === 1 ? '' : 's'}`;
+        return item;
+      }
       case 'diagnostic': {
         const item = new vscode.TreeItem(
           element.label,
@@ -159,7 +194,11 @@ export class ProjectDiagnosticsTreeProvider implements vscode.TreeDataProvider<D
     }
 
     if (element.kind === 'problemType') {
-      return element.files;
+      return element.children;
+    }
+
+    if (element.kind === 'folder') {
+      return element.children;
     }
 
     if (element.kind === 'file') {
@@ -206,7 +245,7 @@ export class ProjectDiagnosticsTreeProvider implements vscode.TreeDataProvider<D
 
     for (const group of groups) {
       totalDiagnostics += group.diagnosticsCount;
-      for (const file of group.files) {
+      for (const file of collectFiles(group.children)) {
         fileUris.add(file.uri.toString());
       }
     }
@@ -272,6 +311,7 @@ export class ProjectDiagnosticsTreeProvider implements vscode.TreeDataProvider<D
             diagnostics: file.diagnostics.sort(compareDiagnostics),
           }))
           .sort((left, right) => left.relativePath.localeCompare(right.relativePath));
+        const children = buildFolderTree(groupKey, files);
 
         const diagnosticsCount = files.reduce((total, file) => total + file.diagnosticsCount, 0);
         const maxGroupSeverity = files.reduce(
@@ -286,7 +326,7 @@ export class ProjectDiagnosticsTreeProvider implements vscode.TreeDataProvider<D
           diagnosticsCount,
           fileCount: files.length,
           maxSeverity: maxGroupSeverity,
-          files,
+          children,
         };
       })
       .sort((left, right) => {
@@ -319,6 +359,89 @@ function compareDiagnostics(left: ProblemDiagnosticNode, right: ProblemDiagnosti
   }
 
   return left.label.localeCompare(right.label);
+}
+
+function buildFolderTree(groupKey: string, files: ProblemFileNode[]): ProblemChildNode[] {
+  const root: FolderAccumulator = {
+    id: `folder:${groupKey}:root`,
+    label: '',
+    relativePath: '',
+    diagnosticsCount: 0,
+    fileCount: 0,
+    maxSeverity: vscode.DiagnosticSeverity.Hint,
+    folders: new Map<string, FolderAccumulator>(),
+    files: [],
+  };
+
+  for (const file of files) {
+    const segments = splitRelativePath(file.relativePath);
+    const directorySegments = segments.slice(0, -1);
+    let current = root;
+
+    for (const segment of directorySegments) {
+      let next = current.folders.get(segment);
+      if (!next) {
+        const relativePath = current.relativePath ? `${current.relativePath}/${segment}` : segment;
+        next = {
+          id: `folder:${groupKey}:${relativePath}`,
+          label: segment,
+          relativePath,
+          diagnosticsCount: 0,
+          fileCount: 0,
+          maxSeverity: vscode.DiagnosticSeverity.Hint,
+          folders: new Map<string, FolderAccumulator>(),
+          files: [],
+        };
+        current.folders.set(segment, next);
+      }
+
+      next.diagnosticsCount += file.diagnosticsCount;
+      next.fileCount += 1;
+      next.maxSeverity = maxSeverity(next.maxSeverity, file.maxSeverity);
+      current = next;
+    }
+
+    current.files.push(file);
+  }
+
+  return materializeFolderChildren(root);
+}
+
+function materializeFolderChildren(folder: FolderAccumulator): ProblemChildNode[] {
+  const folders = [...folder.folders.values()]
+    .sort((left, right) => left.relativePath.localeCompare(right.relativePath))
+    .map((child): ProblemFolderNode => ({
+      kind: 'folder',
+      id: child.id,
+      label: child.label,
+      relativePath: child.relativePath,
+      diagnosticsCount: child.diagnosticsCount,
+      fileCount: child.fileCount,
+      maxSeverity: child.maxSeverity,
+      children: materializeFolderChildren(child),
+    }));
+
+  const files = [...folder.files].sort((left, right) => left.relativePath.localeCompare(right.relativePath));
+  return [...folders, ...files];
+}
+
+function collectFiles(children: ProblemChildNode[]): ProblemFileNode[] {
+  const files: ProblemFileNode[] = [];
+
+  for (const child of children) {
+    if (child.kind === 'file') {
+      files.push(child);
+      continue;
+    }
+
+    files.push(...collectFiles(child.children));
+  }
+
+  return files;
+}
+
+function splitRelativePath(relativePath: string): string[] {
+  return relativePath.split(/[\\/]+/).filter((segment) => segment.length > 0);
 }
 
 function getDiagnosticGroupKey(diagnostic: vscode.Diagnostic): string {
