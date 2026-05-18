@@ -173,24 +173,37 @@ export class ProjectDiagnosticsTreeProvider implements vscode.TreeDataProvider<D
     switch (element.kind) {
       case 'category': {
         const item = new vscode.TreeItem(
-          element.label,
+          categoryDisplayLabel(element.id),
           vscode.TreeItemCollapsibleState.Expanded,
         );
         item.id = `category:${element.id}`;
-        item.description = `${element.diagnosticsCount} in ${element.fileCount} file${element.fileCount === 1 ? '' : 's'}`;
+        item.description = `${formatCount(element.diagnosticsCount)} issues • ${formatCount(element.fileCount)} files • ${formatCount(element.problemTypeCount)} types`;
         item.iconPath = iconForCategory(element.id, element.maxSeverity);
-        item.tooltip = `${element.label}\n${element.diagnosticsCount} diagnostic${element.diagnosticsCount === 1 ? '' : 's'} across ${element.problemTypeCount} problem type${element.problemTypeCount === 1 ? '' : 's'}`;
+        item.tooltip = `${element.label}\n${formatCount(element.diagnosticsCount)} diagnostic${element.diagnosticsCount === 1 ? '' : 's'} across ${formatCount(element.problemTypeCount)} problem type${element.problemTypeCount === 1 ? '' : 's'} and ${formatCount(element.fileCount)} file${element.fileCount === 1 ? '' : 's'}`;
+        item.accessibilityInformation = {
+          label: `${element.label}, ${formatCount(element.diagnosticsCount)} diagnostics in ${formatCount(element.fileCount)} files`,
+          role: 'treeitem',
+        };
         return item;
       }
       case 'problemType': {
+        const display = formatProblemTypeLabel(element.label);
         const item = new vscode.TreeItem(
-          element.label,
+          display.label,
           vscode.TreeItemCollapsibleState.Collapsed,
         );
         item.id = element.id;
-        item.description = `${element.diagnosticsCount} in ${element.fileCount} file${element.fileCount === 1 ? '' : 's'}`;
+        item.description = [
+          display.context,
+          `${formatCount(element.diagnosticsCount)} issues`,
+          `${formatCount(element.fileCount)} files`,
+        ].filter(Boolean).join(' • ');
         item.iconPath = iconForSeverity(element.maxSeverity);
-        item.tooltip = `${element.label}\n${element.diagnosticsCount} diagnostic${element.diagnosticsCount === 1 ? '' : 's'} in ${element.fileCount} file${element.fileCount === 1 ? '' : 's'}`;
+        item.tooltip = `${element.label}\n${formatCount(element.diagnosticsCount)} diagnostic${element.diagnosticsCount === 1 ? '' : 's'} in ${formatCount(element.fileCount)} file${element.fileCount === 1 ? '' : 's'}`;
+        item.accessibilityInformation = {
+          label: `${element.label}, ${formatCount(element.diagnosticsCount)} diagnostics in ${formatCount(element.fileCount)} files`,
+          role: 'treeitem',
+        };
         return item;
       }
       case 'file': {
@@ -200,9 +213,13 @@ export class ProjectDiagnosticsTreeProvider implements vscode.TreeDataProvider<D
         );
         item.id = element.id;
         item.resourceUri = element.uri;
-        item.description = `${element.diagnosticsCount}`;
+        item.description = `${formatCount(element.diagnosticsCount)} issue${element.diagnosticsCount === 1 ? '' : 's'}`;
         item.iconPath = iconForSeverity(element.maxSeverity);
-        item.tooltip = `${element.relativePath}\n${element.diagnosticsCount} diagnostic${element.diagnosticsCount === 1 ? '' : 's'}`;
+        item.tooltip = `${element.relativePath}\n${formatCount(element.diagnosticsCount)} diagnostic${element.diagnosticsCount === 1 ? '' : 's'}`;
+        item.accessibilityInformation = {
+          label: `${element.relativePath}, ${formatCount(element.diagnosticsCount)} diagnostics`,
+          role: 'treeitem',
+        };
         return item;
       }
       case 'folder': {
@@ -211,9 +228,9 @@ export class ProjectDiagnosticsTreeProvider implements vscode.TreeDataProvider<D
           vscode.TreeItemCollapsibleState.Collapsed,
         );
         item.id = element.id;
-        item.description = `${element.diagnosticsCount} in ${element.fileCount} file${element.fileCount === 1 ? '' : 's'}`;
+        item.description = `${formatCount(element.diagnosticsCount)} issues • ${formatCount(element.fileCount)} files`;
         item.iconPath = new vscode.ThemeIcon('folder');
-        item.tooltip = `${element.relativePath}\n${element.diagnosticsCount} diagnostic${element.diagnosticsCount === 1 ? '' : 's'} in ${element.fileCount} file${element.fileCount === 1 ? '' : 's'}`;
+        item.tooltip = `${element.relativePath}\n${formatCount(element.diagnosticsCount)} diagnostic${element.diagnosticsCount === 1 ? '' : 's'} in ${formatCount(element.fileCount)} file${element.fileCount === 1 ? '' : 's'}`;
         return item;
       }
       case 'diagnostic': {
@@ -245,15 +262,19 @@ export class ProjectDiagnosticsTreeProvider implements vscode.TreeDataProvider<D
         );
         item.id = element.id;
         item.resourceUri = element.uri;
-        item.description = element.description;
+        item.description = `${formatCount(element.diagnosticsCount)} issue${element.diagnosticsCount === 1 ? '' : 's'} • ${formatCount(element.problemTypeCount)} type${element.problemTypeCount === 1 ? '' : 's'}`;
         item.iconPath = iconForSeverity(element.maxSeverity);
         item.tooltip = new vscode.MarkdownString([
           `**${element.relativePath}**`,
           '',
-          `${element.diagnosticsCount} diagnostic${element.diagnosticsCount === 1 ? '' : 's'}`,
+          `${formatCount(element.diagnosticsCount)} diagnostic${element.diagnosticsCount === 1 ? '' : 's'}`,
           '',
-          `${element.problemTypeCount} problem type${element.problemTypeCount === 1 ? '' : 's'}`,
+          `${formatCount(element.problemTypeCount)} problem type${element.problemTypeCount === 1 ? '' : 's'}`,
         ].join('\n'));
+        item.accessibilityInformation = {
+          label: `${element.relativePath}, ${formatCount(element.diagnosticsCount)} diagnostics across ${formatCount(element.problemTypeCount)} problem types`,
+          role: 'treeitem',
+        };
         item.command = {
           command: 'phpstrom.problems.openDiagnostic',
           title: 'Open Diagnostic',
@@ -308,16 +329,16 @@ export class ProjectDiagnosticsTreeProvider implements vscode.TreeDataProvider<D
     const stats = this.getStats();
     if (stats.totalDiagnostics === 0) {
       this.view.message = this.lastScanSummary?.capped
-        ? `Stopped after ${this.lastScanSummary.totalDiagnostics.toLocaleString()} diagnostics.`
+        ? `Stopped after ${formatCount(this.lastScanSummary.totalDiagnostics)} diagnostics.`
         : 'No PHP Strom diagnostics in the current workspace.';
       this.view.badge = undefined;
       return;
     }
 
     const suffix = this.lastScanSummary?.capped
-      ? ` Scan stopped at ${this.lastScanSummary.totalDiagnostics.toLocaleString()} diagnostics.`
+      ? ` Scan stopped at ${formatCount(this.lastScanSummary.totalDiagnostics)} diagnostics.`
       : '';
-    this.view.message = `${stats.totalDiagnostics} diagnostics in ${stats.totalFiles} file${stats.totalFiles === 1 ? '' : 's'} across ${stats.totalProblemTypes} problem type${stats.totalProblemTypes === 1 ? '' : 's'}.${suffix}`;
+    this.view.message = `${formatCount(stats.totalDiagnostics)} diagnostics in ${formatCount(stats.totalFiles)} file${stats.totalFiles === 1 ? '' : 's'} across ${formatCount(stats.totalProblemTypes)} problem type${stats.totalProblemTypes === 1 ? '' : 's'}.${suffix}`;
     this.view.badge = {
       value: stats.totalDiagnostics,
       tooltip: 'PHP Strom diagnostics',
@@ -773,14 +794,46 @@ function formatDiagnosticLocation(position: vscode.Position): string {
   return `Line ${position.line + 1}, Col ${position.character + 1}`;
 }
 
+function formatCount(count: number): string {
+  return count.toLocaleString();
+}
+
+function categoryDisplayLabel(category: ProblemCategoryKey): string {
+  switch (category) {
+    case 'style':
+      return 'Style';
+    case 'staticAnalysis':
+      return 'Static Analysis';
+  }
+}
+
+function formatProblemTypeLabel(label: string): { label: string; context?: string } {
+  const segments = label.split('.');
+  if (segments.length < 2) {
+    return { label };
+  }
+
+  const visibleLabel = segments[segments.length - 1];
+  if (/^[A-Z0-9_]+$/.test(visibleLabel) && visibleLabel.length <= 8) {
+    return { label };
+  }
+
+  const context = segments.slice(0, -1).join('.');
+
+  return {
+    label: visibleLabel,
+    context,
+  };
+}
+
 function iconForSeverity(severity: vscode.DiagnosticSeverity): vscode.ThemeIcon {
   switch (severity) {
     case vscode.DiagnosticSeverity.Error:
-      return new vscode.ThemeIcon('error');
+      return new vscode.ThemeIcon('error', new vscode.ThemeColor('problemsErrorIcon.foreground'));
     case vscode.DiagnosticSeverity.Warning:
-      return new vscode.ThemeIcon('warning');
+      return new vscode.ThemeIcon('warning', new vscode.ThemeColor('problemsWarningIcon.foreground'));
     case vscode.DiagnosticSeverity.Information:
-      return new vscode.ThemeIcon('info');
+      return new vscode.ThemeIcon('info', new vscode.ThemeColor('problemsInfoIcon.foreground'));
     case vscode.DiagnosticSeverity.Hint:
     default:
       return new vscode.ThemeIcon('lightbulb');
@@ -790,7 +843,7 @@ function iconForSeverity(severity: vscode.DiagnosticSeverity): vscode.ThemeIcon 
 function iconForCategory(category: ProblemCategoryKey, severity: vscode.DiagnosticSeverity): vscode.ThemeIcon {
   switch (category) {
     case 'style':
-      return new vscode.ThemeIcon('symbol-color');
+      return new vscode.ThemeIcon('symbol-color', new vscode.ThemeColor('charts.purple'));
     case 'staticAnalysis':
       return iconForSeverity(severity);
   }
