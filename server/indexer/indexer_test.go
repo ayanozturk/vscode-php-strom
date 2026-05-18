@@ -112,6 +112,31 @@ class Session {
 	t.Fatal("expected promoted constructor param to be indexed as property symbol")
 }
 
+func TestExtractSymbolsResolvesAliasedMethodParameterTypes(t *testing.T) {
+	src := `<?php
+use Vendor\Package\SchemeFilter as SchemeFilter;
+
+class Repository {
+	public function getByFilterObject(SchemeFilter $filter): void {}
+}
+`
+
+	syms := extractSymbols("file:///test.php", src)
+	for _, sym := range syms {
+		if sym.Kind == KindMethod && sym.Name == "getByFilterObject" {
+			if len(sym.Params) != 1 {
+				t.Fatalf("expected one parameter, got %#v", sym.Params)
+			}
+			if sym.Params[0].Type != "Vendor\\Package\\SchemeFilter" {
+				t.Fatalf("expected aliased param type to resolve to Vendor\\Package\\SchemeFilter, got %q", sym.Params[0].Type)
+			}
+			return
+		}
+	}
+
+	t.Fatal("expected method symbol")
+}
+
 func TestExtractSymbolsResolvesImplementedInterfacesToFQNs(t *testing.T) {
 	src := `<?php
 namespace Doctrine\Common\Collections;

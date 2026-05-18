@@ -400,7 +400,7 @@ func extractFromNodes(nodes []ast.Node, uri string, ctx extractionContext, syms 
 				sym.Implements = append(sym.Implements, resolveClassLike(ctx, implemented))
 			}
 			*syms = append(*syms, sym)
-			extractClassMembers(n, uri, classFQN, syms)
+			extractClassMembers(n, uri, classFQN, ctx, syms)
 
 		case *ast.InterfaceNode:
 			interfaceFQN := fqn(ctx.namespace, n.Name)
@@ -419,7 +419,7 @@ func extractFromNodes(nodes []ast.Node, uri string, ctx extractionContext, syms 
 				Extends:    extends,
 				Visibility: "public",
 			})
-			extractInterfaceMembers(n.Members, uri, interfaceFQN, syms)
+			extractInterfaceMembers(n.Members, uri, interfaceFQN, ctx, syms)
 
 		case *ast.TraitNode:
 			traitName := ""
@@ -436,7 +436,7 @@ func extractFromNodes(nodes []ast.Node, uri string, ctx extractionContext, syms 
 				Range:      positionRange(n.GetPos()),
 				Visibility: "public",
 			})
-			extractTraitMembers(n.Body, uri, traitFQN, syms)
+			extractTraitMembers(n.Body, uri, traitFQN, ctx, syms)
 
 		case *ast.EnumNode:
 			enumFQN := fqn(ctx.namespace, n.Name)
@@ -461,9 +461,9 @@ func extractFromNodes(nodes []ast.Node, uri string, ctx extractionContext, syms 
 				URI:        uri,
 				Range:      positionRange(n.GetPos()),
 				DocComment: docRaw(n.PHPDoc),
-				ReturnType: n.ReturnType,
+				ReturnType: resolveTypeHint(ctx, n.ReturnType),
 				Visibility: "public",
-				Params:     extractParams(n.Params),
+				Params:     extractParams(ctx, n.Params),
 			})
 
 		case *ast.ConstantNode:
@@ -508,6 +508,44 @@ func resolveClassLike(ctx extractionContext, name string) string {
 	return ensureLeadingSlash(name)
 }
 
+func resolveTypeHint(ctx extractionContext, raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+
+	prefix := ""
+	if strings.HasPrefix(raw, "?") {
+		prefix = "?"
+		raw = strings.TrimSpace(strings.TrimPrefix(raw, "?"))
+	}
+
+	parts := strings.Split(raw, "|")
+	for idx, part := range parts {
+		intersections := strings.Split(part, "&")
+		for innerIdx, atom := range intersections {
+			atom = strings.TrimSpace(atom)
+			if atom == "" || !isResolvableClassLikeType(atom) {
+				intersections[innerIdx] = atom
+				continue
+			}
+			intersections[innerIdx] = strings.TrimPrefix(resolveClassLike(ctx, atom), `\`)
+		}
+		parts[idx] = strings.Join(intersections, "&")
+	}
+
+	return prefix + strings.Join(parts, "|")
+}
+
+func isResolvableClassLikeType(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "", "array", "bool", "callable", "false", "float", "int", "iterable", "mixed", "never", "null", "object", "resource", "string", "true", "void", "self", "static", "parent":
+		return false
+	default:
+		return true
+	}
+}
+
 func unqualifiedTypeName(name string) string {
 	name = strings.TrimPrefix(strings.TrimSpace(name), `\`)
 	if idx := strings.LastIndex(name, `\`); idx >= 0 {
@@ -516,8 +554,8 @@ func unqualifiedTypeName(name string) string {
 	return name
 }
 
-func extractClassMembers(class *ast.ClassNode, uri, classFQN string, syms *[]*Symbol) {
-	for _, property := range promotedPropertySymbols(class, uri, classFQN) {
+func extractClassMembers(class *ast.ClassNode, uri, classFQN string, ctx extractionContext, syms *[]*Symbol) {
+	for _, property := range promotedPropertySymbols(class, uri, classFQN, ctx) {
 		*syms = append(*syms, property)
 	}
 
@@ -534,12 +572,12 @@ func extractClassMembers(class *ast.ClassNode, uri, classFQN string, syms *[]*Sy
 			URI:        uri,
 			Range:      positionRange(method.GetPos()),
 			DocComment: docRaw(method.PHPDoc),
-			ReturnType: method.ReturnType,
+			ReturnType: resolveTypeHint(ctx, method.ReturnType),
 			IsStatic:   hasModifierList(method.Modifiers, "static"),
 			IsAbstract: hasModifierList(method.Modifiers, "abstract"),
 			IsFinal:    hasModifierList(method.Modifiers, "final"),
 			Visibility: visibility,
-			Params:     extractParams(method.Params),
+			Params:     extractParams(ctx, method.Params),
 		})
 	}
 
@@ -554,7 +592,7 @@ func extractClassMembers(class *ast.ClassNode, uri, classFQN string, syms *[]*Sy
 			Kind:       KindProperty,
 			URI:        uri,
 			Range:      positionRange(property.GetPos()),
-			Type:       property.TypeHint,
+			Type:       resolveTypeHint(ctx, property.TypeHint),
 			IsStatic:   property.IsStatic,
 			IsReadonly: property.IsReadonly,
 			Visibility: defaultVisibility(property.Visibility),
@@ -577,7 +615,7 @@ func extractClassMembers(class *ast.ClassNode, uri, classFQN string, syms *[]*Sy
 	}
 }
 
-func promotedPropertySymbols(class *ast.ClassNode, uri, classFQN string) []*Symbol {
+func promotedPropertySymbols(class *ast.ClassNode, uri, classFQN string, ctx extractionContext) []*Symbol {
 	if class == nil {
 		return nil
 	}
@@ -603,7 +641,7 @@ func promotedPropertySymbols(class *ast.ClassNode, uri, classFQN string) []*Symb
 				Kind:       KindProperty,
 				URI:        uri,
 				Range:      positionRange(param.GetPos()),
-				Type:       typeHint,
+				Type:       resolveTypeHint(ctx, typeHint),
 				Visibility: defaultVisibility(param.Visibility),
 			})
 		}
@@ -611,7 +649,7 @@ func promotedPropertySymbols(class *ast.ClassNode, uri, classFQN string) []*Symb
 	return symbols
 }
 
-func extractTraitMembers(members []ast.Node, uri, traitFQN string, syms *[]*Symbol) {
+func extractTraitMembers(members []ast.Node, uri, traitFQN string, ctx extractionContext, syms *[]*Symbol) {
 	for _, member := range members {
 		switch n := member.(type) {
 		case *ast.FunctionNode:
@@ -623,12 +661,12 @@ func extractTraitMembers(members []ast.Node, uri, traitFQN string, syms *[]*Symb
 				URI:        uri,
 				Range:      positionRange(n.GetPos()),
 				DocComment: docRaw(n.PHPDoc),
-				ReturnType: n.ReturnType,
+				ReturnType: resolveTypeHint(ctx, n.ReturnType),
 				IsStatic:   hasModifierList(n.Modifiers, "static"),
 				IsAbstract: hasModifierList(n.Modifiers, "abstract"),
 				IsFinal:    hasModifierList(n.Modifiers, "final"),
 				Visibility: visibility,
-				Params:     extractParams(n.Params),
+				Params:     extractParams(ctx, n.Params),
 			})
 		case *ast.ConstantNode:
 			*syms = append(*syms, &Symbol{
@@ -643,7 +681,7 @@ func extractTraitMembers(members []ast.Node, uri, traitFQN string, syms *[]*Symb
 	}
 }
 
-func extractInterfaceMembers(members []ast.Node, uri, interfaceFQN string, syms *[]*Symbol) {
+func extractInterfaceMembers(members []ast.Node, uri, interfaceFQN string, ctx extractionContext, syms *[]*Symbol) {
 	for _, member := range members {
 		switch n := member.(type) {
 		case *ast.InterfaceMethodNode:
@@ -654,9 +692,9 @@ func extractInterfaceMembers(members []ast.Node, uri, interfaceFQN string, syms 
 				URI:        uri,
 				Range:      positionRange(n.GetPos()),
 				DocComment: docRaw(n.PHPDoc),
-				ReturnType: typeNodeToString(n.ReturnType),
+				ReturnType: resolveTypeHint(ctx, typeNodeToString(n.ReturnType)),
 				Visibility: defaultVisibility(n.Visibility),
-				Params:     extractParams(n.Params),
+				Params:     extractParams(ctx, n.Params),
 			})
 		case *ast.ConstantNode:
 			*syms = append(*syms, &Symbol{
@@ -684,7 +722,7 @@ func extractEnumCases(cases []*ast.EnumCaseNode, uri, enumFQN string, syms *[]*S
 	}
 }
 
-func extractParams(params []ast.Node) []SymbolParam {
+func extractParams(ctx extractionContext, params []ast.Node) []SymbolParam {
 	sp := make([]SymbolParam, 0, len(params))
 	for _, param := range params {
 		p, ok := param.(*ast.ParamNode)
@@ -693,7 +731,7 @@ func extractParams(params []ast.Node) []SymbolParam {
 		}
 		sp = append(sp, SymbolParam{
 			Name:        p.Name,
-			Type:        paramTypeToString(p),
+			Type:        resolveTypeHint(ctx, paramTypeToString(p)),
 			HasDefault:  p.DefaultValue != nil,
 			IsVariadic:  p.IsVariadic,
 			IsPassByRef: p.IsByRef,

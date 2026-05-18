@@ -234,6 +234,43 @@ class Controller
 	t.Fatalf("expected A.ARG.TYPE diagnostic for workspace-resolved method argument mismatch, got %+v", diags)
 }
 
+func TestDiagnosticsProvider_DoesNotReportAliasedWorkspaceMethodArgumentTypes(t *testing.T) {
+	idx := indexer.New(indexer.Config{})
+	idx.IndexDocument("file:///workspace/RG_Scheme_SchemeFilter.php", `<?php
+class RG_Scheme_SchemeFilter {}
+`)
+	idx.IndexDocument("file:///workspace/Repository.php", `<?php
+use RG_Scheme_SchemeFilter as SchemeFilter;
+
+class Repository
+{
+	public function getByFilterObject(SchemeFilter $filter): void
+	{
+	}
+}
+`)
+
+	p := &DiagnosticsProvider{idx: idx}
+	diags := p.Analyse("file:///workspace/Controller.php", `<?php
+class Controller
+{
+	private Repository $repository;
+
+	public function run(): void
+	{
+		$filter = new RG_Scheme_SchemeFilter();
+		$this->repository->getByFilterObject($filter);
+	}
+}
+`)
+
+	for _, diag := range diags {
+		if code, ok := diag.Code.(string); ok && code == "A.ARG.TYPE" {
+			t.Fatalf("expected no A.ARG.TYPE diagnostic for aliased workspace parameter type, got %+v", diag)
+		}
+	}
+}
+
 func TestDiagnosticsProvider_UsesWorkspaceResolverForPropertyAssignments(t *testing.T) {
 	idx := indexer.New(indexer.Config{})
 	idx.IndexDocument("file:///workspace/UserRepository.php", `<?php
