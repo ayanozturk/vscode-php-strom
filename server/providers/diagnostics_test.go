@@ -167,6 +167,30 @@ class Company
 	}
 }
 
+func TestDiagnosticsProvider_DoesNotReportUnreachableAfterConditionalExit(t *testing.T) {
+	p := &DiagnosticsProvider{}
+	diags := p.Analyse("file:///test.php", `<?php
+class AuthService
+{
+    public function logout($redirectURL): void
+    {
+        if ($redirectURL) {
+            redirect($redirectURL);
+            exit();
+        }
+
+        $authenticationState = $this->getState();
+        $error = 'Your account is not set up';
+    }
+}
+`)
+	for _, diag := range diags {
+		if code, ok := diag.Code.(string); ok && code == "Generic.CodeAnalysis.UnreachableCode" {
+			t.Fatalf("unexpected unreachable diagnostic after conditional exit: %+v", diag)
+		}
+	}
+}
+
 func TestDiagnosticsProvider_DoesNotReportClassInstantiationForVariableNamesContainingNew(t *testing.T) {
 	p := &DiagnosticsProvider{}
 	diags := p.Analyse("file:///test.php", `<?php
