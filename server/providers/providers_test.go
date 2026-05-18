@@ -118,6 +118,38 @@ class Session
 	}
 }
 
+func TestHoverProviderShowsStringLiteralTypeWithoutUnrelatedSymbol(t *testing.T) {
+	idx := indexer.New(indexer.Config{})
+	idx.IndexDocument("file:///workspace/Noise.php", `<?php
+class DayAndTime {}
+`)
+	provider := &HoverProvider{idx: idx}
+	text := `<?php
+class Example
+{
+	public function run(): void
+	{
+		$this->someMethod('Ayan');
+	}
+
+	public function someMethod(int $param): int
+	{
+		return $param * 2;
+	}
+}`
+
+	hover := provider.Provide("file:///workspace/Example.php", text, lsp.Position{Line: 5, Character: 21})
+	if hover == nil {
+		t.Fatal("expected hover for string literal, got nil")
+	}
+	if !strings.Contains(hover.Contents.Value, "```php\nstring\n```") {
+		t.Fatalf("expected string type in hover, got %q", hover.Contents.Value)
+	}
+	if strings.Contains(hover.Contents.Value, `**\DayAndTime**`) {
+		t.Fatalf("expected no unrelated symbol details for string literal hover, got %q", hover.Contents.Value)
+	}
+}
+
 func TestHoverProviderCombinesInferredTypeAndSymbolDocs(t *testing.T) {
 	idx := indexer.New(indexer.Config{})
 	idx.IndexDocument("file:///workspace/UserRepository.php", `<?php

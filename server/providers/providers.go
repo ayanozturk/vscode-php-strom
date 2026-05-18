@@ -547,9 +547,10 @@ func resolveHoverSymbol(idx *indexer.WorkspaceIndexer, uri, text string, pos lsp
 
 	if hasHoverTarget {
 		switch hoverTarget.Kind {
-		case analyse.HoverTargetMethod, analyse.HoverTargetProperty:
+		case analyse.HoverTargetLiteral, analyse.HoverTargetVariable, analyse.HoverTargetMethod, analyse.HoverTargetProperty:
 			// Receiver-aware accesses should not degrade into arbitrary global
-			// short-name matches when the receiver type cannot be resolved.
+			// short-name matches when the hovered token is not a declaration-like
+			// workspace symbol target.
 			return nil
 		}
 	}
