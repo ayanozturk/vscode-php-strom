@@ -286,7 +286,7 @@
         "phpstrom.diagnostics.exclude": {
           "type": "object",
           "default": {},
-          "description": "Map of file glob patterns to arrays of diagnostic codes to suppress."
+          "description": "Map of file glob patterns to arrays of diagnostic codes to suppress. Matching files in the workspace .gitignore are also ignored for diagnostics by default."
         },
         "phpstrom.diagnostics.overrides": {
           "type": "object",

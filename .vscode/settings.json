@@ -1,1 +1,8 @@
-{}
+{
+	"go.toolsEnvVars": {
+		"GOWORK": "${workspaceFolder}/.cache/phpstrom.build.work"
+	},
+	"go.testEnvVars": {
+		"GOWORK": "${workspaceFolder}/.cache/phpstrom.build.work"
+	}
+}

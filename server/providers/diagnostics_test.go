@@ -35,7 +35,7 @@ class Foo {
 
 func TestDiagnosticsProvider_StyleOverrideSuppressesMatchingClass(t *testing.T) {
 	matcher, err := overrides.Compile(overrides.RuleOverrides{
-		"PSR1.Classes.ClassDeclaration.PascalCase": {
+		"PSR1.Classes.ClassDeclaration.PascalCase": overrides.RuleOverride{
 			Classes: []string{"/^Legacy_/"},
 		},
 	})

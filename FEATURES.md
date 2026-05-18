@@ -761,7 +761,7 @@ AI completions are opt-in, privacy-preserving (local models supported), and neve
 | `phpstrom.diagnostics.strictTypes` | boolean | `false` | Global `strict_types=1` equivalent |
 | `phpstrom.diagnostics.relaxedTypeCheck` | boolean | `true` | Allow super-types for sub-type constraints |
 | `phpstrom.diagnostics.noMixedTypeCheck` | boolean | `true` | Suppress mixed→narrower errors |
-| `phpstrom.diagnostics.exclude` | object | `{}` | Glob → code[] suppression map |
+| `phpstrom.diagnostics.exclude` | object | `{}` | Glob → code[] suppression map; workspace `.gitignore` entries are also ignored by default |
 | `phpstrom.diagnostics.overrides` | object | `{}` | Rule → selectors map, e.g. class-name regex overrides |
 | `phpstrom.format.braceStyle` | enum | `"per"` | `"per"`, `"allman"`, `"k&r"` |
 | `phpstrom.phpdoc.returnVoid` | boolean | `true` | Add `@return void` in generated docs |

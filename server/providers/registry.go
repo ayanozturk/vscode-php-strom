@@ -22,6 +22,7 @@ type Config struct {
 	InlayHintsParamNames    bool
 	InlayHintsParamTypes    bool
 	InlayHintsReturnTypes   bool
+	DiagnosticsExclusions   DiagnosticsPathExclusions
 	DiagnosticsOverrides    *overrides.Compiled
 }
 

@@ -46,7 +46,7 @@ func NewHandler(srv *Server) *Handler {
 	cfg := DefaultConfig()
 	docs := NewDocumentStore()
 	idx := indexer.New(cfg.toIndexerConfig())
-	prov := providers.NewRegistry(idx, cfg.toProviderConfig())
+	prov := providers.NewRegistry(idx, cfg.toProviderConfig(nil))
 
 	h := &Handler{
 		srv:                  srv,
@@ -209,7 +209,7 @@ func (h *Handler) HandleNotification(method string, raw json.RawMessage) {
 			return
 		}
 		h.cfg.Update(p.Settings)
-		h.prov = providers.NewRegistry(h.idx, h.cfg.toProviderConfig())
+		h.prov = providers.NewRegistry(h.idx, h.cfg.toProviderConfig(h.idx.WorkspaceFolders()))
 		go h.runWorkspaceDiagnosticsScan(false)
 
 	case "phpstrom/indexWorkspace":
@@ -233,7 +233,7 @@ func (h *Handler) initialize(raw json.RawMessage) (interface{}, *lsp.ResponseErr
 	}
 	h.idx.SetWorkspaceFolders(folders)
 	h.cfg.ApplyInitOptions(p.InitializationOptions)
-	h.prov = providers.NewRegistry(h.idx, h.cfg.toProviderConfig())
+	h.prov = providers.NewRegistry(h.idx, h.cfg.toProviderConfig(h.idx.WorkspaceFolders()))
 
 	return lsp.InitializeResult{
 		Capabilities: lsp.ServerCapabilities{

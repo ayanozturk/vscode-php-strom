@@ -44,6 +44,26 @@ func TestUpdateLoadsFlattenedDiagnosticsOverrides(t *testing.T) {
 	}
 }
 
+func TestUpdateLoadsDiagnosticsExclude(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Update(map[string]interface{}{
+		"diagnostics.exclude": map[string]interface{}{
+			"**/generated/**": []interface{}{"PSR1.Classes.ClassDeclaration.PascalCase"},
+			"**/cache/**":     []interface{}{},
+		},
+	})
+
+	if len(cfg.Diagnostics.Exclude) != 2 {
+		t.Fatalf("expected 2 diagnostics exclusions, got %#v", cfg.Diagnostics.Exclude)
+	}
+	if got := cfg.Diagnostics.Exclude["**/generated/**"]; len(got) != 1 || got[0] != "PSR1.Classes.ClassDeclaration.PascalCase" {
+		t.Fatalf("unexpected diagnostics exclusion codes: %#v", cfg.Diagnostics.Exclude)
+	}
+	if got := cfg.Diagnostics.Exclude["**/cache/**"]; len(got) != 0 {
+		t.Fatalf("expected empty exclusion codes slice for ignore-all rule, got %#v", got)
+	}
+}
+
 func TestDefaultConfigIncludesVendorTestsExclude(t *testing.T) {
 	cfg := DefaultConfig()
 	want := "**/vendor/**/{Tests,tests}/**"

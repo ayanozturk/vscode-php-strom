@@ -51,6 +51,13 @@ func (wi *WorkspaceIndexer) SetWorkspaceFolders(folders []WorkspaceFolder) {
 	wi.mu.Unlock()
 }
 
+// WorkspaceFolders returns the current workspace root folders.
+func (wi *WorkspaceIndexer) WorkspaceFolders() []WorkspaceFolder {
+	wi.mu.RLock()
+	defer wi.mu.RUnlock()
+	return append([]WorkspaceFolder(nil), wi.folders...)
+}
+
 // OnIndexingStart registers a callback called when workspace indexing begins.
 func (wi *WorkspaceIndexer) OnIndexingStart(fn func()) { wi.onStart = fn }
 

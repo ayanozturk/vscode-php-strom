@@ -164,13 +164,19 @@ type DiagnosticsProvider struct {
 
 func (p *DiagnosticsProvider) Analyse(uri, text string) []lsp.Diagnostic {
 	filename := uriToFilename(uri)
+	if p.cfg.DiagnosticsExclusions.IgnoresAll(filename) {
+		return []lsp.Diagnostic{}
+	}
 	snapshot := p.cache.snapshot(uri, text)
-	return p.analyseParsed(filename, text, snapshot.nodes, snapshot.errors)
+	return p.cfg.DiagnosticsExclusions.Filter(filename, p.analyseParsed(filename, text, snapshot.nodes, snapshot.errors))
 }
 
 func (p *DiagnosticsProvider) AnalyseParsed(uri, text string, nodes []ast.Node, parseErrors []string) []lsp.Diagnostic {
 	filename := uriToFilename(uri)
-	return p.analyseParsed(filename, text, nodes, parseErrors)
+	if p.cfg.DiagnosticsExclusions.IgnoresAll(filename) {
+		return []lsp.Diagnostic{}
+	}
+	return p.cfg.DiagnosticsExclusions.Filter(filename, p.analyseParsed(filename, text, nodes, parseErrors))
 }
 
 func (p *DiagnosticsProvider) analyseParsed(filename, text string, nodes []ast.Node, parseErrors []string) []lsp.Diagnostic {

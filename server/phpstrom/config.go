@@ -120,6 +120,9 @@ func (c *Config) Update(settings map[string]interface{}) {
 		if overridesMap, ok := parseRuleOverrides(diagnostics["overrides"]); ok {
 			c.Diagnostics.Overrides = overridesMap
 		}
+		if excludeMap, ok := parseDiagnosticsExclude(diagnostics["exclude"]); ok {
+			c.Diagnostics.Exclude = excludeMap
+		}
 	}
 	if files, ok := inner["files"].(map[string]interface{}); ok {
 		applyFilesConfig(&c.Files, files)
@@ -135,6 +138,9 @@ func (c *Config) Update(settings map[string]interface{}) {
 	}
 	if overridesMap, ok := parseRuleOverrides(inner["diagnostics.overrides"]); ok {
 		c.Diagnostics.Overrides = overridesMap
+	}
+	if excludeMap, ok := parseDiagnosticsExclude(inner["diagnostics.exclude"]); ok {
+		c.Diagnostics.Exclude = excludeMap
 	}
 	if v, ok := inner["diagnostics.enable"].(bool); ok {
 		c.Diagnostics.Enable = v
@@ -212,7 +218,7 @@ func (c *Config) toIndexerConfig() indexer.Config {
 	}
 }
 
-func (c *Config) toProviderConfig() providers.Config {
+func (c *Config) toProviderConfig(folders []indexer.WorkspaceFolder) providers.Config {
 	matcher, err := overrides.Compile(c.Diagnostics.Overrides)
 	if err != nil {
 		log.Printf("[phpstrom] ignoring invalid diagnostics overrides: %v", err)
@@ -234,8 +240,33 @@ func (c *Config) toProviderConfig() providers.Config {
 		InlayHintsParamNames:    c.InlayHints.ParameterNames,
 		InlayHintsParamTypes:    c.InlayHints.ParameterTypes,
 		InlayHintsReturnTypes:   c.InlayHints.ReturnTypes,
+		DiagnosticsExclusions:   providers.BuildDiagnosticsPathExclusions(c.Diagnostics.Exclude, folders),
 		DiagnosticsOverrides:    matcher,
 	}
+}
+
+func parseDiagnosticsExclude(raw interface{}) (map[string][]string, bool) {
+	exclusions, ok := raw.(map[string]interface{})
+	if !ok {
+		if typed, ok := raw.(map[string][]string); ok {
+			cloned := make(map[string][]string, len(typed))
+			for pattern, codes := range typed {
+				cloned[pattern] = append([]string(nil), codes...)
+			}
+			return cloned, true
+		}
+		return nil, false
+	}
+
+	parsed := make(map[string][]string, len(exclusions))
+	for pattern, rawCodes := range exclusions {
+		codes, ok := toStringSliceSetting(rawCodes)
+		if !ok {
+			continue
+		}
+		parsed[pattern] = codes
+	}
+	return parsed, true
 }
 
 func parseRuleOverrides(raw interface{}) (overrides.RuleOverrides, bool) {
