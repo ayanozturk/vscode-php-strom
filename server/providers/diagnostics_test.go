@@ -92,6 +92,30 @@ class SessionTest
 	t.Fatalf("expected PSR12.Classes.ClosingBraceOnOwnLine diagnostic, got %+v", diags)
 }
 
+func TestDiagnosticsProvider_DoesNotReportControlSpacingForDocblockText(t *testing.T) {
+	p := &DiagnosticsProvider{}
+	diags := p.Analyse("file:///test.php", `<?php
+/**
+ * --------------------------------------------------------------------------
+ * DEFINE APPLICATION CONSTANTS
+ * --------------------------------------------------------------------------
+ *
+ * SELF - The name of THIS file (typically "index.php")
+ * Reads entire file into an array
+ * file( string $filename [, int $flags = 0 ] ): array|false
+ */
+function bootstrap(): void
+{
+	file($path);
+}
+`)
+	for _, diag := range diags {
+		if code, ok := diag.Code.(string); ok && code == "PSR12.ControlStructures.ControlStructureSpacing" {
+			t.Fatalf("unexpected control structure spacing diagnostic for docblock text: %+v", diag)
+		}
+	}
+}
+
 func TestDiagnosticsProvider_DoesNotReportUnreachableAfterIfReturnWithNullsafeCall(t *testing.T) {
 	p := &DiagnosticsProvider{}
 	diags := p.Analyse("file:///test.php", `<?php
