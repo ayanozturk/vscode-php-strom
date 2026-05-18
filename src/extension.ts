@@ -71,6 +71,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       client?.sendNotification('phpstrom/indexWorkspace');
     }),
 
+    vscode.commands.registerCommand('phpstrom.problems.showListView', () => {
+      diagnosticsTreeProvider.setViewMode('list');
+    }),
+
+    vscode.commands.registerCommand('phpstrom.problems.showTreeView', () => {
+      diagnosticsTreeProvider.setViewMode('tree');
+    }),
+
     vscode.commands.registerCommand('phpstrom.showOutputChannel', () => {
       outputChannel.show();
     }),

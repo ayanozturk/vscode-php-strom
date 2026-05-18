@@ -425,6 +425,16 @@
         "icon": "$(refresh)"
       },
       {
+        "command": "phpstrom.problems.showListView",
+        "title": "PHP Strom: Show Problems as List",
+        "icon": "$(list-flat)"
+      },
+      {
+        "command": "phpstrom.problems.showTreeView",
+        "title": "PHP Strom: Show Problems as Tree",
+        "icon": "$(list-tree)"
+      },
+      {
         "command": "phpstrom.showOutputChannel",
         "title": "PHP Strom: Show Output Channel"
       },
@@ -448,6 +458,12 @@
           "command": "phpstrom.refreshProblemsScan"
         },
         {
+          "command": "phpstrom.problems.showListView"
+        },
+        {
+          "command": "phpstrom.problems.showTreeView"
+        },
+        {
           "command": "phpstrom.showOutputChannel"
         },
         {
@@ -459,6 +475,16 @@
           "command": "phpstrom.refreshProblemsScan",
           "when": "view == phpstromProblems",
           "group": "navigation"
+        },
+        {
+          "command": "phpstrom.problems.showListView",
+          "when": "view == phpstromProblems && phpstromProblems.viewMode == tree",
+          "group": "navigation@1"
+        },
+        {
+          "command": "phpstrom.problems.showTreeView",
+          "when": "view == phpstromProblems && phpstromProblems.viewMode == list",
+          "group": "navigation@1"
         }
       ]
     }
