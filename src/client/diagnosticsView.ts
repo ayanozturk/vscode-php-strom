@@ -1,5 +1,18 @@
 import * as vscode from 'vscode';
 
+type ProblemCategoryKey = 'style' | 'staticAnalysis';
+
+type ProblemCategoryNode = {
+  kind: 'category';
+  id: ProblemCategoryKey;
+  label: string;
+  diagnosticsCount: number;
+  fileCount: number;
+  problemTypeCount: number;
+  maxSeverity: vscode.DiagnosticSeverity;
+  children: ProblemTypeNode[];
+};
+
 type ProblemTypeNode = {
   kind: 'problemType';
   id: string;
@@ -42,7 +55,7 @@ type ProblemDiagnosticNode = {
 
 type ProblemChildNode = ProblemFolderNode | ProblemFileNode;
 
-type DiagnosticsViewNode = ProblemTypeNode | ProblemFolderNode | ProblemFileNode | ProblemDiagnosticNode;
+type DiagnosticsViewNode = ProblemCategoryNode | ProblemTypeNode | ProblemFolderNode | ProblemFileNode | ProblemDiagnosticNode;
 
 type FolderAccumulator = {
   id: string;
@@ -58,6 +71,7 @@ type FolderAccumulator = {
 type ViewStats = {
   totalDiagnostics: number;
   totalFiles: number;
+  totalCategories: number;
   totalProblemTypes: number;
 };
 
@@ -127,6 +141,17 @@ export class ProjectDiagnosticsTreeProvider implements vscode.TreeDataProvider<D
 
   getTreeItem(element: DiagnosticsViewNode): vscode.TreeItem {
     switch (element.kind) {
+      case 'category': {
+        const item = new vscode.TreeItem(
+          element.label,
+          vscode.TreeItemCollapsibleState.Expanded,
+        );
+        item.id = `category:${element.id}`;
+        item.description = `${element.diagnosticsCount} in ${element.fileCount} file${element.fileCount === 1 ? '' : 's'}`;
+        item.iconPath = iconForCategory(element.id, element.maxSeverity);
+        item.tooltip = `${element.label}\n${element.diagnosticsCount} diagnostic${element.diagnosticsCount === 1 ? '' : 's'} across ${element.problemTypeCount} problem type${element.problemTypeCount === 1 ? '' : 's'}`;
+        return item;
+      }
       case 'problemType': {
         const item = new vscode.TreeItem(
           element.label,
@@ -187,10 +212,14 @@ export class ProjectDiagnosticsTreeProvider implements vscode.TreeDataProvider<D
   }
 
   getChildren(element?: DiagnosticsViewNode): DiagnosticsViewNode[] {
-    const groups = this.buildProblemTypeNodes();
+    const categories = this.buildProblemCategoryNodes();
 
     if (!element) {
-      return groups;
+      return categories;
+    }
+
+    if (element.kind === 'category') {
+      return element.children;
     }
 
     if (element.kind === 'problemType') {
@@ -239,47 +268,66 @@ export class ProjectDiagnosticsTreeProvider implements vscode.TreeDataProvider<D
   }
 
   private getStats(): ViewStats {
-    const groups = this.buildProblemTypeNodes();
+    const categories = this.buildProblemCategoryNodes();
     const fileUris = new Set<string>();
     let totalDiagnostics = 0;
+    let totalProblemTypes = 0;
 
-    for (const group of groups) {
-      totalDiagnostics += group.diagnosticsCount;
-      for (const file of collectFiles(group.children)) {
-        fileUris.add(file.uri.toString());
+    for (const category of categories) {
+      totalDiagnostics += category.diagnosticsCount;
+      totalProblemTypes += category.problemTypeCount;
+      for (const group of category.children) {
+        for (const file of collectFiles(group.children)) {
+          fileUris.add(file.uri.toString());
+        }
       }
     }
 
     return {
       totalDiagnostics,
       totalFiles: fileUris.size,
-      totalProblemTypes: groups.length,
+      totalCategories: categories.length,
+      totalProblemTypes,
     };
   }
 
-  private buildProblemTypeNodes(): ProblemTypeNode[] {
-    const groups = new Map<string, { label: string; files: Map<string, ProblemFileNode> }>();
+  private buildProblemCategoryNodes(): ProblemCategoryNode[] {
+    const categories = new Map<ProblemCategoryKey, {
+      label: string;
+      problemTypes: Map<string, { label: string; files: Map<string, ProblemFileNode> }>;
+    }>();
 
     for (const [uriString, diagnostics] of this.diagnosticsByUri.entries()) {
       const uri = vscode.Uri.parse(uriString);
       const relativePath = vscode.workspace.asRelativePath(uri, false);
 
       for (const diagnostic of diagnostics) {
+        const categoryInfo = getDiagnosticCategory(diagnostic);
+        let category = categories.get(categoryInfo.key);
+        if (!category) {
+          category = {
+            label: categoryInfo.label,
+            problemTypes: new Map<string, { label: string; files: Map<string, ProblemFileNode> }>(),
+          };
+          categories.set(categoryInfo.key, category);
+        }
+
         const groupKey = getDiagnosticGroupKey(diagnostic);
-        let group = groups.get(groupKey);
+        const scopedGroupKey = `${categoryInfo.key}:${groupKey}`;
+        let group = category.problemTypes.get(groupKey);
         if (!group) {
           group = {
             label: getDiagnosticGroupLabel(diagnostic),
             files: new Map<string, ProblemFileNode>(),
           };
-          groups.set(groupKey, group);
+          category.problemTypes.set(groupKey, group);
         }
 
         let file = group.files.get(uriString);
         if (!file) {
           file = {
             kind: 'file',
-            id: `file:${groupKey}:${uriString}`,
+            id: `file:${scopedGroupKey}:${uriString}`,
             uri,
             relativePath,
             diagnosticsCount: 0,
@@ -292,7 +340,7 @@ export class ProjectDiagnosticsTreeProvider implements vscode.TreeDataProvider<D
         const location = formatDiagnosticLocation(diagnostic.range.start);
         file.diagnostics.push({
           kind: 'diagnostic',
-          id: `diagnostic:${groupKey}:${uriString}:${diagnostic.range.start.line}:${diagnostic.range.start.character}:${diagnostic.message}`,
+          id: `diagnostic:${scopedGroupKey}:${uriString}:${diagnostic.range.start.line}:${diagnostic.range.start.character}:${diagnostic.message}`,
           uri,
           diagnostic,
           label: diagnostic.message,
@@ -303,40 +351,75 @@ export class ProjectDiagnosticsTreeProvider implements vscode.TreeDataProvider<D
       }
     }
 
-    return [...groups.entries()]
-      .map(([groupKey, group]): ProblemTypeNode => {
-        const files = [...group.files.values()]
-          .map((file) => ({
-            ...file,
-            diagnostics: file.diagnostics.sort(compareDiagnostics),
-          }))
-          .sort((left, right) => left.relativePath.localeCompare(right.relativePath));
-        const children = buildFolderTree(groupKey, files);
-
-        const diagnosticsCount = files.reduce((total, file) => total + file.diagnosticsCount, 0);
-        const maxGroupSeverity = files.reduce(
-          (severity, file) => maxSeverity(severity, file.maxSeverity),
+    return [...categories.entries()]
+      .map(([categoryKey, category]): ProblemCategoryNode => {
+        const problemTypes = buildProblemTypeNodes(categoryKey, category.problemTypes);
+        const fileUris = new Set<string>();
+        const diagnosticsCount = problemTypes.reduce((total, problemType) => total + problemType.diagnosticsCount, 0);
+        const maxCategorySeverity = problemTypes.reduce(
+          (severity, problemType) => maxSeverity(severity, problemType.maxSeverity),
           vscode.DiagnosticSeverity.Hint,
         );
 
-        return {
-          kind: 'problemType',
-          id: `problemType:${groupKey}`,
-          label: group.label,
-          diagnosticsCount,
-          fileCount: files.length,
-          maxSeverity: maxGroupSeverity,
-          children,
-        };
-      })
-      .sort((left, right) => {
-        if (right.diagnosticsCount !== left.diagnosticsCount) {
-          return right.diagnosticsCount - left.diagnosticsCount;
+        for (const problemType of problemTypes) {
+          for (const file of collectFiles(problemType.children)) {
+            fileUris.add(file.uri.toString());
+          }
         }
 
-        return left.label.localeCompare(right.label);
-      });
+        return {
+          kind: 'category',
+          id: categoryKey,
+          label: category.label,
+          diagnosticsCount,
+          fileCount: fileUris.size,
+          problemTypeCount: problemTypes.length,
+          maxSeverity: maxCategorySeverity,
+          children: problemTypes,
+        };
+      })
+      .sort((left, right) => categorySortOrder(left.id) - categorySortOrder(right.id));
   }
+}
+
+function buildProblemTypeNodes(
+  categoryKey: ProblemCategoryKey,
+  groups: Map<string, { label: string; files: Map<string, ProblemFileNode> }>,
+): ProblemTypeNode[] {
+  return [...groups.entries()]
+    .map(([groupKey, group]): ProblemTypeNode => {
+      const scopedGroupKey = `${categoryKey}:${groupKey}`;
+      const files = [...group.files.values()]
+        .map((file) => ({
+          ...file,
+          diagnostics: file.diagnostics.sort(compareDiagnostics),
+        }))
+        .sort((left, right) => left.relativePath.localeCompare(right.relativePath));
+      const children = buildFolderTree(scopedGroupKey, files);
+
+      const diagnosticsCount = files.reduce((total, file) => total + file.diagnosticsCount, 0);
+      const maxGroupSeverity = files.reduce(
+        (severity, file) => maxSeverity(severity, file.maxSeverity),
+        vscode.DiagnosticSeverity.Hint,
+      );
+
+      return {
+        kind: 'problemType',
+        id: `problemType:${scopedGroupKey}`,
+        label: group.label,
+        diagnosticsCount,
+        fileCount: files.length,
+        maxSeverity: maxGroupSeverity,
+        children,
+      };
+    })
+    .sort((left, right) => {
+      if (right.diagnosticsCount !== left.diagnosticsCount) {
+        return right.diagnosticsCount - left.diagnosticsCount;
+      }
+
+      return left.label.localeCompare(right.label);
+    });
 }
 
 export async function openDiagnosticNode(node: ProblemDiagnosticNode): Promise<void> {
@@ -445,19 +528,24 @@ function splitRelativePath(relativePath: string): string[] {
 }
 
 function getDiagnosticGroupKey(diagnostic: vscode.Diagnostic): string {
-  const code = diagnostic.code;
-  if (typeof code === 'string' || typeof code === 'number') {
-    return String(code);
-  }
-
-  if (code && typeof code === 'object' && 'value' in code) {
-    return String(code.value);
+  const code = diagnosticCodeString(diagnostic);
+  if (code) {
+    return code;
   }
 
   return diagnostic.message.split('\n', 1)[0];
 }
 
 function getDiagnosticGroupLabel(diagnostic: vscode.Diagnostic): string {
+  const code = diagnosticCodeString(diagnostic);
+  if (code) {
+    return code;
+  }
+
+  return diagnostic.message.split('\n', 1)[0] || 'General';
+}
+
+function diagnosticCodeString(diagnostic: vscode.Diagnostic): string | undefined {
   const code = diagnostic.code;
   if (typeof code === 'string' || typeof code === 'number') {
     return String(code);
@@ -467,7 +555,36 @@ function getDiagnosticGroupLabel(diagnostic: vscode.Diagnostic): string {
     return String(code.value);
   }
 
-  return diagnostic.message.split('\n', 1)[0] || 'General';
+  return undefined;
+}
+
+function getDiagnosticCategory(diagnostic: vscode.Diagnostic): { key: ProblemCategoryKey; label: string } {
+  const code = diagnosticCodeString(diagnostic);
+  if (isStyleDiagnosticCode(code)) {
+    return { key: 'style', label: 'Style Issues' };
+  }
+
+  return { key: 'staticAnalysis', label: 'Static Analysis Issues' };
+}
+
+function isStyleDiagnosticCode(code: string | undefined): boolean {
+  if (!code) {
+    return false;
+  }
+
+  return code.startsWith('PSR')
+    || code.startsWith('Squiz.')
+    || code.startsWith('Generic.Formatting.')
+    || code.startsWith('Generic.WhiteSpace.');
+}
+
+function categorySortOrder(category: ProblemCategoryKey): number {
+  switch (category) {
+    case 'style':
+      return 0;
+    case 'staticAnalysis':
+      return 1;
+  }
 }
 
 function formatDiagnosticLocation(position: vscode.Position): string {
@@ -485,6 +602,15 @@ function iconForSeverity(severity: vscode.DiagnosticSeverity): vscode.ThemeIcon 
     case vscode.DiagnosticSeverity.Hint:
     default:
       return new vscode.ThemeIcon('lightbulb');
+  }
+}
+
+function iconForCategory(category: ProblemCategoryKey, severity: vscode.DiagnosticSeverity): vscode.ThemeIcon {
+  switch (category) {
+    case 'style':
+      return new vscode.ThemeIcon('symbol-color');
+    case 'staticAnalysis':
+      return iconForSeverity(severity);
   }
 }
 
