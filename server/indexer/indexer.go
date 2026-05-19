@@ -130,13 +130,16 @@ func (wi *WorkspaceIndexer) indexWorkspace(visitor func(ParsedFile)) {
 	total := len(paths)
 	log.Printf("[indexer] discovered %d files across %d workspace folder(s)", total, len(folders))
 
-	// Keep parser concurrency conservative until parser-level cancellation exists.
-	// This prevents pathological files from saturating many CPU cores.
-	numWorkers := runtime.GOMAXPROCS(0)
-	if numWorkers < 1 {
-		numWorkers = 1
+	// Since file reading is I/O bound (especially on mounted/network/remote drives),
+	// we use a higher concurrency factor to overlap disk reads with CPU parsing.
+	numWorkers := runtime.GOMAXPROCS(0) * 4
+	if numWorkers < 16 {
+		numWorkers = 16
 	}
-	log.Printf("[indexer] starting %d worker(s)", numWorkers)
+	if numWorkers > 64 {
+		numWorkers = 64
+	}
+	log.Printf("[indexer] starting %d worker(s) to overlap I/O and parsing", numWorkers)
 
 	jobs := make(chan string, len(paths))
 	for _, p := range paths {

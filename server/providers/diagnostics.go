@@ -45,7 +45,7 @@ func (r workspaceSymbolResolver) ResolveMethod(className, methodName string) (an
 		return resolvedMethod(sym), true
 	}
 
-	for _, sym := range idx.Search(methodName) {
+	for _, sym := range idx.GetByName(methodName) {
 		if sym.Kind != indexer.KindMethod {
 			continue
 		}
@@ -71,7 +71,7 @@ func (r workspaceSymbolResolver) ResolveProperty(className, propertyName string)
 		return analyse.ResolvedProperty{Name: sym.Name, Type: sym.Type}, true
 	}
 
-	for _, sym := range idx.Search(propertyName) {
+	for _, sym := range idx.GetByName(propertyName) {
 		if sym.Kind != indexer.KindProperty {
 			continue
 		}
@@ -103,7 +103,7 @@ func (r workspaceSymbolResolver) resolveClassSymbol(name string) (*indexer.Symbo
 	if lookup == "" {
 		return nil, false
 	}
-	for _, sym := range prioritizeDefinitionMatches(idx.Search(lookup), lookup) {
+	for _, sym := range prioritizeDefinitionMatches(idx.GetByName(lookup), lookup) {
 		if !isClassLikeKind(sym.Kind) {
 			continue
 		}

@@ -112,7 +112,7 @@ func (p *DefinitionProvider) Provide(uri, text string, pos lsp.Position) []lsp.L
 		return nil
 	}
 
-	syms := prioritizeDefinitionMatches(p.idx.GetIndex().Search(lookup), lookup)
+	syms := prioritizeDefinitionMatches(p.idx.GetIndex().GetByName(lookup), lookup)
 	var locs []lsp.Location
 	for _, s := range syms {
 		locs = append(locs, symToLocation(s))
@@ -365,7 +365,7 @@ func resolveTypeDefinitionLocations(idx *indexer.WorkspaceIndexer, text string, 
 		return nil
 	}
 
-	matched := prioritizeDefinitionMatches(idx.GetIndex().Search(lookup), lookup)
+	matched := prioritizeDefinitionMatches(idx.GetIndex().GetByName(lookup), lookup)
 	var locs []lsp.Location
 	for _, sym := range matched {
 		if isClassLikeKind(sym.Kind) {
@@ -570,7 +570,7 @@ func resolveHoverSymbol(idx *indexer.WorkspaceIndexer, uri, text string, pos lsp
 		return sym
 	}
 
-	matched := prioritizeDefinitionMatches(idx.GetIndex().Search(lookup), lookup)
+	matched := prioritizeDefinitionMatches(idx.GetIndex().GetByName(lookup), lookup)
 	if len(matched) == 0 {
 		return nil
 	}
@@ -590,7 +590,7 @@ func resolveMethodSymbol(idx *indexer.WorkspaceIndexer, className, methodName st
 	if sym := index.GetByFQN(classSym.FQN + "::" + methodName); sym != nil && sym.Kind == indexer.KindMethod {
 		return sym
 	}
-	for _, sym := range prioritizeDefinitionMatches(index.Search(methodName), methodName) {
+	for _, sym := range prioritizeDefinitionMatches(index.GetByName(methodName), methodName) {
 		if sym.Kind != indexer.KindMethod {
 			continue
 		}
@@ -617,7 +617,7 @@ func resolvePropertySymbol(idx *indexer.WorkspaceIndexer, className, propertyNam
 	if sym := index.GetByFQN(classSym.FQN + "::$" + propertyName); sym != nil && sym.Kind == indexer.KindProperty {
 		return sym
 	}
-	for _, sym := range prioritizeDefinitionMatches(index.Search(propertyName), propertyName) {
+	for _, sym := range prioritizeDefinitionMatches(index.GetByName(propertyName), propertyName) {
 		if sym.Kind != indexer.KindProperty {
 			continue
 		}

@@ -365,9 +365,12 @@ func (h *Handler) runWorkspaceDiagnostics(scan *workspaceDiagnosticsScanState) {
 	workspaceURIs := h.idx.WorkspaceFileURIs()
 	seen := make(map[string]struct{}, len(workspaceURIs))
 	jobs := make(chan string, len(workspaceURIs))
-	workerCount := runtime.GOMAXPROCS(0)
-	if workerCount < 1 {
-		workerCount = 1
+	workerCount := runtime.GOMAXPROCS(0) * 4
+	if workerCount < 16 {
+		workerCount = 16
+	}
+	if workerCount > 64 {
+		workerCount = 64
 	}
 	if workerCount > len(workspaceURIs) && len(workspaceURIs) > 0 {
 		workerCount = len(workspaceURIs)
