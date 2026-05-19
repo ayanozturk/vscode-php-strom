@@ -149,9 +149,12 @@ async function startClient(context: vscode.ExtensionContext, clearCache = false)
   };
 
   const clientOptions: LanguageClientOptions = {
-    documentSelector: [{ scheme: 'file', language: 'php' }],
+    documentSelector: [
+      { scheme: 'file', language: 'php', pattern: '**/*.php' },
+      { scheme: 'file', language: 'php', pattern: '**/*.phar' },
+    ],
     synchronize: {
-      fileEvents: vscode.workspace.createFileSystemWatcher('**/*.{php,phtml,phar}'),
+      fileEvents: vscode.workspace.createFileSystemWatcher('**/*.{php,phar}'),
     },
     initializationOptions: {
       storagePath: context.storageUri?.fsPath,

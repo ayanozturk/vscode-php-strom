@@ -40,11 +40,22 @@ export class DiagnosticsProvider {
   ) {}
 
   validate(doc: TextDocument): void {
+    // Only analyze proper PHP source files, skip templates/mixed-content
+    const skipExts = ['.phtml', '.tpl', '.html', '.htm', '.php4', '.php5'];
+    const uri = doc.uri.toLowerCase();
+    const text = doc.getText().toLowerCase();
+    // Heuristic: skip .php files that are HTML templates (contain <html or <!doctype html)
+    if (
+      skipExts.some(ext => uri.endsWith(ext)) ||
+      (uri.endsWith('.php') && (text.includes('<html') || text.includes('<!doctype html')))
+    ) {
+      this.connection.sendDiagnostics({ uri: doc.uri, diagnostics: [] });
+      return;
+    }
     if (!this.config.diagnostics.enable) {
       this.connection.sendDiagnostics({ uri: doc.uri, diagnostics: [] });
       return;
     }
-
     const diagnostics = this.analyse(doc);
     this.connection.sendDiagnostics({ uri: doc.uri, diagnostics });
   }

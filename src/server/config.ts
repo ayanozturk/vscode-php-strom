@@ -95,8 +95,17 @@ export class ServerConfig implements ServerConfig {
       documentRoot: '',
     };
     this.files = {
-      associations: ['**/*.php', '**/*.phtml', '**/*.phar'],
-      exclude: ['**/.git/**', '**/node_modules/**'],
+      associations: ['**/*.php', '**/*.phar'], // Only pure PHP files by default
+      exclude: [
+        '**/.git/**',
+        '**/node_modules/**',
+        '**/*.phtml',
+        '**/*.tpl',
+        '**/*.html',
+        '**/*.htm',
+        '**/*.php4',
+        '**/*.php5',
+      ],
       maxSize: 1_000_000,
     };
     this.stubs = [];
@@ -110,7 +119,16 @@ export class ServerConfig implements ServerConfig {
       relaxedTypeCheck: true,
       noMixedTypeCheck: true,
       typeCheckDocumentedTypes: false,
-      exclude: {},
+      exclude: {
+        // Exclude template/mixed-content files from diagnostics
+        '**/*.phtml': ['*'],
+        '**/*.tpl': ['*'],
+        '**/*.html': ['*'],
+        '**/*.htm': ['*'],
+        '**/*.php4': ['*'],
+        '**/*.php5': ['*'],
+        // Note: .php files containing <html or <!DOCTYPE html are also excluded by a heuristic in DiagnosticsProvider
+      },
       overrides: {},
     };
     this.completion = {
