@@ -10,7 +10,6 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"go-phpcs/ast"
 	goplexer "go-phpcs/lexer"
@@ -102,8 +101,12 @@ func (wi *WorkspaceIndexer) indexWorkspace(visitor func(ParsedFile)) {
 	total := len(paths)
 	log.Printf("[indexer] discovered %d files across %d workspace folder(s)", total, len(folders))
 
-	// Parallel parse using goroutine pool
+	// Keep parser concurrency conservative until parser-level cancellation exists.
+	// This prevents pathological files from saturating many CPU cores.
 	numWorkers := runtime.GOMAXPROCS(0)
+	if numWorkers > 1 {
+		numWorkers = 1
+	}
 	log.Printf("[indexer] starting %d worker(s)", numWorkers)
 
 	jobs := make(chan string, len(paths))
@@ -131,7 +134,7 @@ func (wi *WorkspaceIndexer) indexWorkspace(visitor func(ParsedFile)) {
 			defer wg.Done()
 			log.Printf("[indexer] worker %d started", workerID)
 			for filePath := range jobs {
-				wi.indexFileWithTimeout(filePath, visitor)
+				wi.indexFile(filePath, visitor)
 				done := int(atomic.AddInt64(&wi.indexedCount, 1))
 				if done%reportEvery == 0 || done == total {
 					log.Printf("[indexer] progress %d/%d", done, total)
@@ -235,56 +238,34 @@ func (wi *WorkspaceIndexer) untrackWorkspaceURI(uri string) {
 	}
 }
 
-// indexFileWithTimeout parses a file inside a goroutine with a 5s deadline.
-// If parsing hangs (e.g. infinite loop in the parser), the file is skipped and
-// a warning is logged. The timed-out goroutine leaks but does not block others.
-func (wi *WorkspaceIndexer) indexFileWithTimeout(path string, visitor func(ParsedFile)) {
-	const timeout = 5 * time.Second
-
-	type result struct {
-		parsed *ParsedFile
-	}
-	done := make(chan result, 1)
-
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				buf := make([]byte, 4096)
-				n := runtime.Stack(buf, false)
-				log.Printf("[indexer] PANIC parsing %s: %v\n%s", path, r, buf[:n])
-				done <- result{}
-			}
-		}()
-		info, err := os.Stat(path)
-		if err != nil {
-			done <- result{}
-			return
+func (wi *WorkspaceIndexer) indexFile(path string, visitor func(ParsedFile)) {
+	defer func() {
+		if r := recover(); r != nil {
+			buf := make([]byte, 4096)
+			n := runtime.Stack(buf, false)
+			log.Printf("[indexer] PANIC parsing %s: %v\n%s", path, r, buf[:n])
 		}
-		if info.Size() > wi.cfg.MaxSize {
-			log.Printf("[indexer] skipping oversized file (%d bytes): %s", info.Size(), path)
-			done <- result{}
-			return
-		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			done <- result{}
-			return
-		}
-		uri := pathToURI(path)
-		parsed := ParseSource(uri, string(data))
-		done <- result{parsed: &parsed}
 	}()
 
-	select {
-	case res := <-done:
-		if res.parsed != nil {
-			wi.index.PutFile(res.parsed.URI, res.parsed.Symbols)
-			if visitor != nil {
-				visitor(*res.parsed)
-			}
-		}
-	case <-time.After(timeout):
-		log.Printf("[indexer] TIMEOUT (>%s) parsing %s — skipping", timeout, path)
+	info, err := os.Stat(path)
+	if err != nil {
+		return
+	}
+	if info.Size() > wi.cfg.MaxSize {
+		log.Printf("[indexer] skipping oversized file (%d bytes): %s", info.Size(), path)
+		return
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+
+	uri := pathToURI(path)
+	parsed := ParseSource(uri, string(data))
+	wi.index.PutFile(parsed.URI, parsed.Symbols)
+	if visitor != nil {
+		visitor(parsed)
 	}
 }
 
