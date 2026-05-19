@@ -2,7 +2,6 @@ package indexer
 
 import (
 	"context"
-	"io/fs"
 	"log"
 	"os"
 	pathpkg "path"
@@ -20,16 +19,17 @@ import (
 
 // WorkspaceIndexer discovers and indexes PHP files in workspace folders.
 type WorkspaceIndexer struct {
-	cfg           Config
-	index         *Index
-	folders       []WorkspaceFolder
-	workspaceURIs []string
-	gitignores    []workspaceGitignore
-	mu            sync.RWMutex
-	onStart       func()
-	onDone        func(int)
-	onProgress    func(done, total int)
-	indexedCount  int64
+	cfg              Config
+	index            *Index
+	folders          []WorkspaceFolder
+	workspaceURIs    []string
+	gitignores       []workspaceGitignore
+	compiledExcludes [][]string
+	mu               sync.RWMutex
+	onStart          func()
+	onDone           func(int)
+	onProgress       func(done, total int)
+	indexedCount     int64
 }
 
 const perFileParseTimeout = 20 * time.Second
@@ -43,9 +43,29 @@ type ParsedFile struct {
 	Symbols []*Symbol
 }
 
+func splitPathSegments(p string) []string {
+	p = filepath.ToSlash(p)
+	p = strings.TrimPrefix(pathpkg.Clean(p), "./")
+	p = strings.Trim(p, "/")
+	if p == "" || p == "." {
+		return nil
+	}
+	return strings.Split(p, "/")
+}
+
 // New creates a WorkspaceIndexer with the given configuration.
 func New(cfg Config) *WorkspaceIndexer {
-	return &WorkspaceIndexer{cfg: cfg, index: newIndex()}
+	var compiledExcludes [][]string
+	for _, pat := range cfg.Exclude {
+		for _, expanded := range expandBracePattern(filepath.ToSlash(pat)) {
+			compiledExcludes = append(compiledExcludes, splitPathSegments(expanded))
+		}
+	}
+	return &WorkspaceIndexer{
+		cfg:              cfg,
+		index:            newIndex(),
+		compiledExcludes: compiledExcludes,
+	}
 }
 
 // SetWorkspaceFolders updates the list of root folders to index.
@@ -89,6 +109,8 @@ func (wi *WorkspaceIndexer) indexWorkspace(visitor func(ParsedFile)) {
 	if wi.onStart != nil {
 		wi.onStart()
 	}
+
+	log.Printf("[indexer] scanning workspace folders for PHP files...")
 
 	wi.mu.RLock()
 	folders := wi.folders
@@ -201,34 +223,76 @@ func (wi *WorkspaceIndexer) GetIndex() *Index { return wi.index }
 // ─── Internal ─────────────────────────────────────────────────────────────────
 
 func (wi *WorkspaceIndexer) collectWorkspaceFilePaths(folders []WorkspaceFolder, gitignores []workspaceGitignore) []string {
+	return wi.collectWorkspaceFilePathsParallel(folders, gitignores)
+}
+
+func (wi *WorkspaceIndexer) collectWorkspaceFilePathsParallel(folders []WorkspaceFolder, gitignores []workspaceGitignore) []string {
 	var paths []string
-	for _, folder := range folders {
-		root := uriToPath(folder.URI)
-		_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
-			if err != nil {
-				return nil
-			}
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+
+	// Limit concurrent directory walks to avoid OS file descriptor exhaustion
+	sem := make(chan struct{}, 32)
+
+	var walk func(string)
+	walk = func(path string) {
+		entries, err := os.ReadDir(path)
+		if err != nil {
+			return
+		}
+
+		var subdirs []string
+		for _, d := range entries {
+			p := filepath.Join(path, d.Name())
 			if d.IsDir() {
 				if wi.shouldExcludeDir(p) {
-					return filepath.SkipDir
+					continue
 				}
 				if ignoresPath(gitignores, p, true) {
 					if canSkipIgnoredDir(gitignores, p) {
-						return filepath.SkipDir
+						continue
 					}
-					return nil
 				}
-				return nil
+				subdirs = append(subdirs, p)
+			} else {
+				if ignoresPath(gitignores, p, false) {
+					continue
+				}
+				if wi.matchesAssociations(p) {
+					mu.Lock()
+					paths = append(paths, p)
+					mu.Unlock()
+				}
 			}
-			if ignoresPath(gitignores, p, false) {
-				return nil
+		}
+
+		for _, subdir := range subdirs {
+			select {
+			case sem <- struct{}{}:
+				// Spawn a concurrent worker for this subdirectory
+				wg.Add(1)
+				go func(dir string) {
+					defer func() {
+						<-sem
+						wg.Done()
+					}()
+					walk(dir)
+				}(subdir)
+			default:
+				// Fall back to walking sequentially in the current goroutine
+				walk(subdir)
 			}
-			if wi.matchesAssociations(p) {
-				paths = append(paths, p)
-			}
-			return nil
-		})
+		}
 	}
+
+	for _, folder := range folders {
+		root := uriToPath(folder.URI)
+		if root != "" {
+			walk(root)
+		}
+	}
+
+	wg.Wait()
 	return paths
 }
 
@@ -310,8 +374,12 @@ func (wi *WorkspaceIndexer) parseIndexableFile(path string) (ParsedFile, string)
 }
 
 func (wi *WorkspaceIndexer) shouldExcludeDir(path string) bool {
-	for _, pat := range wi.cfg.Exclude {
-		if matchSimple(pat, path) {
+	if len(wi.compiledExcludes) == 0 {
+		return false
+	}
+	segments := splitPathSegments(path)
+	for _, patternSegments := range wi.compiledExcludes {
+		if matchSegmentSequence(patternSegments, segments) {
 			return true
 		}
 	}
@@ -975,16 +1043,19 @@ func matchSegmentSequence(patternSegments, candidateSegments []string) bool {
 }
 
 type workspaceGitignore struct {
-	root  string
-	rules []gitignoreRule
+	root         string
+	rootSegments []string
+	rules        []gitignoreRule
 }
 
 type gitignoreRule struct {
-	pattern  string
-	negated  bool
-	dirOnly  bool
-	anchored bool
-	hasSlash bool
+	pattern          string
+	negated          bool
+	dirOnly          bool
+	anchored         bool
+	hasSlash         bool
+	expandedPatterns [][]string
+	simpleGlobs      []string
 }
 
 func loadWorkspaceGitignores(folders []WorkspaceFolder) []workspaceGitignore {
@@ -1014,12 +1085,17 @@ func loadWorkspaceGitignore(folder WorkspaceFolder) (workspaceGitignore, bool) {
 		return workspaceGitignore{}, false
 	}
 
-	return workspaceGitignore{root: filepath.Clean(root), rules: rules}, true
+	return workspaceGitignore{
+		root:         filepath.Clean(root),
+		rootSegments: splitPathSegments(root),
+		rules:        rules,
+	}, true
 }
 
 func ignoresPath(matchers []workspaceGitignore, filename string, isDir bool) bool {
+	segments := splitPathSegments(filename)
 	for _, matcher := range matchers {
-		if matcher.ignores(filename, isDir) {
+		if matcher.ignoresWithSegments(filename, segments, isDir) {
 			return true
 		}
 	}
@@ -1027,23 +1103,24 @@ func ignoresPath(matchers []workspaceGitignore, filename string, isDir bool) boo
 }
 
 func canSkipIgnoredDir(matchers []workspaceGitignore, dir string) bool {
+	segments := splitPathSegments(dir)
 	for _, matcher := range matchers {
-		if matcher.mayReincludeDescendant() && matcher.contains(dir) {
+		if matcher.mayReincludeDescendant() && matcher.containsWithSegments(segments) {
 			return false
 		}
 	}
 	return true
 }
 
-func (m workspaceGitignore) ignores(filename string, isDir bool) bool {
-	rel, ok := relativeWorkspacePath(m.root, filename)
+func (m workspaceGitignore) ignoresWithSegments(filename string, segments []string, isDir bool) bool {
+	relSegments, ok := m.relativeWorkspaceSegments(segments)
 	if !ok {
 		return false
 	}
 
 	ignored := false
 	for _, rule := range m.rules {
-		if !rule.matches(rel, isDir) {
+		if !rule.matchesWithSegments(relSegments, isDir) {
 			continue
 		}
 		ignored = !rule.negated
@@ -1051,9 +1128,21 @@ func (m workspaceGitignore) ignores(filename string, isDir bool) bool {
 	return ignored
 }
 
-func (m workspaceGitignore) contains(filename string) bool {
-	_, ok := relativeWorkspacePath(m.root, filename)
+func (m workspaceGitignore) containsWithSegments(segments []string) bool {
+	_, ok := m.relativeWorkspaceSegments(segments)
 	return ok
+}
+
+func (m workspaceGitignore) relativeWorkspaceSegments(segments []string) ([]string, bool) {
+	if len(segments) < len(m.rootSegments) {
+		return nil, false
+	}
+	for i, seg := range m.rootSegments {
+		if segments[i] != seg {
+			return nil, false
+		}
+	}
+	return segments[len(m.rootSegments):], true
 }
 
 func (m workspaceGitignore) mayReincludeDescendant() bool {
@@ -1093,84 +1182,72 @@ func parseGitignoreRules(content string) []gitignoreRule {
 		}
 		rule.pattern = line
 		rule.hasSlash = strings.Contains(line, "/")
+
+		// Pre-compute expanded patterns and simple globs
+		if rule.pattern != "" {
+			var rawVariants []string
+			if rule.anchored {
+				rawVariants = []string{rule.pattern}
+			} else {
+				rawVariants = []string{rule.pattern, "**/" + rule.pattern}
+			}
+			for _, v := range rawVariants {
+				for _, expanded := range expandBracePattern(filepath.ToSlash(v)) {
+					segs := splitPathSegments(expanded)
+					rule.expandedPatterns = append(rule.expandedPatterns, segs)
+				}
+			}
+			if !rule.hasSlash {
+				rule.simpleGlobs = expandBracePattern(filepath.ToSlash(rule.pattern))
+			}
+		}
+
 		rules = append(rules, rule)
 	}
 	return rules
 }
 
-func (r gitignoreRule) matches(rel string, isDir bool) bool {
-	rel = filepath.ToSlash(rel)
-	if rel == "" || rel == "." {
+func (r gitignoreRule) matchesWithSegments(candidateSegments []string, isDir bool) bool {
+	if len(candidateSegments) == 0 {
 		return false
 	}
 
 	if r.dirOnly {
-		if isDir && r.matchesPath(rel) {
+		if isDir && r.matchesPathWithSegments(candidateSegments) {
 			return true
 		}
-		for _, dir := range parentDirectories(rel) {
-			if r.matchesPath(dir) {
+		// Check all parent directories.
+		for i := 1; i < len(candidateSegments); i++ {
+			if r.matchesPathWithSegments(candidateSegments[:i]) {
 				return true
 			}
 		}
 		return false
 	}
 
-	if r.matchesPath(rel) {
+	if r.matchesPathWithSegments(candidateSegments) {
 		return true
 	}
 
 	if !r.hasSlash {
-		return matchSimple(r.pattern, pathpkg.Base(rel))
+		base := candidateSegments[len(candidateSegments)-1]
+		for _, pat := range r.simpleGlobs {
+			matched, err := pathpkg.Match(pat, base)
+			if err == nil && matched {
+				return true
+			}
+		}
+		return false
 	}
 
 	return false
 }
 
-func (r gitignoreRule) matchesPath(candidate string) bool {
-	for _, pattern := range r.globVariants() {
-		if matchSimple(pattern, candidate) {
+func (r gitignoreRule) matchesPathWithSegments(candidateSegments []string) bool {
+	for _, patternSegments := range r.expandedPatterns {
+		if matchSegmentSequence(patternSegments, candidateSegments) {
 			return true
 		}
 	}
 	return false
-}
-
-func (r gitignoreRule) globVariants() []string {
-	if r.pattern == "" {
-		return nil
-	}
-	if r.anchored {
-		return []string{r.pattern}
-	}
-	return []string{r.pattern, "**/" + r.pattern}
-}
-
-func parentDirectories(rel string) []string {
-	dir := pathpkg.Dir(filepath.ToSlash(rel))
-	if dir == "." || dir == "" {
-		return nil
-	}
-	parts := strings.Split(dir, "/")
-	dirs := make([]string, 0, len(parts))
-	for i := range parts {
-		dirs = append(dirs, strings.Join(parts[:i+1], "/"))
-	}
-	return dirs
-}
-
-func relativeWorkspacePath(root, filename string) (string, bool) {
-	root = filepath.Clean(root)
-	filename = filepath.Clean(filename)
-	rel, err := filepath.Rel(root, filename)
-	if err != nil {
-		return "", false
-	}
-	if rel == "." || rel == "" {
-		return "", false
-	}
-	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return "", false
-	}
-	return filepath.ToSlash(rel), true
 }
