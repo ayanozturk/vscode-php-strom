@@ -79,6 +79,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       diagnosticsTreeProvider.setViewMode('tree');
     }),
 
+    vscode.commands.registerCommand('phpstrom.problems.setFilePathFilter', async () => {
+      await diagnosticsTreeProvider.promptFilePathFilter();
+    }),
+
+    vscode.commands.registerCommand('phpstrom.problems.clearFilePathFilter', () => {
+      diagnosticsTreeProvider.clearFilePathFilter();
+    }),
+
+    vscode.commands.registerCommand('phpstrom.problems.enableRegexFilter', () => {
+      diagnosticsTreeProvider.setFilePathFilterRegexEnabled(true);
+    }),
+
+    vscode.commands.registerCommand('phpstrom.problems.disableRegexFilter', () => {
+      diagnosticsTreeProvider.setFilePathFilterRegexEnabled(false);
+    }),
+
     vscode.commands.registerCommand('phpstrom.showOutputChannel', () => {
       outputChannel.show();
     }),

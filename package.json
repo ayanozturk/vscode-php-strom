@@ -2,7 +2,7 @@
   "name": "phpstrom",
   "displayName": "PHP Strom",
   "description": "High-performance, fully open-source PHP language intelligence for VS Code — a complete LSP implementation covering all features.",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "publisher": "AOSSoftware",
   "license": "MIT",
   "repository": {
@@ -435,6 +435,26 @@
         "icon": "$(list-tree)"
       },
       {
+        "command": "phpstrom.problems.setFilePathFilter",
+        "title": "PHP Strom: Filter Problems by File/Folder",
+        "icon": "$(filter)"
+      },
+      {
+        "command": "phpstrom.problems.clearFilePathFilter",
+        "title": "PHP Strom: Clear Problems File/Folder Filter",
+        "icon": "$(close)"
+      },
+      {
+        "command": "phpstrom.problems.enableRegexFilter",
+        "title": "PHP Strom: Enable Regex Problems Filter",
+        "icon": "$(regex)"
+      },
+      {
+        "command": "phpstrom.problems.disableRegexFilter",
+        "title": "PHP Strom: Disable Regex Problems Filter",
+        "icon": "$(regex)"
+      },
+      {
         "command": "phpstrom.showOutputChannel",
         "title": "PHP Strom: Show Output Channel"
       },
@@ -464,6 +484,18 @@
           "command": "phpstrom.problems.showTreeView"
         },
         {
+          "command": "phpstrom.problems.setFilePathFilter"
+        },
+        {
+          "command": "phpstrom.problems.clearFilePathFilter"
+        },
+        {
+          "command": "phpstrom.problems.enableRegexFilter"
+        },
+        {
+          "command": "phpstrom.problems.disableRegexFilter"
+        },
+        {
           "command": "phpstrom.showOutputChannel"
         },
         {
@@ -485,6 +517,26 @@
           "command": "phpstrom.problems.showTreeView",
           "when": "view == phpstromProblems && phpstromProblems.viewMode == list",
           "group": "navigation@1"
+        },
+        {
+          "command": "phpstrom.problems.setFilePathFilter",
+          "when": "view == phpstromProblems",
+          "group": "navigation@2"
+        },
+        {
+          "command": "phpstrom.problems.clearFilePathFilter",
+          "when": "view == phpstromProblems && phpstromProblems.filterActive",
+          "group": "navigation@3"
+        },
+        {
+          "command": "phpstrom.problems.enableRegexFilter",
+          "when": "view == phpstromProblems && !phpstromProblems.filterRegex",
+          "group": "navigation@4"
+        },
+        {
+          "command": "phpstrom.problems.disableRegexFilter",
+          "when": "view == phpstromProblems && phpstromProblems.filterRegex",
+          "group": "navigation@4"
         }
       ]
     }

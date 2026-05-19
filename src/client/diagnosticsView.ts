@@ -105,13 +105,60 @@ export class ProjectDiagnosticsTreeProvider implements vscode.TreeDataProvider<D
   private workspaceScanInProgress = false;
   private lastScanSummary: ScanSummary | undefined;
   private viewMode: DiagnosticsViewMode = 'tree';
+  private filePathFilter = '';
+  private filePathFilterRegex = false;
+  private filePathFilterRegexError: string | undefined;
 
   readonly onDidChangeTreeData = this.treeDataEmitter.event;
 
   setView(view: vscode.TreeView<DiagnosticsViewNode>): void {
     this.view = view;
     void this.updateViewModeContext();
+    this.updateFilterContexts();
     this.updateViewPresentation();
+  }
+
+  async promptFilePathFilter(): Promise<void> {
+    const input = await vscode.window.showInputBox({
+      title: 'Filter Problems by File/Folder',
+      prompt: this.filePathFilterRegex
+        ? 'Enter a regular expression to match file or folder paths.'
+        : 'Enter text to match file or folder paths.',
+      placeHolder: this.filePathFilterRegex ? 'e.g. ^src/.+\\.php$' : 'e.g. src/Controllers or User.php',
+      value: this.filePathFilter,
+      ignoreFocusOut: true,
+    });
+
+    if (input === undefined) {
+      return;
+    }
+
+    this.filePathFilter = input.trim();
+    this.updateFilterContexts();
+    this.updateViewPresentation();
+    this.treeDataEmitter.fire();
+  }
+
+  clearFilePathFilter(): void {
+    if (!this.filePathFilter) {
+      return;
+    }
+
+    this.filePathFilter = '';
+    this.updateFilterContexts();
+    this.updateViewPresentation();
+    this.treeDataEmitter.fire();
+  }
+
+  setFilePathFilterRegexEnabled(enabled: boolean): void {
+    if (this.filePathFilterRegex === enabled) {
+      return;
+    }
+
+    this.filePathFilterRegex = enabled;
+    this.updateFilterContexts();
+    this.updateViewPresentation();
+    this.treeDataEmitter.fire();
   }
 
   setViewMode(mode: DiagnosticsViewMode): void {
@@ -315,22 +362,38 @@ export class ProjectDiagnosticsTreeProvider implements vscode.TreeDataProvider<D
     return vscode.commands.executeCommand('setContext', 'phpstromProblems.viewMode', this.viewMode);
   }
 
+  private updateFilterContexts(): void {
+    void vscode.commands.executeCommand('setContext', 'phpstromProblems.filterActive', this.filePathFilter.length > 0);
+    void vscode.commands.executeCommand('setContext', 'phpstromProblems.filterRegex', this.filePathFilterRegex);
+  }
+
   private updateViewPresentation(): void {
     if (!this.view) {
       return;
     }
 
     if (this.workspaceScanInProgress) {
-      this.view.message = 'Scanning project diagnostics…';
+      const filterText = this.formatFilterSummary();
+      this.view.message = filterText ? `Scanning project diagnostics… ${filterText}` : 'Scanning project diagnostics…';
       this.view.badge = undefined;
       return;
     }
 
     const stats = this.getStats();
+    const filterText = this.formatFilterSummary();
+    if (this.filePathFilterRegexError) {
+      this.view.message = `Invalid regex filter: ${this.filePathFilterRegexError}${filterText ? ` ${filterText}` : ''}`;
+      this.view.badge = undefined;
+      return;
+    }
+
     if (stats.totalDiagnostics === 0) {
       this.view.message = this.lastScanSummary?.capped
         ? `Stopped after ${formatCount(this.lastScanSummary.totalDiagnostics)} diagnostics.`
         : 'No PHP Strom diagnostics in the current workspace.';
+      if (filterText) {
+        this.view.message = `${this.view.message} ${filterText}`;
+      }
       this.view.badge = undefined;
       return;
     }
@@ -338,7 +401,7 @@ export class ProjectDiagnosticsTreeProvider implements vscode.TreeDataProvider<D
     const suffix = this.lastScanSummary?.capped
       ? ` Scan stopped at ${formatCount(this.lastScanSummary.totalDiagnostics)} diagnostics.`
       : '';
-    this.view.message = `${formatCount(stats.totalDiagnostics)} diagnostics in ${formatCount(stats.totalFiles)} file${stats.totalFiles === 1 ? '' : 's'} across ${formatCount(stats.totalProblemTypes)} problem type${stats.totalProblemTypes === 1 ? '' : 's'}.${suffix}`;
+    this.view.message = `${formatCount(stats.totalDiagnostics)} diagnostics in ${formatCount(stats.totalFiles)} file${stats.totalFiles === 1 ? '' : 's'} across ${formatCount(stats.totalProblemTypes)} problem type${stats.totalProblemTypes === 1 ? '' : 's'}.${suffix}${filterText ? ` ${filterText}` : ''}`;
     this.view.badge = {
       value: stats.totalDiagnostics,
       tooltip: 'PHP Strom diagnostics',
@@ -375,8 +438,9 @@ export class ProjectDiagnosticsTreeProvider implements vscode.TreeDataProvider<D
   }
 
   private buildProblemCategoryNodes(): ProblemCategoryNode[] {
+    const matchesPath = this.createPathFilterPredicate();
     if (this.viewMode === 'list') {
-      return this.buildListCategoryNodes();
+      return this.buildListCategoryNodes(matchesPath);
     }
 
     const categories = new Map<ProblemCategoryKey, {
@@ -387,6 +451,10 @@ export class ProjectDiagnosticsTreeProvider implements vscode.TreeDataProvider<D
     for (const [uriString, diagnostics] of this.diagnosticsByUri.entries()) {
       const uri = vscode.Uri.parse(uriString);
       const relativePath = vscode.workspace.asRelativePath(uri, false);
+
+      if (!matchesPath(relativePath)) {
+        continue;
+      }
 
       for (const diagnostic of diagnostics) {
         const categoryInfo = getDiagnosticCategory(diagnostic);
@@ -468,7 +536,7 @@ export class ProjectDiagnosticsTreeProvider implements vscode.TreeDataProvider<D
       .sort((left, right) => categorySortOrder(left.id) - categorySortOrder(right.id));
   }
 
-  private buildListCategoryNodes(): ProblemCategoryNode[] {
+  private buildListCategoryNodes(matchesPath: (relativePath: string) => boolean): ProblemCategoryNode[] {
     const categories = new Map<ProblemCategoryKey, {
       label: string;
       files: Map<string, {
@@ -484,6 +552,10 @@ export class ProjectDiagnosticsTreeProvider implements vscode.TreeDataProvider<D
     for (const [uriString, diagnostics] of this.diagnosticsByUri.entries()) {
       const uri = vscode.Uri.parse(uriString);
       const relativePath = vscode.workspace.asRelativePath(uri, false);
+
+      if (!matchesPath(relativePath)) {
+        continue;
+      }
 
       for (const diagnostic of diagnostics) {
         const categoryInfo = getDiagnosticCategory(diagnostic);
@@ -556,6 +628,38 @@ export class ProjectDiagnosticsTreeProvider implements vscode.TreeDataProvider<D
         };
       })
       .sort((left, right) => categorySortOrder(left.id) - categorySortOrder(right.id));
+  }
+
+  private createPathFilterPredicate(): (relativePath: string) => boolean {
+    this.filePathFilterRegexError = undefined;
+    const filter = this.filePathFilter;
+    if (!filter) {
+      return () => true;
+    }
+
+    if (!this.filePathFilterRegex) {
+      const normalizedFilter = filter.toLocaleLowerCase();
+      return (relativePath: string) => relativePath.toLocaleLowerCase().includes(normalizedFilter);
+    }
+
+    let expression: RegExp;
+    try {
+      expression = new RegExp(filter, 'i');
+    } catch (error) {
+      this.filePathFilterRegexError = error instanceof Error ? error.message : 'Invalid pattern';
+      return () => false;
+    }
+
+    return (relativePath: string) => expression.test(relativePath);
+  }
+
+  private formatFilterSummary(): string {
+    if (!this.filePathFilter) {
+      return '';
+    }
+
+    const mode = this.filePathFilterRegex ? 'regex' : 'text';
+    return `Filter (${mode}): ${this.filePathFilter}`;
   }
 }
 
