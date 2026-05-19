@@ -127,6 +127,7 @@ export class ServerConfig implements ServerConfig {
         '**/*.htm': ['*'],
         '**/*.php4': ['*'],
         '**/*.php5': ['*'],
+        'vendor/**': ['*'], // Exclude all vendor files from diagnostics, but still index for symbol resolution
         // Note: .php files containing <html or <!DOCTYPE html are also excluded by a heuristic in DiagnosticsProvider
       },
       overrides: {},
