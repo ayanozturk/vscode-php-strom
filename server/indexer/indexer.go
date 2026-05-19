@@ -279,58 +279,34 @@ func (wi *WorkspaceIndexer) indexFile(path string, visitor func(ParsedFile)) {
 }
 
 func (wi *WorkspaceIndexer) parseIndexableFile(path string) (ParsedFile, string) {
-	type parseResult struct {
-		parsed ParsedFile
-		skip   string
-	}
-
-	resultCh := make(chan parseResult, 1)
 	ctx, cancel := context.WithTimeout(context.Background(), perFileParseTimeout)
 	defer cancel()
 
-	go func() {
-		result := parseResult{}
-		defer func() {
-			if r := recover(); r != nil {
-				buf := make([]byte, 4096)
-				n := runtime.Stack(buf, false)
-				result.skip = "panic"
-				log.Printf("[indexer] PANIC parsing %s: %v\n%s", path, r, buf[:n])
-			}
-			resultCh <- result
-		}()
+	info, err := os.Stat(path)
+	if err != nil {
+		return ParsedFile{}, "stat-error"
+	}
+	if !info.Mode().IsRegular() {
+		return ParsedFile{}, "non-regular-file"
+	}
+	if info.Size() > wi.cfg.MaxSize {
+		log.Printf("[indexer] skipping oversized file (%d bytes): %s", info.Size(), path)
+		return ParsedFile{}, "oversized-file"
+	}
 
-		info, err := os.Stat(path)
-		if err != nil {
-			result.skip = "stat-error"
-			return
-		}
-		if !info.Mode().IsRegular() {
-			result.skip = "non-regular-file"
-			return
-		}
-		if info.Size() > wi.cfg.MaxSize {
-			result.skip = "oversized-file"
-			log.Printf("[indexer] skipping oversized file (%d bytes): %s", info.Size(), path)
-			return
-		}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ParsedFile{}, "read-error"
+	}
 
-		data, err := os.ReadFile(path)
-		if err != nil {
-			result.skip = "read-error"
-			return
-		}
+	uri := pathToURI(path)
+	parsed := ParseSourceWithContext(ctx, uri, string(data))
 
-		uri := pathToURI(path)
-		result.parsed = ParseSource(uri, string(data))
-	}()
-
-	select {
-	case result := <-resultCh:
-		return result.parsed, result.skip
-	case <-ctx.Done():
+	if ctx.Err() != nil {
 		return ParsedFile{}, "timeout>20s"
 	}
+
+	return parsed, ""
 }
 
 func (wi *WorkspaceIndexer) shouldExcludeDir(path string) bool {
@@ -352,8 +328,14 @@ func (wi *WorkspaceIndexer) matchesAssociations(path string) bool {
 // ParseSource parses PHP source once and derives both AST-backed diagnostics input
 // and the symbol index representation from the same node list.
 func ParseSource(uri, src string) ParsedFile {
+	return ParseSourceWithContext(context.Background(), uri, src)
+}
+
+// ParseSourceWithContext parses PHP source using a cooperative context to abort early if requested.
+func ParseSourceWithContext(ctx context.Context, uri, src string) ParsedFile {
 	l := goplexer.New(src)
 	p := goparser.New(l, false)
+	p.Ctx = ctx
 	nodes := p.Parse()
 	errs := append([]string(nil), p.Errors()...)
 	return ParsedFile{
