@@ -1,6 +1,7 @@
 package indexer
 
 import (
+	"context"
 	"io/fs"
 	"log"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"go-phpcs/ast"
 	goplexer "go-phpcs/lexer"
@@ -22,12 +24,15 @@ type WorkspaceIndexer struct {
 	index         *Index
 	folders       []WorkspaceFolder
 	workspaceURIs []string
+	gitignores    []workspaceGitignore
 	mu            sync.RWMutex
 	onStart       func()
 	onDone        func(int)
 	onProgress    func(done, total int)
 	indexedCount  int64
 }
+
+const perFileParseTimeout = 20 * time.Second
 
 // ParsedFile contains the single-parse result used for both indexing and diagnostics.
 type ParsedFile struct {
@@ -47,6 +52,7 @@ func New(cfg Config) *WorkspaceIndexer {
 func (wi *WorkspaceIndexer) SetWorkspaceFolders(folders []WorkspaceFolder) {
 	wi.mu.Lock()
 	wi.folders = folders
+	wi.gitignores = loadWorkspaceGitignores(folders)
 	wi.mu.Unlock()
 }
 
@@ -86,9 +92,10 @@ func (wi *WorkspaceIndexer) indexWorkspace(visitor func(ParsedFile)) {
 
 	wi.mu.RLock()
 	folders := wi.folders
+	gitignores := append([]workspaceGitignore(nil), wi.gitignores...)
 	wi.mu.RUnlock()
 
-	paths := wi.collectWorkspaceFilePaths(folders)
+	paths := wi.collectWorkspaceFilePaths(folders, gitignores)
 	uris := make([]string, 0, len(paths))
 	for _, filePath := range paths {
 		uris = append(uris, pathToURI(filePath))
@@ -104,7 +111,7 @@ func (wi *WorkspaceIndexer) indexWorkspace(visitor func(ParsedFile)) {
 	// Keep parser concurrency conservative until parser-level cancellation exists.
 	// This prevents pathological files from saturating many CPU cores.
 	numWorkers := runtime.GOMAXPROCS(0)
-	if numWorkers > 1 {
+	if numWorkers < 1 {
 		numWorkers = 1
 	}
 	log.Printf("[indexer] starting %d worker(s)", numWorkers)
@@ -179,7 +186,8 @@ func (wi *WorkspaceIndexer) WorkspaceFileURIs() []string {
 	folders := append([]WorkspaceFolder(nil), wi.folders...)
 	wi.mu.RUnlock()
 
-	paths := wi.collectWorkspaceFilePaths(folders)
+	gitignores := append([]workspaceGitignore(nil), wi.gitignores...)
+	paths := wi.collectWorkspaceFilePaths(folders, gitignores)
 	uris := make([]string, 0, len(paths))
 	for _, filePath := range paths {
 		uris = append(uris, pathToURI(filePath))
@@ -192,7 +200,7 @@ func (wi *WorkspaceIndexer) GetIndex() *Index { return wi.index }
 
 // ─── Internal ─────────────────────────────────────────────────────────────────
 
-func (wi *WorkspaceIndexer) collectWorkspaceFilePaths(folders []WorkspaceFolder) []string {
+func (wi *WorkspaceIndexer) collectWorkspaceFilePaths(folders []WorkspaceFolder, gitignores []workspaceGitignore) []string {
 	var paths []string
 	for _, folder := range folders {
 		root := uriToPath(folder.URI)
@@ -204,6 +212,15 @@ func (wi *WorkspaceIndexer) collectWorkspaceFilePaths(folders []WorkspaceFolder)
 				if wi.shouldExcludeDir(p) {
 					return filepath.SkipDir
 				}
+				if ignoresPath(gitignores, p, true) {
+					if canSkipIgnoredDir(gitignores, p) {
+						return filepath.SkipDir
+					}
+					return nil
+				}
+				return nil
+			}
+			if ignoresPath(gitignores, p, false) {
 				return nil
 			}
 			if wi.matchesAssociations(p) {
@@ -247,25 +264,72 @@ func (wi *WorkspaceIndexer) indexFile(path string, visitor func(ParsedFile)) {
 		}
 	}()
 
-	info, err := os.Stat(path)
-	if err != nil {
-		return
-	}
-	if info.Size() > wi.cfg.MaxSize {
-		log.Printf("[indexer] skipping oversized file (%d bytes): %s", info.Size(), path)
-		return
-	}
-
-	data, err := os.ReadFile(path)
-	if err != nil {
+	parsed, skipReason := wi.parseIndexableFile(path)
+	if skipReason != "" {
+		if strings.HasPrefix(skipReason, "timeout") {
+			log.Printf("[indexer] %s: %s", skipReason, path)
+		}
 		return
 	}
 
-	uri := pathToURI(path)
-	parsed := ParseSource(uri, string(data))
 	wi.index.PutFile(parsed.URI, parsed.Symbols)
 	if visitor != nil {
 		visitor(parsed)
+	}
+}
+
+func (wi *WorkspaceIndexer) parseIndexableFile(path string) (ParsedFile, string) {
+	type parseResult struct {
+		parsed ParsedFile
+		skip   string
+	}
+
+	resultCh := make(chan parseResult, 1)
+	ctx, cancel := context.WithTimeout(context.Background(), perFileParseTimeout)
+	defer cancel()
+
+	go func() {
+		result := parseResult{}
+		defer func() {
+			if r := recover(); r != nil {
+				buf := make([]byte, 4096)
+				n := runtime.Stack(buf, false)
+				result.skip = "panic"
+				log.Printf("[indexer] PANIC parsing %s: %v\n%s", path, r, buf[:n])
+			}
+			resultCh <- result
+		}()
+
+		info, err := os.Stat(path)
+		if err != nil {
+			result.skip = "stat-error"
+			return
+		}
+		if !info.Mode().IsRegular() {
+			result.skip = "non-regular-file"
+			return
+		}
+		if info.Size() > wi.cfg.MaxSize {
+			result.skip = "oversized-file"
+			log.Printf("[indexer] skipping oversized file (%d bytes): %s", info.Size(), path)
+			return
+		}
+
+		data, err := os.ReadFile(path)
+		if err != nil {
+			result.skip = "read-error"
+			return
+		}
+
+		uri := pathToURI(path)
+		result.parsed = ParseSource(uri, string(data))
+	}()
+
+	select {
+	case result := <-resultCh:
+		return result.parsed, result.skip
+	case <-ctx.Done():
+		return ParsedFile{}, "timeout>20s"
 	}
 }
 
@@ -926,4 +990,205 @@ func matchSegmentSequence(patternSegments, candidateSegments []string) bool {
 		return false
 	}
 	return matchSegmentSequence(patternSegments[1:], candidateSegments[1:])
+}
+
+type workspaceGitignore struct {
+	root  string
+	rules []gitignoreRule
+}
+
+type gitignoreRule struct {
+	pattern  string
+	negated  bool
+	dirOnly  bool
+	anchored bool
+	hasSlash bool
+}
+
+func loadWorkspaceGitignores(folders []WorkspaceFolder) []workspaceGitignore {
+	matchers := make([]workspaceGitignore, 0, len(folders))
+	for _, folder := range folders {
+		matcher, ok := loadWorkspaceGitignore(folder)
+		if ok {
+			matchers = append(matchers, matcher)
+		}
+	}
+	return matchers
+}
+
+func loadWorkspaceGitignore(folder WorkspaceFolder) (workspaceGitignore, bool) {
+	root := uriToPath(folder.URI)
+	if root == "" {
+		return workspaceGitignore{}, false
+	}
+
+	data, err := os.ReadFile(filepath.Join(root, ".gitignore"))
+	if err != nil {
+		return workspaceGitignore{}, false
+	}
+
+	rules := parseGitignoreRules(string(data))
+	if len(rules) == 0 {
+		return workspaceGitignore{}, false
+	}
+
+	return workspaceGitignore{root: filepath.Clean(root), rules: rules}, true
+}
+
+func ignoresPath(matchers []workspaceGitignore, filename string, isDir bool) bool {
+	for _, matcher := range matchers {
+		if matcher.ignores(filename, isDir) {
+			return true
+		}
+	}
+	return false
+}
+
+func canSkipIgnoredDir(matchers []workspaceGitignore, dir string) bool {
+	for _, matcher := range matchers {
+		if matcher.mayReincludeDescendant() && matcher.contains(dir) {
+			return false
+		}
+	}
+	return true
+}
+
+func (m workspaceGitignore) ignores(filename string, isDir bool) bool {
+	rel, ok := relativeWorkspacePath(m.root, filename)
+	if !ok {
+		return false
+	}
+
+	ignored := false
+	for _, rule := range m.rules {
+		if !rule.matches(rel, isDir) {
+			continue
+		}
+		ignored = !rule.negated
+	}
+	return ignored
+}
+
+func (m workspaceGitignore) contains(filename string) bool {
+	_, ok := relativeWorkspacePath(m.root, filename)
+	return ok
+}
+
+func (m workspaceGitignore) mayReincludeDescendant() bool {
+	for _, rule := range m.rules {
+		if rule.negated {
+			return true
+		}
+	}
+	return false
+}
+
+func parseGitignoreRules(content string) []gitignoreRule {
+	lines := strings.Split(content, "\n")
+	rules := make([]gitignoreRule, 0, len(lines))
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if strings.HasPrefix(line, `\#`) || strings.HasPrefix(line, `\!`) {
+			line = line[1:]
+		}
+
+		rule := gitignoreRule{negated: strings.HasPrefix(line, "!")}
+		if rule.negated {
+			line = strings.TrimPrefix(line, "!")
+		}
+		line = strings.TrimPrefix(line, "./")
+		rule.anchored = strings.HasPrefix(line, "/")
+		line = strings.TrimPrefix(line, "/")
+		rule.dirOnly = strings.HasSuffix(line, "/")
+		line = strings.TrimSuffix(line, "/")
+		line = filepath.ToSlash(line)
+		line = strings.TrimPrefix(line, "./")
+		if line == "" {
+			continue
+		}
+		rule.pattern = line
+		rule.hasSlash = strings.Contains(line, "/")
+		rules = append(rules, rule)
+	}
+	return rules
+}
+
+func (r gitignoreRule) matches(rel string, isDir bool) bool {
+	rel = filepath.ToSlash(rel)
+	if rel == "" || rel == "." {
+		return false
+	}
+
+	if r.dirOnly {
+		if isDir && r.matchesPath(rel) {
+			return true
+		}
+		for _, dir := range parentDirectories(rel) {
+			if r.matchesPath(dir) {
+				return true
+			}
+		}
+		return false
+	}
+
+	if r.matchesPath(rel) {
+		return true
+	}
+
+	if !r.hasSlash {
+		return matchSimple(r.pattern, pathpkg.Base(rel))
+	}
+
+	return false
+}
+
+func (r gitignoreRule) matchesPath(candidate string) bool {
+	for _, pattern := range r.globVariants() {
+		if matchSimple(pattern, candidate) {
+			return true
+		}
+	}
+	return false
+}
+
+func (r gitignoreRule) globVariants() []string {
+	if r.pattern == "" {
+		return nil
+	}
+	if r.anchored {
+		return []string{r.pattern}
+	}
+	return []string{r.pattern, "**/" + r.pattern}
+}
+
+func parentDirectories(rel string) []string {
+	dir := pathpkg.Dir(filepath.ToSlash(rel))
+	if dir == "." || dir == "" {
+		return nil
+	}
+	parts := strings.Split(dir, "/")
+	dirs := make([]string, 0, len(parts))
+	for i := range parts {
+		dirs = append(dirs, strings.Join(parts[:i+1], "/"))
+	}
+	return dirs
+}
+
+func relativeWorkspacePath(root, filename string) (string, bool) {
+	root = filepath.Clean(root)
+	filename = filepath.Clean(filename)
+	rel, err := filepath.Rel(root, filename)
+	if err != nil {
+		return "", false
+	}
+	if rel == "." || rel == "" {
+		return "", false
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", false
+	}
+	return filepath.ToSlash(rel), true
 }

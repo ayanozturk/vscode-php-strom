@@ -363,6 +363,12 @@ async function ensureExecutable(targetPath: string, platform: NodeJS.Platform): 
 
 function getConfiguration(): Record<string, unknown> {
   const config = vscode.workspace.getConfiguration('phpstrom');
+  const defaultFilesExclude = ['**/.git/**', '**/node_modules/**', '**/vendor/**/{Tests,tests}/**'];
+  const filesExclude = mergeExcludePatterns(
+    defaultFilesExclude,
+    config.get<string[]>('files.exclude', []),
+    enabledWorkspaceExcludePatterns(),
+  );
 
   return {
     enable: config.get<boolean>('enable', true),
@@ -373,7 +379,7 @@ function getConfiguration(): Record<string, unknown> {
     },
     files: {
       associations: config.get<string[]>('files.associations', ['**/*.php', '**/*.phtml', '**/*.phar']),
-      exclude: config.get<string[]>('files.exclude', ['**/.git/**', '**/node_modules/**']),
+      exclude: filesExclude,
       maxSize: config.get<number>('files.maxSize', 1_000_000),
     },
     stubs: config.get<string[]>('stubs', []),
@@ -447,6 +453,34 @@ function getConfiguration(): Record<string, unknown> {
       server: config.get<string>('trace.server', 'off'),
     },
   };
+}
+
+function enabledWorkspaceExcludePatterns(): string[] {
+  const filesConfig = vscode.workspace.getConfiguration('files');
+  const configured = filesConfig.get<Record<string, boolean | { when?: string }>>('exclude', {});
+  const patterns: string[] = [];
+
+  for (const [pattern, value] of Object.entries(configured)) {
+    if (value === false) {
+      continue;
+    }
+    patterns.push(pattern);
+  }
+
+  return patterns;
+}
+
+function mergeExcludePatterns(...groups: readonly string[][]): string[] {
+  const merged = new Set<string>();
+  for (const group of groups) {
+    for (const pattern of group) {
+      const trimmed = pattern.trim();
+      if (trimmed) {
+        merged.add(trimmed);
+      }
+    }
+  }
+  return [...merged];
 }
 
 async function warnAboutConflictingPhpExtensions(): Promise<void> {

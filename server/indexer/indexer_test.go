@@ -1,6 +1,10 @@
 package indexer
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestBuildLineOffsets(t *testing.T) {
 	src := "<?php\nclass Foo\n{\n}\n"
@@ -177,5 +181,50 @@ func TestMatchSimpleMatchesVendorTestsPattern(t *testing.T) {
 	}
 	if matchSimple("**/vendor/**/{Tests,tests}/**", "/workspace/project/vendor/symfony/http-foundation") {
 		t.Fatal("did not expect non-test vendor directory to match vendor test exclude pattern")
+	}
+}
+
+func TestCollectWorkspaceFilePathsRespectsGitignore(t *testing.T) {
+	tmpDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmpDir, ".gitignore"), []byte("generated/\nignored.php\n!generated/keep.php\n"), 0o644); err != nil {
+		t.Fatalf("write .gitignore: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(tmpDir, "generated"), 0o755); err != nil {
+		t.Fatalf("mkdir generated: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(tmpDir, "kept.php"), []byte("<?php\n"), 0o644); err != nil {
+		t.Fatalf("write kept.php: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(tmpDir, "ignored.php"), []byte("<?php\n"), 0o644); err != nil {
+		t.Fatalf("write ignored.php: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(tmpDir, "generated", "skip.php"), []byte("<?php\n"), 0o644); err != nil {
+		t.Fatalf("write generated/skip.php: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(tmpDir, "generated", "keep.php"), []byte("<?php\n"), 0o644); err != nil {
+		t.Fatalf("write generated/keep.php: %v", err)
+	}
+
+	wi := New(Config{Associations: []string{"**/*.php"}})
+	folders := []WorkspaceFolder{{URI: pathToURI(tmpDir), Name: "tmp"}}
+	wi.SetWorkspaceFolders(folders)
+
+	paths := wi.collectWorkspaceFilePaths(folders, wi.gitignores)
+	seen := make(map[string]struct{}, len(paths))
+	for _, p := range paths {
+		seen[filepath.Base(p)] = struct{}{}
+	}
+
+	if _, ok := seen["kept.php"]; !ok {
+		t.Fatal("expected kept.php to be indexed")
+	}
+	if _, ok := seen["ignored.php"]; ok {
+		t.Fatal("expected ignored.php to be excluded by .gitignore")
+	}
+	if _, ok := seen["skip.php"]; ok {
+		t.Fatal("expected generated/skip.php to be excluded by .gitignore")
+	}
+	if _, ok := seen["keep.php"]; !ok {
+		t.Fatal("expected negated .gitignore rule to include generated/keep.php")
 	}
 }
