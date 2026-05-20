@@ -99,6 +99,14 @@ func (r workspaceSymbolResolver) resolveClassSymbol(name string) (*indexer.Symbo
 		}
 	}
 
+	// Only fall back to unqualified name lookup when the input is not a
+	// fully-qualified name. If the name contains a namespace separator the
+	// caller already provided a specific FQN; guessing by short name would
+	// match unrelated classes and produce false-positive diagnostics.
+	if strings.Contains(name, `\`) {
+		return nil, false
+	}
+
 	lookup := unqualifiedName(name)
 	if lookup == "" {
 		return nil, false

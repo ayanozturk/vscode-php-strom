@@ -210,9 +210,7 @@ func (p *SymbolProvider) ProvideWorkspace(query string) []lsp.SymbolInformation 
 
 type SignatureHelpProvider struct{ idx *indexer.WorkspaceIndexer }
 
-func (p *SignatureHelpProvider) Provide(uri, text string, pos lsp.Position) *lsp.SignatureHelp {
-	return nil
-}
+// Provide is implemented in signature_help.go.
 
 // ─── Formatting ───────────────────────────────────────────────────────────────
 

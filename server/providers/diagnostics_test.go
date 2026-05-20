@@ -394,6 +394,56 @@ class Controller
 	}
 }
 
+func TestDiagnosticsProvider_UsesWorkspaceResolverForConstructorNamedArgumentTypes(t *testing.T) {
+	idx := indexer.New(indexer.Config{})
+	idx.IndexDocument("file:///workspace/Response.php", `<?php
+class Response
+{
+	public function __construct(
+		int $status = 200,
+		array $headers = [],
+		?string $body = null
+	) {
+	}
+}
+`)
+
+	p := &DiagnosticsProvider{idx: idx}
+	good := p.Analyse("file:///workspace/ControllerGood.php", `<?php
+class ControllerGood
+{
+	public function run(): void
+	{
+		new Response(body: "ok");
+	}
+}
+`)
+
+	for _, diag := range good {
+		if code, ok := diag.Code.(string); ok && (code == "A.ARG.COUNT" || code == "A.ARG.TYPE") {
+			t.Fatalf("expected no constructor arg diagnostics for valid named arg usage, got %+v", diag)
+		}
+	}
+
+	bad := p.Analyse("file:///workspace/ControllerBad.php", `<?php
+class ControllerBad
+{
+	public function run(): void
+	{
+		new Response(body: []);
+	}
+}
+`)
+
+	for _, diag := range bad {
+		if code, ok := diag.Code.(string); ok && code == "A.ARG.TYPE" {
+			return
+		}
+	}
+
+	t.Fatalf("expected A.ARG.TYPE diagnostic for workspace-resolved constructor named arg mismatch, got %+v", bad)
+}
+
 func TestDiagnosticsProvider_UsesWorkspaceResolverForPropertyAssignments(t *testing.T) {
 	idx := indexer.New(indexer.Config{})
 	idx.IndexDocument("file:///workspace/UserRepository.php", `<?php
