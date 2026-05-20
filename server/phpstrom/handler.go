@@ -29,7 +29,7 @@ type Handler struct {
 	publishedDiagnostics   map[string]struct{}
 }
 
-const workspaceDiagnosticsLimit = 10_000
+const workspaceDiagnosticsLimit = 50_000
 
 type saveAnalysisFinishedParams struct {
 	URI       string `json:"uri"`

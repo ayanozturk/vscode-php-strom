@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 
 type DiagnosticsViewMode = 'tree' | 'list';
 type ProblemCategoryKey = 'style' | 'staticAnalysis';
+type DiagnosticTypeFilter = 'all' | 'errors';
 
 type ProblemCategoryNode = {
   kind: 'category';
@@ -108,6 +109,7 @@ export class ProjectDiagnosticsTreeProvider implements vscode.TreeDataProvider<D
   private filePathFilter = '';
   private filePathFilterRegex = false;
   private filePathFilterRegexError: string | undefined;
+  private diagnosticTypeFilter: DiagnosticTypeFilter = 'all';
 
   readonly onDidChangeTreeData = this.treeDataEmitter.event;
 
@@ -156,6 +158,18 @@ export class ProjectDiagnosticsTreeProvider implements vscode.TreeDataProvider<D
     }
 
     this.filePathFilterRegex = enabled;
+    this.updateFilterContexts();
+    this.updateViewPresentation();
+    this.treeDataEmitter.fire();
+  }
+
+  setErrorsOnlyFilterEnabled(enabled: boolean): void {
+    const nextFilter: DiagnosticTypeFilter = enabled ? 'errors' : 'all';
+    if (this.diagnosticTypeFilter === nextFilter) {
+      return;
+    }
+
+    this.diagnosticTypeFilter = nextFilter;
     this.updateFilterContexts();
     this.updateViewPresentation();
     this.treeDataEmitter.fire();
@@ -365,6 +379,7 @@ export class ProjectDiagnosticsTreeProvider implements vscode.TreeDataProvider<D
   private updateFilterContexts(): void {
     void vscode.commands.executeCommand('setContext', 'phpstromProblems.filterActive', this.filePathFilter.length > 0);
     void vscode.commands.executeCommand('setContext', 'phpstromProblems.filterRegex', this.filePathFilterRegex);
+    void vscode.commands.executeCommand('setContext', 'phpstromProblems.errorsOnly', this.diagnosticTypeFilter === 'errors');
   }
 
   private updateViewPresentation(): void {
@@ -439,8 +454,9 @@ export class ProjectDiagnosticsTreeProvider implements vscode.TreeDataProvider<D
 
   private buildProblemCategoryNodes(): ProblemCategoryNode[] {
     const matchesPath = this.createPathFilterPredicate();
+    const matchesDiagnostic = this.createDiagnosticTypeFilterPredicate();
     if (this.viewMode === 'list') {
-      return this.buildListCategoryNodes(matchesPath);
+      return this.buildListCategoryNodes(matchesPath, matchesDiagnostic);
     }
 
     const categories = new Map<ProblemCategoryKey, {
@@ -457,6 +473,10 @@ export class ProjectDiagnosticsTreeProvider implements vscode.TreeDataProvider<D
       }
 
       for (const diagnostic of diagnostics) {
+        if (!matchesDiagnostic(diagnostic)) {
+          continue;
+        }
+
         const categoryInfo = getDiagnosticCategory(diagnostic);
         let category = categories.get(categoryInfo.key);
         if (!category) {
@@ -536,7 +556,10 @@ export class ProjectDiagnosticsTreeProvider implements vscode.TreeDataProvider<D
       .sort((left, right) => categorySortOrder(left.id) - categorySortOrder(right.id));
   }
 
-  private buildListCategoryNodes(matchesPath: (relativePath: string) => boolean): ProblemCategoryNode[] {
+  private buildListCategoryNodes(
+    matchesPath: (relativePath: string) => boolean,
+    matchesDiagnostic: (diagnostic: vscode.Diagnostic) => boolean,
+  ): ProblemCategoryNode[] {
     const categories = new Map<ProblemCategoryKey, {
       label: string;
       problemTypes: Map<string, {
@@ -560,6 +583,10 @@ export class ProjectDiagnosticsTreeProvider implements vscode.TreeDataProvider<D
       }
 
       for (const diagnostic of diagnostics) {
+        if (!matchesDiagnostic(diagnostic)) {
+          continue;
+        }
+
         const categoryInfo = getDiagnosticCategory(diagnostic);
         let category = categories.get(categoryInfo.key);
         if (!category) {
@@ -652,13 +679,26 @@ export class ProjectDiagnosticsTreeProvider implements vscode.TreeDataProvider<D
     return (relativePath: string) => expression.test(relativePath);
   }
 
-  private formatFilterSummary(): string {
-    if (!this.filePathFilter) {
-      return '';
+  private createDiagnosticTypeFilterPredicate(): (diagnostic: vscode.Diagnostic) => boolean {
+    if (this.diagnosticTypeFilter !== 'errors') {
+      return () => true;
     }
 
-    const mode = this.filePathFilterRegex ? 'regex' : 'text';
-    return `Filter (${mode}): ${this.filePathFilter}`;
+    return (diagnostic: vscode.Diagnostic) => diagnostic.severity === vscode.DiagnosticSeverity.Error;
+  }
+
+  private formatFilterSummary(): string {
+    const segments: string[] = [];
+    if (this.diagnosticTypeFilter === 'errors') {
+      segments.push('Type: errors only');
+    }
+
+    if (this.filePathFilter) {
+      const mode = this.filePathFilterRegex ? 'regex' : 'text';
+      segments.push(`Filter (${mode}): ${this.filePathFilter}`);
+    }
+
+    return segments.join(' • ');
   }
 }
 

@@ -2,7 +2,7 @@
   "name": "phpstrom",
   "displayName": "PHP Strom",
   "description": "High-performance, fully open-source PHP language intelligence for VS Code — a complete LSP implementation covering all features.",
-  "version": "0.1.12",
+  "version": "0.1.13",
   "publisher": "AOSSoftware",
   "license": "MIT",
   "repository": {
@@ -452,7 +452,17 @@
       {
         "command": "phpstrom.problems.disableRegexFilter",
         "title": "PHP Strom: Disable Regex Problems Filter",
-        "icon": "$(regex)"
+        "icon": "$(search)"
+      },
+      {
+        "command": "phpstrom.problems.enableErrorsOnlyFilter",
+        "title": "PHP Strom: Show Error Problems Only",
+        "icon": "$(error)"
+      },
+      {
+        "command": "phpstrom.problems.disableErrorsOnlyFilter",
+        "title": "PHP Strom: Show All Problem Types",
+        "icon": "$(list-selection)"
       },
       {
         "command": "phpstrom.showOutputChannel",
@@ -496,6 +506,12 @@
           "command": "phpstrom.problems.disableRegexFilter"
         },
         {
+          "command": "phpstrom.problems.enableErrorsOnlyFilter"
+        },
+        {
+          "command": "phpstrom.problems.disableErrorsOnlyFilter"
+        },
+        {
           "command": "phpstrom.showOutputChannel"
         },
         {
@@ -526,16 +542,26 @@
         {
           "command": "phpstrom.problems.clearFilePathFilter",
           "when": "view == phpstromProblems && phpstromProblems.filterActive",
-          "group": "navigation@3"
+          "group": "navigation@2"
         },
         {
           "command": "phpstrom.problems.enableRegexFilter",
           "when": "view == phpstromProblems && !phpstromProblems.filterRegex",
-          "group": "navigation@4"
+          "group": "navigation@3"
         },
         {
           "command": "phpstrom.problems.disableRegexFilter",
           "when": "view == phpstromProblems && phpstromProblems.filterRegex",
+          "group": "navigation@3"
+        },
+        {
+          "command": "phpstrom.problems.enableErrorsOnlyFilter",
+          "when": "view == phpstromProblems && !phpstromProblems.errorsOnly",
+          "group": "navigation@4"
+        },
+        {
+          "command": "phpstrom.problems.disableErrorsOnlyFilter",
+          "when": "view == phpstromProblems && phpstromProblems.errorsOnly",
           "group": "navigation@4"
         }
       ]

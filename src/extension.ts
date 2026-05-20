@@ -95,6 +95,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       diagnosticsTreeProvider.setFilePathFilterRegexEnabled(false);
     }),
 
+    vscode.commands.registerCommand('phpstrom.problems.enableErrorsOnlyFilter', () => {
+      diagnosticsTreeProvider.setErrorsOnlyFilterEnabled(true);
+    }),
+
+    vscode.commands.registerCommand('phpstrom.problems.disableErrorsOnlyFilter', () => {
+      diagnosticsTreeProvider.setErrorsOnlyFilterEnabled(false);
+    }),
+
     vscode.commands.registerCommand('phpstrom.showOutputChannel', () => {
       outputChannel.show();
     }),
