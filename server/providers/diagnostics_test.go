@@ -92,6 +92,53 @@ class SessionTest
 	t.Fatalf("expected PSR12.Classes.ClosingBraceOnOwnLine diagnostic, got %+v", diags)
 }
 
+func TestDiagnosticsProvider_DoesNotReportClosingBraceForDocblockInlineTag(t *testing.T) {
+	p := &DiagnosticsProvider{}
+	diags := p.Analyse("file:///test.php", `<?php
+
+class CKEditor5PluginManagerTest extends KernelTestBase {
+
+  /**
+   * {@inheritdoc}
+   */
+  protected static $modules = [
+    'system',
+  ];
+}
+`)
+
+	for _, diag := range diags {
+		if code, ok := diag.Code.(string); ok && code == "PSR12.Classes.ClosingBraceOnOwnLine" {
+			t.Fatalf("unexpected PSR12.Classes.ClosingBraceOnOwnLine diagnostic for docblock inline tag: %+v", diag)
+		}
+	}
+}
+
+func TestDiagnosticsProvider_DoesNotReportVisibilityForFunctionTextInString(t *testing.T) {
+	p := &DiagnosticsProvider{}
+	diags := p.Analyse("file:///test.php", `<?php
+
+class UndefinedFunctionErrorEnhancerTest
+{
+    public static function provideUndefinedFunctionData()
+    {
+        return [
+            [
+                'Call to undefined function test_namespaced_function()',
+                "Attempted to call undefined function \"test_namespaced_function\" from the global namespace.",
+            ],
+        ];
+    }
+}
+`)
+
+	for _, diag := range diags {
+		if code, ok := diag.Code.(string); ok && code == "PSR12.Methods.VisibilityDeclared" {
+			t.Fatalf("unexpected PSR12.Methods.VisibilityDeclared diagnostic for function text inside string: %+v", diag)
+		}
+	}
+}
+
 func TestDiagnosticsProvider_DoesNotReportControlSpacingForDocblockText(t *testing.T) {
 	p := &DiagnosticsProvider{}
 	diags := p.Analyse("file:///test.php", `<?php
