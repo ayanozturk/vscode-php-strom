@@ -248,6 +248,11 @@
           ],
           "description": "Run diagnostics while typing and on save, or only on save."
         },
+        "phpstrom.diagnostics.workspaceScanOnStart": {
+          "type": "boolean",
+          "default": false,
+          "description": "Scan every workspace PHP file for diagnostics when the server starts. When disabled, PHP Strom still indexes symbols and analyses opened/saved files; use PHP Strom: Refresh Problems Scan to run a full project scan manually."
+        },
         "phpstrom.diagnostics.undefinedSymbols": {
           "type": "boolean",
           "default": true,

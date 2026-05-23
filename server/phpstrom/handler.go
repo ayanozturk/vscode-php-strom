@@ -6,7 +6,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -30,10 +29,12 @@ type Handler struct {
 	publishedDiagnostics   map[string]struct{}
 	documentAnalysisMu     sync.Mutex
 	documentAnalysisTimers map[string]*time.Timer
+	documentAnalysisSem    chan struct{}
 }
 
 const workspaceDiagnosticsLimit = 50_000
 const onTypeAnalysisDelay = 150 * time.Millisecond
+const maxDocumentAnalysisWorkers = 2
 
 type saveAnalysisFinishedParams struct {
 	URI       string `json:"uri"`
@@ -60,6 +61,7 @@ func NewHandler(srv *Server) *Handler {
 		prov:                   prov,
 		publishedDiagnostics:   make(map[string]struct{}),
 		documentAnalysisTimers: make(map[string]*time.Timer),
+		documentAnalysisSem:    make(chan struct{}, maxDocumentAnalysisWorkers),
 	}
 
 	idx.OnIndexingStart(func() { srv.Notify("phpstrom/indexingStarted", nil) })
@@ -170,7 +172,11 @@ func (h *Handler) HandleRequest(method string, raw json.RawMessage) (interface{}
 func (h *Handler) HandleNotification(method string, raw json.RawMessage) {
 	switch method {
 	case "initialized":
-		go h.indexAndPublishWorkspaceDiagnostics()
+		if h.cfg.Diagnostics.WorkspaceScanOnStart {
+			go h.indexAndPublishWorkspaceDiagnostics()
+		} else {
+			go h.indexWorkspace()
+		}
 
 	case "textDocument/didOpen":
 		var p lsp.DidOpenTextDocumentParams
@@ -209,14 +215,15 @@ func (h *Handler) HandleNotification(method string, raw json.RawMessage) {
 					doc = updated
 				}
 			}
-			h.idx.IndexDocument(doc.URI, doc.Text)
-			go func(uri, text string, version int) {
-				published := h.publishDiagnostics(uri, text, version)
-				h.srv.Notify("phpstrom/saveAnalysisFinished", saveAnalysisFinishedParams{
-					URI:       uri,
-					Published: published,
-				})
-			}(doc.URI, doc.Text, doc.Version)
+			published := false
+			h.runDocumentAnalysis(func() {
+				h.idx.IndexDocument(doc.URI, doc.Text)
+				published = h.publishDiagnostics(doc.URI, doc.Text, doc.Version)
+			})
+			h.srv.Notify("phpstrom/saveAnalysisFinished", saveAnalysisFinishedParams{
+				URI:       doc.URI,
+				Published: published,
+			})
 		}
 
 	case "textDocument/didClose":
@@ -246,6 +253,9 @@ func (h *Handler) HandleNotification(method string, raw json.RawMessage) {
 		go h.runWorkspaceDiagnosticsScan(false)
 
 	case "phpstrom/indexWorkspace":
+		go h.indexWorkspace()
+
+	case "phpstrom/scanWorkspaceDiagnostics":
 		go h.indexAndPublishWorkspaceDiagnostics()
 
 	case "exit":
@@ -358,13 +368,21 @@ func (h *Handler) scheduleDocumentWork(uri string, version int, delay time.Durat
 		if !ok || doc.Version != version {
 			return
 		}
-		h.idx.IndexDocument(doc.URI, doc.Text)
-		if publishDiagnostics {
-			h.publishDiagnostics(doc.URI, doc.Text, doc.Version)
-		}
+		h.runDocumentAnalysis(func() {
+			h.idx.IndexDocument(doc.URI, doc.Text)
+			if publishDiagnostics {
+				h.publishDiagnostics(doc.URI, doc.Text, doc.Version)
+			}
+		})
 	})
 	h.documentAnalysisTimers[uri] = timer
 	h.documentAnalysisMu.Unlock()
+}
+
+func (h *Handler) runDocumentAnalysis(fn func()) {
+	h.documentAnalysisSem <- struct{}{}
+	defer func() { <-h.documentAnalysisSem }()
+	fn()
 }
 
 func (h *Handler) cancelDocumentAnalysis(uri string) {
@@ -383,6 +401,10 @@ func (h *Handler) cancelAllDocumentAnalysis() {
 		delete(h.documentAnalysisTimers, uri)
 	}
 	h.documentAnalysisMu.Unlock()
+}
+
+func (h *Handler) indexWorkspace() {
+	h.idx.IndexWorkspace()
 }
 
 func (h *Handler) indexAndPublishWorkspaceDiagnostics() {
@@ -437,16 +459,7 @@ func (h *Handler) runWorkspaceDiagnosticsLocked(scan *workspaceDiagnosticsScanSt
 	workspaceURIs := h.idx.WorkspaceFileURIs()
 	seen := make(map[string]struct{}, len(workspaceURIs))
 	jobs := make(chan string, len(workspaceURIs))
-	workerCount := runtime.GOMAXPROCS(0) * 4
-	if workerCount < 16 {
-		workerCount = 16
-	}
-	if workerCount > 64 {
-		workerCount = 64
-	}
-	if workerCount > len(workspaceURIs) && len(workspaceURIs) > 0 {
-		workerCount = len(workspaceURIs)
-	}
+	workerCount := indexer.WorkerCountFor(len(workspaceURIs))
 	var wg sync.WaitGroup
 
 	for _, uri := range workspaceURIs {

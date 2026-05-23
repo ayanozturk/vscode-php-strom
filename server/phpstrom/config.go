@@ -24,6 +24,7 @@ type Config struct {
 	Diagnostics struct {
 		Enable                   bool
 		Run                      string // "onType" | "onSave"
+		WorkspaceScanOnStart     bool
 		UndefinedSymbols         bool
 		UndefinedVariables       bool
 		TypeErrors               bool
@@ -117,6 +118,9 @@ func (c *Config) Update(settings map[string]interface{}) {
 		if v, ok := diagnostics["run"].(string); ok {
 			c.Diagnostics.Run = v
 		}
+		if v, ok := diagnostics["workspaceScanOnStart"].(bool); ok {
+			c.Diagnostics.WorkspaceScanOnStart = v
+		}
 		if overridesMap, ok := parseRuleOverrides(diagnostics["overrides"]); ok {
 			c.Diagnostics.Overrides = overridesMap
 		}
@@ -147,6 +151,9 @@ func (c *Config) Update(settings map[string]interface{}) {
 	}
 	if v, ok := inner["diagnostics.run"].(string); ok {
 		c.Diagnostics.Run = v
+	}
+	if v, ok := inner["diagnostics.workspaceScanOnStart"].(bool); ok {
+		c.Diagnostics.WorkspaceScanOnStart = v
 	}
 }
 

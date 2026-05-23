@@ -148,15 +148,7 @@ func (wi *WorkspaceIndexer) indexWorkspace(visitor func(ParsedFile)) {
 	total := len(paths)
 	log.Printf("[indexer] discovered %d files across %d workspace folder(s)", total, len(folders))
 
-	// Since file reading is I/O bound (especially on mounted/network/remote drives),
-	// we use a higher concurrency factor to overlap disk reads with CPU parsing.
-	numWorkers := runtime.GOMAXPROCS(0) * 4
-	if numWorkers < 16 {
-		numWorkers = 16
-	}
-	if numWorkers > 64 {
-		numWorkers = 64
-	}
+	numWorkers := WorkerCountFor(total)
 	log.Printf("[indexer] starting %d worker(s) to overlap I/O and parsing", numWorkers)
 
 	jobs := make(chan string, len(paths))
@@ -226,6 +218,24 @@ func (wi *WorkspaceIndexer) indexWorkspace(visitor func(ParsedFile)) {
 	if wi.onDone != nil {
 		wi.onDone(summary)
 	}
+}
+
+// WorkerCountFor returns a conservative worker count for CPU-heavy PHP parsing.
+func WorkerCountFor(total int) int {
+	if total <= 0 {
+		return 0
+	}
+	workers := runtime.GOMAXPROCS(0)
+	if workers < 1 {
+		workers = 1
+	}
+	if workers > 4 {
+		workers = 4
+	}
+	if workers > total {
+		workers = total
+	}
+	return workers
 }
 
 // IndexDocument re-indexes a single open document from its text content.

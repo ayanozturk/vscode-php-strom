@@ -68,7 +68,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
 
     vscode.commands.registerCommand('phpstrom.refreshProblemsScan', () => {
-      client?.sendNotification('phpstrom/indexWorkspace');
+      client?.sendNotification('phpstrom/scanWorkspaceDiagnostics');
     }),
 
     vscode.commands.registerCommand('phpstrom.problems.showListView', () => {
@@ -443,6 +443,7 @@ function getConfiguration(): Record<string, unknown> {
     diagnostics: {
       enable: config.get<boolean>('diagnostics.enable', true),
       run: config.get<string>('diagnostics.run', 'onType'),
+      workspaceScanOnStart: config.get<boolean>('diagnostics.workspaceScanOnStart', false),
       undefinedSymbols: config.get<boolean>('diagnostics.undefinedSymbols', true),
       undefinedVariables: config.get<boolean>('diagnostics.undefinedVariables', true),
       typeErrors: config.get<boolean>('diagnostics.typeErrors', true),
