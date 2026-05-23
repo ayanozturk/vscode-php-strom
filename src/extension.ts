@@ -220,13 +220,27 @@ async function startClient(context: vscode.ExtensionContext, clearCache = false)
 
   client.onNotification(
     'phpstrom/indexingFinished',
-    (params: { symbolCount: number }) => {
+    (params: {
+      fileCount: number;
+      filesDiscovered: number;
+      symbolCount: number;
+      linesScanned: number;
+      bytesScanned: number;
+      durationMs: number;
+      filesPerSecond: number;
+      linesPerSecond: number;
+    }) => {
       clearIndexingHideTimer();
-      indexingStatusItem.text = `$(check) PHP Strom: ${params.symbolCount.toLocaleString()} symbols indexed`;
-      indexingStatusItem.tooltip = 'PHP Strom finished indexing the workspace';
+      indexingStatusItem.text = `$(check) PHP Strom: ${params.fileCount.toLocaleString()} files in ${formatDuration(params.durationMs)}`;
+      indexingStatusItem.tooltip = [
+        'PHP Strom finished indexing the workspace',
+        `${params.fileCount.toLocaleString()} / ${params.filesDiscovered.toLocaleString()} files indexed`,
+        `${params.linesScanned.toLocaleString()} LOC scanned`,
+        `${params.symbolCount.toLocaleString()} symbols indexed`,
+      ].join('\n');
       indexingStatusItem.show();
       outputChannel.appendLine(
-        `[phpstrom] Indexing complete — ${params.symbolCount.toLocaleString()} symbols`,
+        `[phpstrom] Indexing complete — ${params.fileCount.toLocaleString()} / ${params.filesDiscovered.toLocaleString()} files, ${params.linesScanned.toLocaleString()} LOC, ${formatBytes(params.bytesScanned)}, ${params.symbolCount.toLocaleString()} symbols in ${formatDuration(params.durationMs)} (${formatRate(params.filesPerSecond)} files/sec, ${formatRate(params.linesPerSecond)} LOC/sec)`,
       );
       indexingHideTimer = setTimeout(() => {
         indexingStatusItem.hide();
@@ -370,6 +384,38 @@ async function ensureExecutable(targetPath: string, platform: NodeJS.Platform): 
   }
 
   await fs.chmod(targetPath, 0o755);
+}
+
+function formatDuration(durationMs: number): string {
+  if (!Number.isFinite(durationMs) || durationMs < 0) {
+    return '0 ms';
+  }
+  if (durationMs < 1000) {
+    return `${Math.round(durationMs).toLocaleString()} ms`;
+  }
+  return `${(durationMs / 1000).toFixed(durationMs < 10_000 ? 2 : 1)}s`;
+}
+
+function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) {
+    return '0 B';
+  }
+  const units = ['B', 'KB', 'MB', 'GB'];
+  let value = bytes;
+  let unitIndex = 0;
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex++;
+  }
+  const decimals = unitIndex === 0 ? 0 : 1;
+  return `${value.toFixed(decimals)} ${units[unitIndex]}`;
+}
+
+function formatRate(value: number): string {
+  if (!Number.isFinite(value) || value < 0) {
+    return '0';
+  }
+  return Math.round(value).toLocaleString();
 }
 
 function getConfiguration(): Record<string, unknown> {

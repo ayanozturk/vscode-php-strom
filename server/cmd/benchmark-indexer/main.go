@@ -42,15 +42,24 @@ func main() {
 	runtime.ReadMemStats(&memStart)
 
 	start := time.Now()
-	
+
 	wi.OnIndexingStart(func() {
 		log.Printf("Indexing started...")
 	})
 	wi.OnIndexingProgress(func(done, total int) {
 		// Suppress verbose logs to measure raw speed
 	})
-	wi.OnIndexingDone(func(symCount int) {
-		log.Printf("Indexing done. Extracted %d symbols.", symCount)
+	var summary indexer.IndexingSummary
+	wi.OnIndexingDone(func(s indexer.IndexingSummary) {
+		summary = s
+		log.Printf(
+			"Indexing done. Indexed %d/%d files, scanned %d LOC, extracted %d symbols in %s.",
+			s.FilesIndexed,
+			s.FilesDiscovered,
+			s.LinesScanned,
+			s.SymbolsIndexed,
+			s.Duration.Round(time.Millisecond),
+		)
 	})
 
 	wi.IndexWorkspace()
@@ -59,9 +68,13 @@ func main() {
 	runtime.ReadMemStats(&memEnd)
 
 	fmt.Printf("\n========== INDEXER PERFORMANCE ==========\n")
-	fmt.Printf("Total Files:     %d\n", len(wi.WorkspaceFileURIs()))
-	fmt.Printf("Total Time:      %s\n", elapsed)
-	fmt.Printf("Files/Sec:       %.2f\n", float64(len(wi.WorkspaceFileURIs()))/elapsed.Seconds())
+	fmt.Printf("Files Indexed:   %d / %d\n", summary.FilesIndexed, summary.FilesDiscovered)
+	fmt.Printf("Lines Scanned:   %d\n", summary.LinesScanned)
+	fmt.Printf("Bytes Scanned:   %.2f MB\n", float64(summary.BytesScanned)/(1024*1024))
+	fmt.Printf("Symbols Indexed: %d\n", summary.SymbolsIndexed)
+	fmt.Printf("Total Time:      %s\n", elapsed.Round(time.Millisecond))
+	fmt.Printf("Files/Sec:       %.2f\n", float64(summary.FilesIndexed)/elapsed.Seconds())
+	fmt.Printf("Lines/Sec:       %.2f\n", float64(summary.LinesScanned)/elapsed.Seconds())
 	fmt.Printf("HeapAlloc:       %.2f MB\n", float64(memEnd.HeapAlloc)/(1024*1024))
 	fmt.Printf("Sys memory:      %.2f MB\n", float64(memEnd.Sys)/(1024*1024))
 	fmt.Printf("=========================================\n")

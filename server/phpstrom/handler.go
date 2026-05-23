@@ -66,11 +66,36 @@ func NewHandler(srv *Server) *Handler {
 	idx.OnIndexingProgress(func(done, total int) {
 		srv.Notify("phpstrom/indexingProgress", map[string]int{"done": done, "total": total})
 	})
-	idx.OnIndexingDone(func(count int) {
-		srv.Notify("phpstrom/indexingFinished", map[string]int{"symbolCount": count})
+	idx.OnIndexingDone(func(summary indexer.IndexingSummary) {
+		srv.Notify("phpstrom/indexingFinished", map[string]interface{}{
+			"fileCount":       summary.FilesIndexed,
+			"filesDiscovered": summary.FilesDiscovered,
+			"symbolCount":     summary.SymbolsIndexed,
+			"linesScanned":    summary.LinesScanned,
+			"bytesScanned":    summary.BytesScanned,
+			"durationMs":      summary.Duration.Milliseconds(),
+			"filesPerSecond":  filesPerSecond(summary),
+			"linesPerSecond":  linesPerSecond(summary),
+		})
 	})
 
 	return h
+}
+
+func filesPerSecond(summary indexer.IndexingSummary) float64 {
+	seconds := summary.Duration.Seconds()
+	if seconds <= 0 {
+		return 0
+	}
+	return float64(summary.FilesIndexed) / seconds
+}
+
+func linesPerSecond(summary indexer.IndexingSummary) float64 {
+	seconds := summary.Duration.Seconds()
+	if seconds <= 0 {
+		return 0
+	}
+	return float64(summary.LinesScanned) / seconds
 }
 
 // HandleRequest processes a request with an ID and returns a result.

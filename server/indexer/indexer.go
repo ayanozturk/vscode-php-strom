@@ -1,6 +1,7 @@
 package indexer
 
 import (
+	"bytes"
 	"context"
 	"log"
 	"os"
@@ -27,12 +28,25 @@ type WorkspaceIndexer struct {
 	compiledExcludes [][]string
 	mu               sync.RWMutex
 	onStart          func()
-	onDone           func(int)
+	onDone           func(IndexingSummary)
 	onProgress       func(done, total int)
+	processedCount   int64
 	indexedCount     int64
+	indexedLines     int64
+	indexedBytes     int64
 }
 
 const perFileParseTimeout = 20 * time.Second
+
+// IndexingSummary reports the aggregate work completed by a workspace index.
+type IndexingSummary struct {
+	FilesDiscovered int
+	FilesIndexed    int
+	SymbolsIndexed  int
+	LinesScanned    int64
+	BytesScanned    int64
+	Duration        time.Duration
+}
 
 // ParsedFile contains the single-parse result used for both indexing and diagnostics.
 type ParsedFile struct {
@@ -41,6 +55,8 @@ type ParsedFile struct {
 	Nodes   []ast.Node
 	Errors  []string
 	Symbols []*Symbol
+	Lines   int
+	Bytes   int
 }
 
 func splitPathSegments(p string) []string {
@@ -87,7 +103,7 @@ func (wi *WorkspaceIndexer) WorkspaceFolders() []WorkspaceFolder {
 func (wi *WorkspaceIndexer) OnIndexingStart(fn func()) { wi.onStart = fn }
 
 // OnIndexingDone registers a callback called when workspace indexing finishes.
-func (wi *WorkspaceIndexer) OnIndexingDone(fn func(int)) { wi.onDone = fn }
+func (wi *WorkspaceIndexer) OnIndexingDone(fn func(IndexingSummary)) { wi.onDone = fn }
 
 // OnIndexingProgress registers a callback called periodically during indexing.
 // done is the number of files processed so far; total is the total file count.
@@ -106,6 +122,7 @@ func (wi *WorkspaceIndexer) IndexWorkspaceParsed(visitor func(ParsedFile)) {
 }
 
 func (wi *WorkspaceIndexer) indexWorkspace(visitor func(ParsedFile)) {
+	started := time.Now()
 	if wi.onStart != nil {
 		wi.onStart()
 	}
@@ -148,7 +165,10 @@ func (wi *WorkspaceIndexer) indexWorkspace(visitor func(ParsedFile)) {
 	close(jobs)
 
 	var wg sync.WaitGroup
+	atomic.StoreInt64(&wi.processedCount, 0)
 	atomic.StoreInt64(&wi.indexedCount, 0)
+	atomic.StoreInt64(&wi.indexedLines, 0)
+	atomic.StoreInt64(&wi.indexedBytes, 0)
 
 	// Report at most every 1% of files (min 10, max 200) to avoid flooding the client.
 	reportEvery := total / 100
@@ -166,8 +186,13 @@ func (wi *WorkspaceIndexer) indexWorkspace(visitor func(ParsedFile)) {
 			defer wg.Done()
 			log.Printf("[indexer] worker %d started", workerID)
 			for filePath := range jobs {
-				wi.indexFile(filePath, visitor)
-				done := int(atomic.AddInt64(&wi.indexedCount, 1))
+				lines, bytesScanned, indexed := wi.indexFile(filePath, visitor)
+				if indexed {
+					atomic.AddInt64(&wi.indexedCount, 1)
+					atomic.AddInt64(&wi.indexedLines, int64(lines))
+					atomic.AddInt64(&wi.indexedBytes, int64(bytesScanned))
+				}
+				done := int(atomic.AddInt64(&wi.processedCount, 1))
 				if done%reportEvery == 0 || done == total {
 					log.Printf("[indexer] progress %d/%d", done, total)
 					if wi.onProgress != nil {
@@ -181,9 +206,24 @@ func (wi *WorkspaceIndexer) indexWorkspace(visitor func(ParsedFile)) {
 	wg.Wait()
 
 	count := int(atomic.LoadInt64(&wi.indexedCount))
-	log.Printf("[indexer] finished — %d files indexed", count)
+	summary := IndexingSummary{
+		FilesDiscovered: total,
+		FilesIndexed:    count,
+		SymbolsIndexed:  wi.index.Size(),
+		LinesScanned:    atomic.LoadInt64(&wi.indexedLines),
+		BytesScanned:    atomic.LoadInt64(&wi.indexedBytes),
+		Duration:        time.Since(started),
+	}
+	log.Printf(
+		"[indexer] finished — %d/%d files indexed, %d LOC scanned, %d symbols in %s",
+		summary.FilesIndexed,
+		summary.FilesDiscovered,
+		summary.LinesScanned,
+		summary.SymbolsIndexed,
+		summary.Duration.Round(time.Millisecond),
+	)
 	if wi.onDone != nil {
-		wi.onDone(wi.index.Size())
+		wi.onDone(summary)
 	}
 }
 
@@ -322,7 +362,7 @@ func (wi *WorkspaceIndexer) untrackWorkspaceURI(uri string) {
 	}
 }
 
-func (wi *WorkspaceIndexer) indexFile(path string, visitor func(ParsedFile)) {
+func (wi *WorkspaceIndexer) indexFile(path string, visitor func(ParsedFile)) (int, int, bool) {
 	defer func() {
 		if r := recover(); r != nil {
 			buf := make([]byte, 4096)
@@ -336,13 +376,14 @@ func (wi *WorkspaceIndexer) indexFile(path string, visitor func(ParsedFile)) {
 		if strings.HasPrefix(skipReason, "timeout") {
 			log.Printf("[indexer] %s: %s", skipReason, path)
 		}
-		return
+		return 0, 0, false
 	}
 
 	wi.index.PutFile(parsed.URI, parsed.Symbols)
 	if visitor != nil {
 		visitor(parsed)
 	}
+	return parsed.Lines, parsed.Bytes, true
 }
 
 func (wi *WorkspaceIndexer) parseIndexableFile(path string) (ParsedFile, string) {
@@ -368,12 +409,25 @@ func (wi *WorkspaceIndexer) parseIndexableFile(path string) (ParsedFile, string)
 
 	uri := pathToURI(path)
 	parsed := ParseSourceWithContext(ctx, uri, string(data))
+	parsed.Lines = countLines(data)
+	parsed.Bytes = len(data)
 
 	if ctx.Err() != nil {
 		return ParsedFile{}, "timeout>20s"
 	}
 
 	return parsed, ""
+}
+
+func countLines(data []byte) int {
+	if len(data) == 0 {
+		return 0
+	}
+	lines := bytes.Count(data, []byte{'\n'})
+	if data[len(data)-1] != '\n' {
+		lines++
+	}
+	return lines
 }
 
 func (wi *WorkspaceIndexer) shouldExcludeDir(path string) bool {
@@ -415,6 +469,8 @@ func ParseSourceWithContext(ctx context.Context, uri, src string) ParsedFile {
 		Nodes:   nodes,
 		Errors:  errs,
 		Symbols: extractSymbolsFromNodes(uri, nodes),
+		Lines:   countLines([]byte(src)),
+		Bytes:   len(src),
 	}
 }
 
