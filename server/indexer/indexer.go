@@ -123,6 +123,7 @@ func (wi *WorkspaceIndexer) IndexWorkspaceParsed(visitor func(ParsedFile)) {
 
 func (wi *WorkspaceIndexer) indexWorkspace(visitor func(ParsedFile)) {
 	started := time.Now()
+	skipFunctionBodies := visitor == nil
 	if wi.onStart != nil {
 		wi.onStart()
 	}
@@ -186,7 +187,7 @@ func (wi *WorkspaceIndexer) indexWorkspace(visitor func(ParsedFile)) {
 			defer wg.Done()
 			log.Printf("[indexer] worker %d started", workerID)
 			for filePath := range jobs {
-				lines, bytesScanned, indexed := wi.indexFile(filePath, visitor)
+				lines, bytesScanned, indexed := wi.indexFile(filePath, skipFunctionBodies, visitor)
 				if indexed {
 					atomic.AddInt64(&wi.indexedCount, 1)
 					atomic.AddInt64(&wi.indexedLines, int64(lines))
@@ -362,7 +363,7 @@ func (wi *WorkspaceIndexer) untrackWorkspaceURI(uri string) {
 	}
 }
 
-func (wi *WorkspaceIndexer) indexFile(path string, visitor func(ParsedFile)) (int, int, bool) {
+func (wi *WorkspaceIndexer) indexFile(path string, skipFunctionBodies bool, visitor func(ParsedFile)) (int, int, bool) {
 	defer func() {
 		if r := recover(); r != nil {
 			buf := make([]byte, 4096)
@@ -371,7 +372,7 @@ func (wi *WorkspaceIndexer) indexFile(path string, visitor func(ParsedFile)) (in
 		}
 	}()
 
-	parsed, skipReason := wi.parseIndexableFile(path)
+	parsed, skipReason := wi.parseIndexableFile(path, skipFunctionBodies)
 	if skipReason != "" {
 		if strings.HasPrefix(skipReason, "timeout") {
 			log.Printf("[indexer] %s: %s", skipReason, path)
@@ -386,29 +387,26 @@ func (wi *WorkspaceIndexer) indexFile(path string, visitor func(ParsedFile)) (in
 	return parsed.Lines, parsed.Bytes, true
 }
 
-func (wi *WorkspaceIndexer) parseIndexableFile(path string) (ParsedFile, string) {
+func (wi *WorkspaceIndexer) parseIndexableFile(path string, skipFunctionBodies bool) (ParsedFile, string) {
 	ctx, cancel := context.WithTimeout(context.Background(), perFileParseTimeout)
 	defer cancel()
-
-	info, err := os.Stat(path)
-	if err != nil {
-		return ParsedFile{}, "stat-error"
-	}
-	if !info.Mode().IsRegular() {
-		return ParsedFile{}, "non-regular-file"
-	}
-	if info.Size() > wi.cfg.MaxSize {
-		log.Printf("[indexer] skipping oversized file (%d bytes): %s", info.Size(), path)
-		return ParsedFile{}, "oversized-file"
-	}
 
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return ParsedFile{}, "read-error"
 	}
+	if int64(len(data)) > wi.cfg.MaxSize {
+		log.Printf("[indexer] skipping oversized file (%d bytes): %s", len(data), path)
+		return ParsedFile{}, "oversized-file"
+	}
 
 	uri := pathToURI(path)
-	parsed := ParseSourceWithContext(ctx, uri, string(data))
+	var parsed ParsedFile
+	if skipFunctionBodies {
+		parsed = ParseSourceForIndexWithContext(ctx, uri, string(data))
+	} else {
+		parsed = ParseSourceWithContext(ctx, uri, string(data))
+	}
 	parsed.Lines = countLines(data)
 	parsed.Bytes = len(data)
 
@@ -456,11 +454,28 @@ func ParseSource(uri, src string) ParsedFile {
 	return ParseSourceWithContext(context.Background(), uri, src)
 }
 
+// ParseSourceForIndex parses PHP source with function/method bodies skipped.
+// It is intended for symbol indexing, where declarations and signatures matter
+// but statement bodies are not needed.
+func ParseSourceForIndex(uri, src string) ParsedFile {
+	return ParseSourceForIndexWithContext(context.Background(), uri, src)
+}
+
+// ParseSourceForIndexWithContext is the cancellable variant of ParseSourceForIndex.
+func ParseSourceForIndexWithContext(ctx context.Context, uri, src string) ParsedFile {
+	return parseSource(ctx, uri, src, true)
+}
+
 // ParseSourceWithContext parses PHP source using a cooperative context to abort early if requested.
 func ParseSourceWithContext(ctx context.Context, uri, src string) ParsedFile {
+	return parseSource(ctx, uri, src, false)
+}
+
+func parseSource(ctx context.Context, uri, src string, skipFunctionBodies bool) ParsedFile {
 	l := goplexer.New(src)
 	p := goparser.New(l, false)
 	p.Ctx = ctx
+	p.SkipFunctionBodies = skipFunctionBodies
 	nodes := p.Parse()
 	errs := append([]string(nil), p.Errors()...)
 	return ParsedFile{

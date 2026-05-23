@@ -170,6 +170,10 @@ type DiagnosticsProvider struct {
 	cache *semanticDocumentCache
 }
 
+func (p *DiagnosticsProvider) IgnoresAll(uri string) bool {
+	return p.cfg.DiagnosticsExclusions.IgnoresAll(uriToFilename(uri))
+}
+
 func (p *DiagnosticsProvider) Analyse(uri, text string) []lsp.Diagnostic {
 	filename := uriToFilename(uri)
 	if p.cfg.DiagnosticsExclusions.IgnoresAll(filename) {

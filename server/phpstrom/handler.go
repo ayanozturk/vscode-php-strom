@@ -403,25 +403,8 @@ func (h *Handler) indexAndPublishWorkspaceDiagnostics() {
 		return
 	}
 
-	seen := make(map[string]struct{})
-	var seenMu sync.Mutex
-	h.idx.IndexWorkspaceParsed(func(parsed indexer.ParsedFile) {
-		if scan.capped() {
-			return
-		}
-
-		seenMu.Lock()
-		seen[parsed.URI] = struct{}{}
-		seenMu.Unlock()
-
-		if doc, ok := h.documents.Snapshot(parsed.URI); ok {
-			h.publishDiagnosticsForScan(parsed.URI, doc.Text, doc.Version, scan)
-			return
-		}
-
-		h.publishWorkspaceParsedDiagnosticsForScan(parsed, scan)
-	})
-	h.clearDiagnosticsOutsideWorkspace(seen)
+	h.idx.IndexWorkspace()
+	h.runWorkspaceDiagnosticsLocked(scan)
 }
 
 func (h *Handler) runWorkspaceDiagnosticsScan(indexWorkspace bool) {
@@ -442,7 +425,10 @@ func (h *Handler) runWorkspaceDiagnosticsScan(indexWorkspace bool) {
 func (h *Handler) runWorkspaceDiagnostics(scan *workspaceDiagnosticsScanState) {
 	h.workspaceDiagnosticsMu.Lock()
 	defer h.workspaceDiagnosticsMu.Unlock()
+	h.runWorkspaceDiagnosticsLocked(scan)
+}
 
+func (h *Handler) runWorkspaceDiagnosticsLocked(scan *workspaceDiagnosticsScanState) {
 	if !h.cfg.Diagnostics.Enable {
 		h.clearPublishedDiagnostics()
 		return
@@ -476,6 +462,9 @@ func (h *Handler) runWorkspaceDiagnostics(scan *workspaceDiagnosticsScanState) {
 			for uri := range jobs {
 				if scan.capped() {
 					return
+				}
+				if h.prov.Diagnostics.IgnoresAll(uri) {
+					continue
 				}
 
 				if doc, ok := h.documents.Snapshot(uri); ok {
