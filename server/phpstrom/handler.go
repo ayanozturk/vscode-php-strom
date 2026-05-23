@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/ayanozturk/vscode-php-strom/indexer"
 	"github.com/ayanozturk/vscode-php-strom/lsp"
@@ -27,9 +28,12 @@ type Handler struct {
 	workspaceDiagnosticsMu sync.Mutex
 	publishedDiagnosticsMu sync.Mutex
 	publishedDiagnostics   map[string]struct{}
+	documentAnalysisMu     sync.Mutex
+	documentAnalysisTimers map[string]*time.Timer
 }
 
 const workspaceDiagnosticsLimit = 50_000
+const onTypeAnalysisDelay = 150 * time.Millisecond
 
 type saveAnalysisFinishedParams struct {
 	URI       string `json:"uri"`
@@ -49,12 +53,13 @@ func NewHandler(srv *Server) *Handler {
 	prov := providers.NewRegistry(idx, cfg.toProviderConfig(nil))
 
 	h := &Handler{
-		srv:                  srv,
-		cfg:                  cfg,
-		documents:            docs,
-		idx:                  idx,
-		prov:                 prov,
-		publishedDiagnostics: make(map[string]struct{}),
+		srv:                    srv,
+		cfg:                    cfg,
+		documents:              docs,
+		idx:                    idx,
+		prov:                   prov,
+		publishedDiagnostics:   make(map[string]struct{}),
+		documentAnalysisTimers: make(map[string]*time.Timer),
 	}
 
 	idx.OnIndexingStart(func() { srv.Notify("phpstrom/indexingStarted", nil) })
@@ -151,7 +156,7 @@ func (h *Handler) HandleNotification(method string, raw json.RawMessage) {
 		doc := h.documents.Open(p.TextDocument)
 		h.idx.IndexDocument(doc.URI, doc.Text)
 		if h.cfg.Diagnostics.Run == "onType" {
-			go h.publishDiagnostics(doc.URI, doc.Text, doc.Version)
+			h.scheduleDocumentAnalysis(doc.URI, doc.Version, 0)
 		}
 
 	case "textDocument/didChange":
@@ -161,9 +166,10 @@ func (h *Handler) HandleNotification(method string, raw json.RawMessage) {
 			return
 		}
 		doc := h.documents.Change(p.TextDocument.URI, p.TextDocument.Version, p.ContentChanges)
-		h.idx.IndexDocument(doc.URI, doc.Text)
 		if h.cfg.Diagnostics.Run == "onType" {
-			go h.publishDiagnostics(doc.URI, doc.Text, doc.Version)
+			h.scheduleDocumentAnalysis(doc.URI, doc.Version, onTypeAnalysisDelay)
+		} else {
+			h.scheduleDocumentIndex(doc.URI, doc.Version, onTypeAnalysisDelay)
 		}
 
 	case "textDocument/didSave":
@@ -172,6 +178,7 @@ func (h *Handler) HandleNotification(method string, raw json.RawMessage) {
 			return
 		}
 		if doc, ok := h.documents.Get(p.TextDocument.URI); ok {
+			h.cancelDocumentAnalysis(p.TextDocument.URI)
 			if text, err := readDocumentTextFromDisk(p.TextDocument.URI); err == nil {
 				if updated, ok := h.documents.SetText(p.TextDocument.URI, text); ok {
 					doc = updated
@@ -193,6 +200,7 @@ func (h *Handler) HandleNotification(method string, raw json.RawMessage) {
 			return
 		}
 		h.documents.Close(p.TextDocument.URI)
+		h.cancelDocumentAnalysis(p.TextDocument.URI)
 		if text, err := readDocumentTextFromDisk(p.TextDocument.URI); err == nil {
 			h.idx.IndexDocument(p.TextDocument.URI, text)
 			h.publishWorkspaceDocumentDiagnostics(p.TextDocument.URI, text)
@@ -216,6 +224,7 @@ func (h *Handler) HandleNotification(method string, raw json.RawMessage) {
 		go h.indexAndPublishWorkspaceDiagnostics()
 
 	case "exit":
+		h.cancelAllDocumentAnalysis()
 	}
 }
 
@@ -297,6 +306,58 @@ func (h *Handler) publishDiagnostics(uri, text string, version int) bool {
 	}
 	h.notifyDiagnostics(uri, diags)
 	return true
+}
+
+func (h *Handler) scheduleDocumentAnalysis(uri string, version int, delay time.Duration) {
+	h.scheduleDocumentWork(uri, version, delay, true)
+}
+
+func (h *Handler) scheduleDocumentIndex(uri string, version int, delay time.Duration) {
+	h.scheduleDocumentWork(uri, version, delay, false)
+}
+
+func (h *Handler) scheduleDocumentWork(uri string, version int, delay time.Duration, publishDiagnostics bool) {
+	h.documentAnalysisMu.Lock()
+	if timer := h.documentAnalysisTimers[uri]; timer != nil {
+		timer.Stop()
+	}
+	var timer *time.Timer
+	timer = time.AfterFunc(delay, func() {
+		h.documentAnalysisMu.Lock()
+		if h.documentAnalysisTimers[uri] == timer {
+			delete(h.documentAnalysisTimers, uri)
+		}
+		h.documentAnalysisMu.Unlock()
+
+		doc, ok := h.documents.Snapshot(uri)
+		if !ok || doc.Version != version {
+			return
+		}
+		h.idx.IndexDocument(doc.URI, doc.Text)
+		if publishDiagnostics {
+			h.publishDiagnostics(doc.URI, doc.Text, doc.Version)
+		}
+	})
+	h.documentAnalysisTimers[uri] = timer
+	h.documentAnalysisMu.Unlock()
+}
+
+func (h *Handler) cancelDocumentAnalysis(uri string) {
+	h.documentAnalysisMu.Lock()
+	if timer := h.documentAnalysisTimers[uri]; timer != nil {
+		timer.Stop()
+		delete(h.documentAnalysisTimers, uri)
+	}
+	h.documentAnalysisMu.Unlock()
+}
+
+func (h *Handler) cancelAllDocumentAnalysis() {
+	h.documentAnalysisMu.Lock()
+	for uri, timer := range h.documentAnalysisTimers {
+		timer.Stop()
+		delete(h.documentAnalysisTimers, uri)
+	}
+	h.documentAnalysisMu.Unlock()
 }
 
 func (h *Handler) indexAndPublishWorkspaceDiagnostics() {

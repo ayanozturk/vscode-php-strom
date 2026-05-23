@@ -107,6 +107,62 @@ func TestPublishDiagnosticsDropsStaleResults(t *testing.T) {
 	}
 }
 
+func TestDidChangeDebouncesOnTypeAnalysis(t *testing.T) {
+	var out bytes.Buffer
+	srv := &Server{out: &out}
+	h := NewHandler(srv)
+
+	uri := "file:///debounce.php"
+	h.documents.Open(lsp.TextDocumentItem{
+		URI:        uri,
+		LanguageID: "php",
+		Version:    1,
+		Text:       "<?php\nclass InitialClass {}\n",
+	})
+
+	badChange, err := json.Marshal(lsp.DidChangeTextDocumentParams{
+		TextDocument: lsp.VersionedTextDocumentIdentifier{URI: uri, Version: 2},
+		ContentChanges: []lsp.TextDocumentContentChangeEvent{{
+			Range: nil,
+			Text:  "<?php\nclass Bad_Class {}\n",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("marshal bad change: %v", err)
+	}
+	h.HandleNotification("textDocument/didChange", badChange)
+
+	goodChange, err := json.Marshal(lsp.DidChangeTextDocumentParams{
+		TextDocument: lsp.VersionedTextDocumentIdentifier{URI: uri, Version: 3},
+		ContentChanges: []lsp.TextDocumentContentChangeEvent{{
+			Range: nil,
+			Text:  "<?php\nclass GoodClass {}\n",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("marshal good change: %v", err)
+	}
+	h.HandleNotification("textDocument/didChange", goodChange)
+
+	deadline := time.Now().Add(600 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		if h.idx.GetIndex().GetByFQN(`\GoodClass`) != nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	if got := h.idx.GetIndex().GetByFQN(`\Bad_Class`); got != nil {
+		t.Fatalf("expected stale changed document not to be indexed, got %+v", got)
+	}
+	if got := h.idx.GetIndex().GetByFQN(`\GoodClass`); got == nil {
+		t.Fatal("expected latest changed document to be indexed")
+	}
+	if strings.Contains(out.String(), "Bad_Class") {
+		t.Fatalf("expected debounced analysis to skip stale diagnostics, got %q", out.String())
+	}
+}
+
 func TestDidSavePublishesEmptyDiagnosticsWhenIssueIsFixed(t *testing.T) {
 	tmpDir := t.TempDir()
 	filePath := filepath.Join(tmpDir, "SessionTest.php")

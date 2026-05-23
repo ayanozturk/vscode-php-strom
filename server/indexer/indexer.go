@@ -183,7 +183,7 @@ func (wi *WorkspaceIndexer) indexWorkspace(visitor func(ParsedFile)) {
 	count := int(atomic.LoadInt64(&wi.indexedCount))
 	log.Printf("[indexer] finished — %d files indexed", count)
 	if wi.onDone != nil {
-		wi.onDone(len(wi.index.AllSymbols()))
+		wi.onDone(wi.index.Size())
 	}
 }
 

@@ -15,9 +15,8 @@ type Index struct {
 }
 
 type shard struct {
-	mu         sync.RWMutex
-	byFQN      map[string]*Symbol   // FQN → symbol
-	byURI      map[string][]*Symbol // file URI → symbols in that file
+	mu          sync.RWMutex
+	byFQN       map[string]*Symbol   // FQN → symbol
 	byNameLower map[string][]*Symbol // lowercase unqualified name → symbols
 }
 
@@ -27,7 +26,6 @@ func newIndex() *Index {
 	}
 	for i := range idx.shards {
 		idx.shards[i].byFQN = make(map[string]*Symbol)
-		idx.shards[i].byURI = make(map[string][]*Symbol)
 		idx.shards[i].byNameLower = make(map[string][]*Symbol)
 	}
 	return idx
@@ -46,15 +44,20 @@ func (idx *Index) PutFile(uri string, symbols []*Symbol) {
 	var fqns []string
 	if len(symbols) > 0 {
 		fqns = make([]string, 0, len(symbols))
+		grouped := make(map[*shard][]*Symbol, min(len(symbols), shards))
 		for _, sym := range symbols {
 			s := idx.shardFor(sym.FQN)
-			nameLower := strings.ToLower(sym.Name)
-			s.mu.Lock()
-			s.byFQN[sym.FQN] = sym
-			s.byURI[uri] = append(s.byURI[uri], sym)
-			s.byNameLower[nameLower] = append(s.byNameLower[nameLower], sym)
-			s.mu.Unlock()
+			grouped[s] = append(grouped[s], sym)
 			fqns = append(fqns, sym.FQN)
+		}
+		for s, shardSymbols := range grouped {
+			s.mu.Lock()
+			for _, sym := range shardSymbols {
+				nameLower := strings.ToLower(sym.Name)
+				s.byFQN[sym.FQN] = sym
+				s.byNameLower[nameLower] = append(s.byNameLower[nameLower], sym)
+			}
+			s.mu.Unlock()
 		}
 	}
 
@@ -65,6 +68,13 @@ func (idx *Index) PutFile(uri string, symbols []*Symbol) {
 		delete(idx.uriToFQNs, uri)
 	}
 	idx.muURI.Unlock()
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // RemoveFile removes all symbols for a URI.
@@ -78,11 +88,19 @@ func (idx *Index) RemoveFile(uri string) {
 	delete(idx.uriToFQNs, uri)
 	idx.muURI.Unlock()
 
+	grouped := make(map[*shard][]string, min(len(fqns), shards))
 	for _, fqn := range fqns {
 		s := idx.shardFor(fqn)
+		grouped[s] = append(grouped[s], fqn)
+	}
+
+	for s, shardFQNs := range grouped {
 		s.mu.Lock()
-		if sym, exists := s.byFQN[fqn]; exists {
-			// Remove this symbol from the byNameLower slice.
+		for _, fqn := range shardFQNs {
+			sym, exists := s.byFQN[fqn]
+			if !exists {
+				continue
+			}
 			nameLower := strings.ToLower(sym.Name)
 			current := s.byNameLower[nameLower]
 			updated := current[:0]
@@ -98,9 +116,20 @@ func (idx *Index) RemoveFile(uri string) {
 			}
 			delete(s.byFQN, fqn)
 		}
-		delete(s.byURI, uri)
 		s.mu.Unlock()
 	}
+}
+
+// Size returns the number of indexed symbols without materialising a full slice.
+func (idx *Index) Size() int {
+	total := 0
+	for i := range idx.shards {
+		s := &idx.shards[i]
+		s.mu.RLock()
+		total += len(s.byFQN)
+		s.mu.RUnlock()
+	}
+	return total
 }
 
 // GetByFQN returns the symbol with the given fully-qualified name, or nil.
