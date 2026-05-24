@@ -1,6 +1,7 @@
 package providers
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -38,6 +39,47 @@ func TestDefinitionProviderPrefersClassLikeExactMatch(t *testing.T) {
 	}
 	if locs[0].URI != "file:///workspace/Foo.php" {
 		t.Fatalf("expected class definition in Foo.php, got %s", locs[0].URI)
+	}
+}
+
+func TestDefinitionProviderResolvesConfiguredStubClass(t *testing.T) {
+	stubsPath, err := filepath.Abs("../../stubs")
+	if err != nil {
+		t.Fatalf("resolve stubs path: %v", err)
+	}
+	idx := indexer.New(indexer.Config{StubsPath: stubsPath, Stubs: []string{"Core", "SPL"}, PHPVersion: "8.3"})
+
+	provider := &DefinitionProvider{idx: idx}
+	text := "<?php\nreturn new ArrayIterator([]);\n"
+	locs := provider.Provide("file:///workspace/Use.php", text, lsp.Position{Line: 1, Character: 14})
+
+	if len(locs) != 1 {
+		t.Fatalf("expected 1 stub definition, got %d", len(locs))
+	}
+	if !strings.HasSuffix(locs[0].URI, "/stubs/8.3/SPL.php") {
+		t.Fatalf("expected ArrayIterator definition in SPL stub, got %s", locs[0].URI)
+	}
+}
+
+func TestDiagnosticsAcceptArrayIteratorAsTraversableFromStubs(t *testing.T) {
+	stubsPath, err := filepath.Abs("../../stubs")
+	if err != nil {
+		t.Fatalf("resolve stubs path: %v", err)
+	}
+	idx := indexer.New(indexer.Config{StubsPath: stubsPath, Stubs: []string{"Core", "SPL"}, PHPVersion: "8.3"})
+	provider := &DiagnosticsProvider{idx: idx, cache: newSemanticDocumentCache()}
+	text := `<?php
+function getIterator(): Traversable
+{
+    return new ArrayIterator([]);
+}
+`
+
+	diags := provider.Analyse("file:///workspace/Example.php", text)
+	for _, diag := range diags {
+		if diag.Code == "A.RETURN.TYPE" {
+			t.Fatalf("expected ArrayIterator to satisfy Traversable, got diagnostic: %s", diag.Message)
+		}
 	}
 }
 

@@ -1,6 +1,12 @@
 package phpstrom
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/ayanozturk/vscode-php-strom/indexer"
+)
 
 func TestApplyInitOptionsLoadsDiagnosticsOverrides(t *testing.T) {
 	cfg := DefaultConfig()
@@ -89,5 +95,52 @@ func TestUpdateLoadsFilesSettings(t *testing.T) {
 	}
 	if cfg.Files.MaxSize != 2048 {
 		t.Fatalf("expected files.maxSize=2048, got %d", cfg.Files.MaxSize)
+	}
+}
+
+func TestResolvePHPVersionDetectsComposerRequirement(t *testing.T) {
+	tmpDir := t.TempDir()
+	composer := []byte(`{"require":{"php":">=8.4 <9.0"}}`)
+	if err := os.WriteFile(filepath.Join(tmpDir, "composer.json"), composer, 0o644); err != nil {
+		t.Fatalf("write composer.json: %v", err)
+	}
+
+	cfg := DefaultConfig()
+	got := cfg.resolvePHPVersion([]indexer.WorkspaceFolder{{URI: "file://" + filepath.ToSlash(tmpDir), Name: "tmp"}})
+	if got != "8.4" {
+		t.Fatalf("expected composer-detected PHP 8.4, got %q", got)
+	}
+}
+
+func TestResolvePHPVersionOverrideWinsOverComposer(t *testing.T) {
+	tmpDir := t.TempDir()
+	composer := []byte(`{"require":{"php":">=8.2 <9.0"}}`)
+	if err := os.WriteFile(filepath.Join(tmpDir, "composer.json"), composer, 0o644); err != nil {
+		t.Fatalf("write composer.json: %v", err)
+	}
+
+	cfg := DefaultConfig()
+	cfg.Update(map[string]interface{}{
+		"environment": map[string]interface{}{
+			"phpVersionOverride": "8.5",
+		},
+	})
+	got := cfg.resolvePHPVersion([]indexer.WorkspaceFolder{{URI: "file://" + filepath.ToSlash(tmpDir), Name: "tmp"}})
+	if got != "8.5" {
+		t.Fatalf("expected override PHP 8.5, got %q", got)
+	}
+}
+
+func TestResolvePHPVersionUsesComposerPlatformPHP(t *testing.T) {
+	tmpDir := t.TempDir()
+	composer := []byte(`{"require":{"php":">=8.2"},"config":{"platform":{"php":"8.3.12"}}}`)
+	if err := os.WriteFile(filepath.Join(tmpDir, "composer.json"), composer, 0o644); err != nil {
+		t.Fatalf("write composer.json: %v", err)
+	}
+
+	cfg := DefaultConfig()
+	got := cfg.resolvePHPVersion([]indexer.WorkspaceFolder{{URI: "file://" + filepath.ToSlash(tmpDir), Name: "tmp"}})
+	if got != "8.3" {
+		t.Fatalf("expected platform PHP 8.3, got %q", got)
 	}
 }

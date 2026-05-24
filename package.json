@@ -79,16 +79,27 @@
         },
         "phpstrom.environment.phpVersion": {
           "type": "string",
-          "default": "8.3",
+          "default": "auto",
           "enum": [
-            "7.4",
-            "8.0",
-            "8.1",
+            "auto",
             "8.2",
             "8.3",
-            "8.4"
+            "8.4",
+            "8.5"
           ],
-          "description": "The PHP version to use for analysis and stubs."
+          "description": "The PHP version to use for analysis and stubs. Use auto to detect from composer.json."
+        },
+        "phpstrom.environment.phpVersionOverride": {
+          "type": "string",
+          "default": "",
+          "enum": [
+            "",
+            "8.2",
+            "8.3",
+            "8.4",
+            "8.5"
+          ],
+          "description": "Force a PHP version for analysis and stubs, overriding composer.json detection and phpVersion."
         },
         "phpstrom.environment.includePaths": {
           "type": "array",

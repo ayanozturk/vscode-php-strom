@@ -26,6 +26,7 @@ type WorkspaceIndexer struct {
 	workspaceURIs    []string
 	gitignores       []workspaceGitignore
 	compiledExcludes [][]string
+	stubURIs         []string
 	mu               sync.RWMutex
 	onStart          func()
 	onDone           func(IndexingSummary)
@@ -77,11 +78,13 @@ func New(cfg Config) *WorkspaceIndexer {
 			compiledExcludes = append(compiledExcludes, splitPathSegments(expanded))
 		}
 	}
-	return &WorkspaceIndexer{
+	wi := &WorkspaceIndexer{
 		cfg:              cfg,
 		index:            newIndex(),
 		compiledExcludes: compiledExcludes,
 	}
+	wi.loadConfiguredStubs()
+	return wi
 }
 
 // SetWorkspaceFolders updates the list of root folders to index.
@@ -273,6 +276,20 @@ func (wi *WorkspaceIndexer) WorkspaceFileURIs() []string {
 
 // GetIndex returns the underlying symbol index for provider use.
 func (wi *WorkspaceIndexer) GetIndex() *Index { return wi.index }
+
+func (wi *WorkspaceIndexer) SetStubs(stubsPath string, stubs []string, phpVersion string) {
+	wi.mu.Lock()
+	for _, uri := range wi.stubURIs {
+		wi.index.RemoveFile(uri)
+	}
+	wi.stubURIs = nil
+	wi.cfg.StubsPath = stubsPath
+	wi.cfg.Stubs = append([]string(nil), stubs...)
+	wi.cfg.PHPVersion = phpVersion
+	wi.mu.Unlock()
+
+	wi.loadConfiguredStubs()
+}
 
 // ─── Internal ─────────────────────────────────────────────────────────────────
 

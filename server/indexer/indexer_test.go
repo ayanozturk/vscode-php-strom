@@ -163,6 +163,22 @@ class ArrayCollection implements Collection {}
 	t.Fatal("expected ArrayCollection symbol")
 }
 
+func TestConfiguredStubsAreIndexed(t *testing.T) {
+	stubsPath, err := filepath.Abs("../../stubs")
+	if err != nil {
+		t.Fatalf("resolve stubs path: %v", err)
+	}
+
+	wi := New(Config{StubsPath: stubsPath, Stubs: []string{"Core", "SPL"}, PHPVersion: "8.3"})
+	sym := wi.GetIndex().GetByFQN(`\ArrayIterator`)
+	if sym == nil {
+		t.Fatal("expected ArrayIterator stub symbol to be indexed")
+	}
+	if len(sym.Implements) == 0 {
+		t.Fatalf("expected ArrayIterator implements metadata, got %#v", sym)
+	}
+}
+
 func TestMatchSimpleMatchesVendorRootPattern(t *testing.T) {
 	if !matchSimple("**/vendor/**", "/workspace/project/vendor") {
 		t.Fatal("expected vendor root to match exclude pattern")

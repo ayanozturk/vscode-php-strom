@@ -2,6 +2,7 @@ package phpstrom
 
 import (
 	"log"
+	"path/filepath"
 
 	"go-phpcs/overrides"
 
@@ -12,15 +13,18 @@ import (
 // Config holds the server configuration derived from VS Code settings.
 type Config struct {
 	Environment struct {
-		PHPVersion   string
-		IncludePaths []string
-		DocumentRoot string
+		PHPVersion          string
+		PHPVersionOverride  string
+		EffectivePHPVersion string
+		IncludePaths        []string
+		DocumentRoot        string
 	}
 	Files struct {
 		Associations []string
 		Exclude      []string
 		MaxSize      int64
 	}
+	Stubs       []string
 	Diagnostics struct {
 		Enable                   bool
 		Run                      string // "onType" | "onSave"
@@ -62,15 +66,18 @@ type Config struct {
 	}
 	StoragePath       string
 	GlobalStoragePath string
+	ExtensionPath     string
 	ClearCache        bool
 }
 
 func DefaultConfig() *Config {
 	c := &Config{}
-	c.Environment.PHPVersion = "8.3"
+	c.Environment.PHPVersion = "auto"
+	c.Environment.EffectivePHPVersion = fallbackPHPVersion
 	c.Files.Associations = []string{"**/*.php", "**/*.phtml", "**/*.phar"}
 	c.Files.Exclude = []string{"**/.git/**", "**/node_modules/**", "**/vendor/**/{Tests,tests}/**"}
 	c.Files.MaxSize = 1_000_000
+	c.Stubs = []string{"Core", "SPL"}
 	c.Diagnostics.Enable = true
 	c.Diagnostics.Run = "onType"
 	c.Diagnostics.UndefinedSymbols = true
@@ -97,6 +104,9 @@ func (c *Config) ApplyInitOptions(opts map[string]interface{}) {
 	}
 	if v, ok := opts["globalStoragePath"].(string); ok {
 		c.GlobalStoragePath = v
+	}
+	if v, ok := opts["extensionPath"].(string); ok {
+		c.ExtensionPath = v
 	}
 	if v, ok := opts["clearCache"].(bool); ok {
 		c.ClearCache = v
@@ -128,6 +138,15 @@ func (c *Config) Update(settings map[string]interface{}) {
 			c.Diagnostics.Exclude = excludeMap
 		}
 	}
+	if environment, ok := inner["environment"].(map[string]interface{}); ok {
+		applyEnvironmentConfig(&c.Environment, environment)
+	}
+	if v, ok := inner["environment.phpVersion"].(string); ok {
+		c.Environment.PHPVersion = v
+	}
+	if v, ok := inner["environment.phpVersionOverride"].(string); ok {
+		c.Environment.PHPVersionOverride = v
+	}
 	if files, ok := inner["files"].(map[string]interface{}); ok {
 		applyFilesConfig(&c.Files, files)
 	}
@@ -139,6 +158,9 @@ func (c *Config) Update(settings map[string]interface{}) {
 	}
 	if maxSize, ok := toInt64(inner["files.maxSize"]); ok {
 		c.Files.MaxSize = maxSize
+	}
+	if stubs, ok := toStringSliceSetting(inner["stubs"]); ok {
+		c.Stubs = stubs
 	}
 	if overridesMap, ok := parseRuleOverrides(inner["diagnostics.overrides"]); ok {
 		c.Diagnostics.Overrides = overridesMap
@@ -154,6 +176,27 @@ func (c *Config) Update(settings map[string]interface{}) {
 	}
 	if v, ok := inner["diagnostics.workspaceScanOnStart"].(bool); ok {
 		c.Diagnostics.WorkspaceScanOnStart = v
+	}
+}
+
+func applyEnvironmentConfig(dst *struct {
+	PHPVersion          string
+	PHPVersionOverride  string
+	EffectivePHPVersion string
+	IncludePaths        []string
+	DocumentRoot        string
+}, settings map[string]interface{}) {
+	if v, ok := settings["phpVersion"].(string); ok {
+		dst.PHPVersion = v
+	}
+	if v, ok := settings["phpVersionOverride"].(string); ok {
+		dst.PHPVersionOverride = v
+	}
+	if includePaths, ok := toStringSliceSetting(settings["includePaths"]); ok {
+		dst.IncludePaths = includePaths
+	}
+	if v, ok := settings["documentRoot"].(string); ok {
+		dst.DocumentRoot = v
 	}
 }
 
@@ -222,7 +265,26 @@ func (c *Config) toIndexerConfig() indexer.Config {
 		Associations: c.Files.Associations,
 		Exclude:      c.Files.Exclude,
 		MaxSize:      c.Files.MaxSize,
+		StubsPath:    c.stubsPath(),
+		Stubs:        c.Stubs,
+		PHPVersion:   c.Environment.EffectivePHPVersion,
 	}
+}
+
+func (c *Config) stubsPath() string {
+	if c.ExtensionPath == "" {
+		return ""
+	}
+	return filepath.Join(c.ExtensionPath, "stubs")
+}
+
+func (c *Config) resolvePHPVersion(folders []indexer.WorkspaceFolder) string {
+	c.Environment.EffectivePHPVersion = effectivePHPVersion(
+		c.Environment.PHPVersion,
+		c.Environment.PHPVersionOverride,
+		folders,
+	)
+	return c.Environment.EffectivePHPVersion
 }
 
 func (c *Config) toProviderConfig(folders []indexer.WorkspaceFolder) providers.Config {
@@ -233,7 +295,7 @@ func (c *Config) toProviderConfig(folders []indexer.WorkspaceFolder) providers.C
 	}
 
 	return providers.Config{
-		PHPVersion:              c.Environment.PHPVersion,
+		PHPVersion:              c.Environment.EffectivePHPVersion,
 		InsertUseDeclaration:    c.Completion.InsertUseDeclaration,
 		MaxCompletionItems:      c.Completion.MaxItems,
 		DocumentRoot:            c.Environment.DocumentRoot,

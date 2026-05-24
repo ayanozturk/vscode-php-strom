@@ -167,6 +167,7 @@ async function startClient(context: vscode.ExtensionContext, clearCache = false)
     initializationOptions: {
       storagePath: context.storageUri?.fsPath,
       globalStoragePath: context.globalStorageUri.fsPath,
+      extensionPath: context.extensionPath,
       clearCache,
       settings: getConfiguration(),
     },
@@ -430,7 +431,8 @@ function getConfiguration(): Record<string, unknown> {
   return {
     enable: config.get<boolean>('enable', true),
     environment: {
-      phpVersion: config.get<string>('environment.phpVersion', '8.3'),
+      phpVersion: config.get<string>('environment.phpVersion', 'auto'),
+      phpVersionOverride: config.get<string>('environment.phpVersionOverride', ''),
       includePaths: config.get<string[]>('environment.includePaths', []),
       documentRoot: config.get<string>('environment.documentRoot', ''),
     },

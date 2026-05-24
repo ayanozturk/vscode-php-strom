@@ -196,6 +196,7 @@ func (p *DiagnosticsProvider) analyseParsed(filename, text string, nodes []ast.N
 
 	// Run analysis rules (assignment-in-condition, empty statements, etc.)
 	analysisCtx := p.cache.analysisContext(p.idx)
+	analysisCtx.PHPVersion = p.cfg.PHPVersion
 	for _, issue := range analyse.FilterIssues(analyse.RunAnalysisRulesWithContext(filename, nodes, analysisCtx), p.cfg.DiagnosticsOverrides) {
 		sev := lsp.DiagSeverityWarning
 		diags = append(diags, lsp.Diagnostic{

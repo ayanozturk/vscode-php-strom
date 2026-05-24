@@ -249,7 +249,10 @@ func (h *Handler) HandleNotification(method string, raw json.RawMessage) {
 			return
 		}
 		h.cfg.Update(p.Settings)
-		h.prov = providers.NewRegistry(h.idx, h.cfg.toProviderConfig(h.idx.WorkspaceFolders()))
+		folders := h.idx.WorkspaceFolders()
+		phpVersion := h.cfg.resolvePHPVersion(folders)
+		h.idx.SetStubs(h.cfg.stubsPath(), h.cfg.Stubs, phpVersion)
+		h.prov = providers.NewRegistry(h.idx, h.cfg.toProviderConfig(folders))
 		go h.runWorkspaceDiagnosticsScan(false)
 
 	case "phpstrom/indexWorkspace":
@@ -277,6 +280,8 @@ func (h *Handler) initialize(raw json.RawMessage) (interface{}, *lsp.ResponseErr
 	}
 	h.idx.SetWorkspaceFolders(folders)
 	h.cfg.ApplyInitOptions(p.InitializationOptions)
+	phpVersion := h.cfg.resolvePHPVersion(folders)
+	h.idx.SetStubs(h.cfg.stubsPath(), h.cfg.Stubs, phpVersion)
 	h.prov = providers.NewRegistry(h.idx, h.cfg.toProviderConfig(h.idx.WorkspaceFolders()))
 
 	return lsp.InitializeResult{
