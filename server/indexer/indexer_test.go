@@ -179,6 +179,26 @@ func TestConfiguredStubsAreIndexed(t *testing.T) {
 	}
 }
 
+func TestExpandedSPLStubsAreIndexed(t *testing.T) {
+	stubsPath, err := filepath.Abs("../../stubs")
+	if err != nil {
+		t.Fatalf("resolve stubs path: %v", err)
+	}
+
+	wi := New(Config{StubsPath: stubsPath, Stubs: []string{"Core", "SPL"}, PHPVersion: "8.4"})
+	for _, fqn := range []string{
+		`\RecursiveIteratorIterator`,
+		`\SplFileObject`,
+		`\SplPriorityQueue`,
+		`\SplObjectStorage`,
+		`\InvalidArgumentException`,
+	} {
+		if sym := wi.GetIndex().GetByFQN(fqn); sym == nil {
+			t.Fatalf("expected %s stub symbol to be indexed", fqn)
+		}
+	}
+}
+
 func TestMatchSimpleMatchesVendorRootPattern(t *testing.T) {
 	if !matchSimple("**/vendor/**", "/workspace/project/vendor") {
 		t.Fatal("expected vendor root to match exclude pattern")
