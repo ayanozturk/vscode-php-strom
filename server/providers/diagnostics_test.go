@@ -256,6 +256,57 @@ class AuthService
 	}
 }
 
+func TestDiagnosticsProvider_DoesNotReportUnreachableAfterConditionalThrowInPreviousMethod(t *testing.T) {
+	p := &DiagnosticsProvider{}
+	diags := p.Analyse("file:///workspace/AbstractArrayCollection.php", `<?php
+abstract class AbstractArrayCollection
+{
+    protected function assertItemType(object $item): void
+    {
+        $expected = $this->getItemClass();
+        $given = get_class($item);
+        if (!$item instanceof $expected) {
+            throw new InvalidArgumentException("Item of type {$given} is not an instance of expected {$expected}.");
+        }
+    }
+
+    /**
+     * @param list<T> $items
+     * @return static
+     */
+    /**
+     * @param list<T> $items
+     * @return static
+     */
+    protected function createFromArray(array $items): static
+    {
+        return new static($items);
+    }
+}
+`)
+	for _, diag := range diags {
+		if code, ok := diag.Code.(string); ok && code == "Generic.CodeAnalysis.UnreachableCode" {
+			t.Fatalf("unexpected unreachable diagnostic after conditional throw: %+v", diag)
+		}
+	}
+}
+
+func TestDiagnosticsProvider_HonorsPhpstanIgnoreLine(t *testing.T) {
+	p := &DiagnosticsProvider{}
+	diags := p.Analyse("file:///test.php", `<?php
+function value(): int
+{
+    return 1;
+    $x = 2; // @phpstan-ignore-line
+}
+`)
+	for _, diag := range diags {
+		if code, ok := diag.Code.(string); ok && code == "Generic.CodeAnalysis.UnreachableCode" {
+			t.Fatalf("expected @phpstan-ignore-line to suppress unreachable diagnostic, got %+v", diag)
+		}
+	}
+}
+
 func TestDiagnosticsProvider_DoesNotReportClassInstantiationForVariableNamesContainingNew(t *testing.T) {
 	p := &DiagnosticsProvider{}
 	diags := p.Analyse("file:///test.php", `<?php

@@ -193,6 +193,7 @@ func (p *DiagnosticsProvider) AnalyseParsed(uri, text string, nodes []ast.Node, 
 
 func (p *DiagnosticsProvider) analyseParsed(filename, text string, nodes []ast.Node, parseErrors []string) []lsp.Diagnostic {
 	var diags []lsp.Diagnostic
+	suppressions := collectInlineDiagnosticSuppressions(text)
 
 	// Run analysis rules (assignment-in-condition, empty statements, etc.)
 	analysisCtx := p.cache.analysisContext(p.idx)
@@ -234,7 +235,7 @@ func (p *DiagnosticsProvider) analyseParsed(filename, text string, nodes []ast.N
 		})
 	}
 
-	return diags
+	return suppressions.filter(diags)
 }
 
 // lineColToRange converts a 1-based line/column from go-phpcs to an LSP Range.
@@ -251,6 +252,42 @@ func lineColToRange(line, col int) lsp.Range {
 		Character: uint32(col - 1),
 	}
 	return lsp.Range{Start: pos, End: pos}
+}
+
+type inlineDiagnosticSuppressions struct {
+	ignoreLines map[uint32]struct{}
+}
+
+func collectInlineDiagnosticSuppressions(text string) inlineDiagnosticSuppressions {
+	suppressions := inlineDiagnosticSuppressions{ignoreLines: make(map[uint32]struct{})}
+	for idx, line := range strings.Split(text, "\n") {
+		lower := strings.ToLower(line)
+		lineNo := uint32(idx)
+		if strings.Contains(lower, "@phpstan-ignore-line") ||
+			strings.Contains(lower, "@psalm-suppress") ||
+			strings.Contains(lower, "@phpcs:ignore") {
+			suppressions.ignoreLines[lineNo] = struct{}{}
+		}
+		if strings.Contains(lower, "@phpstan-ignore-next-line") ||
+			strings.Contains(lower, "@psalm-suppress-next-line") {
+			suppressions.ignoreLines[lineNo+1] = struct{}{}
+		}
+	}
+	return suppressions
+}
+
+func (s inlineDiagnosticSuppressions) filter(diags []lsp.Diagnostic) []lsp.Diagnostic {
+	if len(s.ignoreLines) == 0 || len(diags) == 0 {
+		return diags
+	}
+	filtered := diags[:0]
+	for _, diag := range diags {
+		if _, ok := s.ignoreLines[diag.Range.Start.Line]; ok {
+			continue
+		}
+		filtered = append(filtered, diag)
+	}
+	return filtered
 }
 
 // uriToFilename strips the file:// scheme for display in issue messages.
