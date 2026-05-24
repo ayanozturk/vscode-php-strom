@@ -747,3 +747,201 @@ class RangeException extends RuntimeException {}
 class UnderflowException extends RuntimeException {}
 
 class UnexpectedValueException extends RuntimeException {}
+
+interface DateTimeInterface extends Stringable
+{
+    public const ATOM = 'Y-m-d\TH:i:sP';
+    public const COOKIE = 'l, d-M-Y H:i:s T';
+    public const ISO8601 = 'Y-m-d\TH:i:sO';
+    public const ISO8601_EXPANDED = 'X-m-d\TH:i:sP';
+    public const RFC822 = 'D, d M y H:i:s O';
+    public const RFC850 = 'l, d-M-y H:i:s T';
+    public const RFC1036 = 'D, d M y H:i:s O';
+    public const RFC1123 = 'D, d M Y H:i:s O';
+    public const RFC7231 = 'D, d M Y H:i:s \G\M\T';
+    public const RFC2822 = 'D, d M Y H:i:s O';
+    public const RFC3339 = 'Y-m-d\TH:i:sP';
+    public const RFC3339_EXTENDED = 'Y-m-d\TH:i:s.vP';
+    public const RSS = 'D, d M Y H:i:s O';
+    public const W3C = 'Y-m-d\TH:i:sP';
+
+    public function diff(DateTimeInterface $targetObject, bool $absolute = false): DateInterval;
+
+    public function format(string $format): string;
+
+    public function getOffset(): int;
+
+    public function getTimestamp(): int;
+
+    public function getTimezone(): DateTimeZone|false;
+
+    public function __toString(): string;
+}
+
+class DateTime implements DateTimeInterface
+{
+    public function __construct(string $datetime = 'now', ?DateTimeZone $timezone = null) {}
+
+    public static function createFromFormat(string $format, string $datetime, ?DateTimeZone $timezone = null): static|false { return new static(); }
+
+    public static function createFromImmutable(DateTimeImmutable $object): static { return new static(); }
+
+    public static function createFromInterface(DateTimeInterface $object): static { return new static(); }
+
+    public static function getLastErrors(): array|false { return false; }
+
+    public function add(DateInterval $interval): static { return $this; }
+
+    public function diff(DateTimeInterface $targetObject, bool $absolute = false): DateInterval { return new DateInterval('P0D'); }
+
+    public function format(string $format): string { return ''; }
+
+    public function getOffset(): int { return 0; }
+
+    public function getTimestamp(): int { return 0; }
+
+    public function getTimezone(): DateTimeZone|false { return false; }
+
+    public function modify(string $modifier): static|false { return $this; }
+
+    public function setDate(int $year, int $month, int $day): static { return $this; }
+
+    public function setISODate(int $year, int $week, int $dayOfWeek = 1): static { return $this; }
+
+    public function setTime(int $hour, int $minute, int $second = 0, int $microsecond = 0): static { return $this; }
+
+    public function setTimestamp(int $timestamp): static { return $this; }
+
+    public function setTimezone(DateTimeZone $timezone): static { return $this; }
+
+    public function sub(DateInterval $interval): static { return $this; }
+
+    public function __toString(): string { return ''; }
+}
+
+class DateTimeImmutable implements DateTimeInterface
+{
+    public function __construct(string $datetime = 'now', ?DateTimeZone $timezone = null) {}
+
+    public static function createFromFormat(string $format, string $datetime, ?DateTimeZone $timezone = null): static|false { return new static(); }
+
+    public static function createFromMutable(DateTime $object): static { return new static(); }
+
+    public static function createFromInterface(DateTimeInterface $object): static { return new static(); }
+
+    public static function getLastErrors(): array|false { return false; }
+
+    public function add(DateInterval $interval): static { return $this; }
+
+    public function diff(DateTimeInterface $targetObject, bool $absolute = false): DateInterval { return new DateInterval('P0D'); }
+
+    public function format(string $format): string { return ''; }
+
+    public function getOffset(): int { return 0; }
+
+    public function getTimestamp(): int { return 0; }
+
+    public function getTimezone(): DateTimeZone|false { return false; }
+
+    public function modify(string $modifier): static|false { return $this; }
+
+    public function setDate(int $year, int $month, int $day): static { return $this; }
+
+    public function setISODate(int $year, int $week, int $dayOfWeek = 1): static { return $this; }
+
+    public function setTime(int $hour, int $minute, int $second = 0, int $microsecond = 0): static { return $this; }
+
+    public function setTimestamp(int $timestamp): static { return $this; }
+
+    public function setTimezone(DateTimeZone $timezone): static { return $this; }
+
+    public function sub(DateInterval $interval): static { return $this; }
+
+    public function __toString(): string { return ''; }
+}
+
+class DateTimeZone
+{
+    public const AFRICA = 1;
+    public const AMERICA = 2;
+    public const ANTARCTICA = 4;
+    public const ARCTIC = 8;
+    public const ASIA = 16;
+    public const ATLANTIC = 32;
+    public const AUSTRALIA = 64;
+    public const EUROPE = 128;
+    public const INDIAN = 256;
+    public const PACIFIC = 512;
+    public const UTC = 1024;
+    public const ALL = 2047;
+    public const ALL_WITH_BC = 4095;
+    public const PER_COUNTRY = 4096;
+
+    public function __construct(string $timezone) {}
+
+    public function getLocation(): array|false { return false; }
+
+    public function getName(): string { return ''; }
+
+    public function getOffset(DateTimeInterface $datetime): int { return 0; }
+
+    public function getTransitions(int $timestampBegin = PHP_INT_MIN, int $timestampEnd = PHP_INT_MAX): array|false { return false; }
+
+    public static function listAbbreviations(): array { return []; }
+
+    public static function listIdentifiers(int $timezoneGroup = DateTimeZone::ALL, ?string $countryCode = null): array { return []; }
+}
+
+class DateInterval
+{
+    public int $y;
+    public int $m;
+    public int $d;
+    public int $h;
+    public int $i;
+    public int $s;
+    public float $f;
+    public int $invert;
+    public mixed $days;
+
+    public function __construct(string $duration) {}
+
+    public static function createFromDateString(string $datetime): static|false { return new static('P0D'); }
+
+    public function format(string $format): string { return ''; }
+}
+
+/**
+ * @template TDate of DateTimeInterface
+ * @implements IteratorAggregate<int, TDate>
+ */
+class DatePeriod implements IteratorAggregate
+{
+    public const EXCLUDE_START_DATE = 1;
+    public const INCLUDE_END_DATE = 2;
+
+    /**
+     * @param TDate $start
+     */
+    public function __construct(
+        DateTimeInterface $start,
+        DateInterval $interval,
+        int|DateTimeInterface $end,
+        int $options = 0,
+    ) {}
+
+    public static function createFromISO8601String(string $specification, int $options = 0): static { return new static(new DateTime(), new DateInterval('P1D'), 0); }
+
+    public function getDateInterval(): DateInterval { return new DateInterval('P0D'); }
+
+    /** @return DateTimeInterface|null */
+    public function getEndDate(): ?DateTimeInterface { return null; }
+
+    /** @return DateTimeInterface */
+    public function getStartDate(): DateTimeInterface { return new DateTime(); }
+
+    public function getRecurrences(): ?int { return null; }
+
+    /** @return \Iterator<int, TDate> */
+    public function getIterator(): \Traversable { return new \ArrayIterator([]); }
+}

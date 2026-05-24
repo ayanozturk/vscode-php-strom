@@ -2,7 +2,7 @@
   "name": "phpstrom",
   "displayName": "PHP Strom",
   "description": "High-performance, fully open-source PHP language intelligence for VS Code — a complete LSP implementation covering all features.",
-  "version": "0.1.16",
+  "version": "0.1.17",
   "publisher": "AOSSoftware",
   "license": "MIT",
   "repository": {
