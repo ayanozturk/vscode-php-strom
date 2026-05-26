@@ -264,3 +264,30 @@ func TestCollectWorkspaceFilePathsRespectsGitignore(t *testing.T) {
 		t.Fatal("expected negated .gitignore rule to include generated/keep.php")
 	}
 }
+
+func TestCollectWorkspaceFilePathsIndexesGitignoredVendorDependencies(t *testing.T) {
+	tmpDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmpDir, ".gitignore"), []byte("/vendor/\n"), 0o644); err != nil {
+		t.Fatalf("write .gitignore: %v", err)
+	}
+	vendorFile := filepath.Join(tmpDir, "vendor", "phpunit", "phpunit", "src", "Framework", "TestCase.php")
+	if err := os.MkdirAll(filepath.Dir(vendorFile), 0o755); err != nil {
+		t.Fatalf("mkdir vendor tree: %v", err)
+	}
+	if err := os.WriteFile(vendorFile, []byte("<?php\nnamespace PHPUnit\\Framework;\nclass TestCase {}\n"), 0o644); err != nil {
+		t.Fatalf("write vendor file: %v", err)
+	}
+
+	wi := New(Config{Associations: []string{"**/*.php"}})
+	folders := []WorkspaceFolder{{URI: pathToURI(tmpDir), Name: "tmp"}}
+	wi.SetWorkspaceFolders(folders)
+
+	paths := wi.collectWorkspaceFilePaths(folders, wi.gitignores)
+	for _, path := range paths {
+		if path == vendorFile {
+			return
+		}
+	}
+
+	t.Fatalf("expected gitignored Composer dependency to be indexed, got %#v", paths)
+}

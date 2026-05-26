@@ -25,7 +25,11 @@ func (wi *WorkspaceIndexer) loadConfiguredStubs() {
 		}
 		wi.index.PutFile(parsed.URI, parsed.Symbols)
 		wi.mu.Lock()
+		key := projectIndexKey(parsed.URI)
+		wi.projectNodes[key] = parsed.Nodes
+		wi.projectHashes[key] = sourceHash(parsed.Text)
 		wi.stubURIs = append(wi.stubURIs, parsed.URI)
+		wi.rebuildProjectIndexLocked()
 		wi.mu.Unlock()
 	}
 }

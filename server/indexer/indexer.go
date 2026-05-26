@@ -3,6 +3,7 @@ package indexer
 import (
 	"bytes"
 	"context"
+	"hash/fnv"
 	"log"
 	"os"
 	pathpkg "path"
@@ -13,6 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"go-phpcs/analyse"
 	"go-phpcs/ast"
 	goplexer "go-phpcs/lexer"
 	goparser "go-phpcs/parser"
@@ -22,6 +24,9 @@ import (
 type WorkspaceIndexer struct {
 	cfg              Config
 	index            *Index
+	project          *analyse.ProjectIndex
+	projectNodes     map[string][]ast.Node
+	projectHashes    map[string]uint64
 	folders          []WorkspaceFolder
 	workspaceURIs    []string
 	gitignores       []workspaceGitignore
@@ -81,6 +86,9 @@ func New(cfg Config) *WorkspaceIndexer {
 	wi := &WorkspaceIndexer{
 		cfg:              cfg,
 		index:            newIndex(),
+		project:          analyse.NewProjectIndex(),
+		projectNodes:     make(map[string][]ast.Node),
+		projectHashes:    make(map[string]uint64),
 		compiledExcludes: compiledExcludes,
 	}
 	wi.loadConfiguredStubs()
@@ -161,6 +169,9 @@ func (wi *WorkspaceIndexer) indexWorkspace(visitor func(ParsedFile)) {
 	close(jobs)
 
 	var wg sync.WaitGroup
+	parsedProjectNodes := make(map[string][]ast.Node, len(paths))
+	parsedProjectHashes := make(map[string]uint64, len(paths))
+	var parsedProjectMu sync.Mutex
 	atomic.StoreInt64(&wi.processedCount, 0)
 	atomic.StoreInt64(&wi.indexedCount, 0)
 	atomic.StoreInt64(&wi.indexedLines, 0)
@@ -182,7 +193,13 @@ func (wi *WorkspaceIndexer) indexWorkspace(visitor func(ParsedFile)) {
 			defer wg.Done()
 			log.Printf("[indexer] worker %d started", workerID)
 			for filePath := range jobs {
-				lines, bytesScanned, indexed := wi.indexFile(filePath, skipFunctionBodies, visitor)
+				lines, bytesScanned, indexed := wi.indexFile(filePath, skipFunctionBodies, visitor, func(parsed ParsedFile) {
+					parsedProjectMu.Lock()
+					key := projectIndexKey(parsed.URI)
+					parsedProjectNodes[key] = parsed.Nodes
+					parsedProjectHashes[key] = sourceHash(parsed.Text)
+					parsedProjectMu.Unlock()
+				})
 				if indexed {
 					atomic.AddInt64(&wi.indexedCount, 1)
 					atomic.AddInt64(&wi.indexedLines, int64(lines))
@@ -200,6 +217,8 @@ func (wi *WorkspaceIndexer) indexWorkspace(visitor func(ParsedFile)) {
 		}()
 	}
 	wg.Wait()
+
+	wi.replaceWorkspaceProjectNodes(parsedProjectNodes, parsedProjectHashes)
 
 	count := int(atomic.LoadInt64(&wi.indexedCount))
 	summary := IndexingSummary{
@@ -243,14 +262,27 @@ func WorkerCountFor(total int) int {
 
 // IndexDocument re-indexes a single open document from its text content.
 func (wi *WorkspaceIndexer) IndexDocument(uri, text string) {
-	syms := extractSymbols(uri, text)
-	wi.index.PutFile(uri, syms)
+	key := projectIndexKey(uri)
+	hash := sourceHash(text)
+	wi.mu.RLock()
+	lastHash, seen := wi.projectHashes[key]
+	unchanged := seen && lastHash == hash
+	wi.mu.RUnlock()
+	if unchanged {
+		wi.trackWorkspaceURI(uri)
+		return
+	}
+
+	parsed := ParseSource(uri, text)
+	wi.index.PutFile(uri, parsed.Symbols)
+	wi.putProjectNodes(uri, parsed.Nodes, hash)
 	wi.trackWorkspaceURI(uri)
 }
 
 // RemoveDocument removes all symbols for a document URI from the index.
 func (wi *WorkspaceIndexer) RemoveDocument(uri string) {
 	wi.index.RemoveFile(uri)
+	wi.removeProjectNodes(uri)
 	wi.untrackWorkspaceURI(uri)
 }
 
@@ -277,18 +309,108 @@ func (wi *WorkspaceIndexer) WorkspaceFileURIs() []string {
 // GetIndex returns the underlying symbol index for provider use.
 func (wi *WorkspaceIndexer) GetIndex() *Index { return wi.index }
 
+// ProjectIndex returns the parser-native project index used by analysis rules.
+func (wi *WorkspaceIndexer) ProjectIndex() *analyse.ProjectIndex {
+	wi.mu.RLock()
+	defer wi.mu.RUnlock()
+	return wi.project
+}
+
+// ProjectIndexForFile returns a project index suitable for analysing the given
+// source. If the workspace index already has the same content, it reuses the
+// cached project index; otherwise it overlays the current file without mutating
+// workspace state.
+func (wi *WorkspaceIndexer) ProjectIndexForFile(filename, text string, nodes []ast.Node) *analyse.ProjectIndex {
+	hash := sourceHash(text)
+	wi.mu.RLock()
+	if lastHash, seen := wi.projectHashes[filename]; seen && lastHash == hash {
+		project := wi.project
+		wi.mu.RUnlock()
+		return project
+	}
+	parsed := make(map[string][]ast.Node, len(wi.projectNodes)+1)
+	for uri, projectNodes := range wi.projectNodes {
+		parsed[uri] = projectNodes
+	}
+	wi.mu.RUnlock()
+
+	parsed[filename] = nodes
+	return analyse.BuildProjectIndex(parsed)
+}
+
 func (wi *WorkspaceIndexer) SetStubs(stubsPath string, stubs []string, phpVersion string) {
 	wi.mu.Lock()
 	for _, uri := range wi.stubURIs {
 		wi.index.RemoveFile(uri)
+		key := projectIndexKey(uri)
+		delete(wi.projectNodes, key)
+		delete(wi.projectHashes, key)
 	}
 	wi.stubURIs = nil
 	wi.cfg.StubsPath = stubsPath
 	wi.cfg.Stubs = append([]string(nil), stubs...)
 	wi.cfg.PHPVersion = phpVersion
+	wi.rebuildProjectIndexLocked()
 	wi.mu.Unlock()
 
 	wi.loadConfiguredStubs()
+}
+
+func (wi *WorkspaceIndexer) putProjectNodes(uri string, nodes []ast.Node, hash uint64) {
+	wi.mu.Lock()
+	key := projectIndexKey(uri)
+	wi.projectNodes[key] = nodes
+	wi.projectHashes[key] = hash
+	wi.rebuildProjectIndexLocked()
+	wi.mu.Unlock()
+}
+
+func (wi *WorkspaceIndexer) removeProjectNodes(uri string) {
+	wi.mu.Lock()
+	key := projectIndexKey(uri)
+	delete(wi.projectNodes, key)
+	delete(wi.projectHashes, key)
+	wi.rebuildProjectIndexLocked()
+	wi.mu.Unlock()
+}
+
+func (wi *WorkspaceIndexer) replaceWorkspaceProjectNodes(nodes map[string][]ast.Node, hashes map[string]uint64) {
+	wi.mu.Lock()
+	next := make(map[string][]ast.Node, len(nodes)+len(wi.stubURIs))
+	nextHashes := make(map[string]uint64, len(hashes)+len(wi.stubURIs))
+	for _, uri := range wi.stubURIs {
+		key := projectIndexKey(uri)
+		if stubNodes, ok := wi.projectNodes[key]; ok {
+			next[key] = stubNodes
+			nextHashes[key] = wi.projectHashes[key]
+		}
+	}
+	for uri, parsedNodes := range nodes {
+		next[uri] = parsedNodes
+		nextHashes[uri] = hashes[uri]
+	}
+	wi.projectNodes = next
+	wi.projectHashes = nextHashes
+	wi.rebuildProjectIndexLocked()
+	wi.mu.Unlock()
+}
+
+func (wi *WorkspaceIndexer) rebuildProjectIndexLocked() {
+	parsed := make(map[string][]ast.Node, len(wi.projectNodes))
+	for uri, nodes := range wi.projectNodes {
+		parsed[uri] = nodes
+	}
+	wi.project = analyse.BuildProjectIndex(parsed)
+}
+
+func projectIndexKey(uri string) string {
+	return uriToPath(uri)
+}
+
+func sourceHash(text string) uint64 {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(text))
+	return h.Sum64()
 }
 
 // ─── Internal ─────────────────────────────────────────────────────────────────
@@ -319,14 +441,14 @@ func (wi *WorkspaceIndexer) collectWorkspaceFilePathsParallel(folders []Workspac
 				if wi.shouldExcludeDir(p) {
 					continue
 				}
-				if ignoresPath(gitignores, p, true) {
+				if ignoresPath(gitignores, p, true) && !shouldIndexGitignoredPath(p) {
 					if canSkipIgnoredDir(gitignores, p) {
 						continue
 					}
 				}
 				subdirs = append(subdirs, p)
 			} else {
-				if ignoresPath(gitignores, p, false) {
+				if ignoresPath(gitignores, p, false) && !shouldIndexGitignoredPath(p) {
 					continue
 				}
 				if wi.matchesAssociations(p) {
@@ -367,6 +489,15 @@ func (wi *WorkspaceIndexer) collectWorkspaceFilePathsParallel(folders []Workspac
 	return paths
 }
 
+func shouldIndexGitignoredPath(path string) bool {
+	for _, segment := range splitPathSegments(path) {
+		if segment == "vendor" {
+			return true
+		}
+	}
+	return false
+}
+
 func (wi *WorkspaceIndexer) trackWorkspaceURI(uri string) {
 	wi.mu.Lock()
 	defer wi.mu.Unlock()
@@ -390,7 +521,7 @@ func (wi *WorkspaceIndexer) untrackWorkspaceURI(uri string) {
 	}
 }
 
-func (wi *WorkspaceIndexer) indexFile(path string, skipFunctionBodies bool, visitor func(ParsedFile)) (int, int, bool) {
+func (wi *WorkspaceIndexer) indexFile(path string, skipFunctionBodies bool, visitor func(ParsedFile), projectCollector func(ParsedFile)) (int, int, bool) {
 	defer func() {
 		if r := recover(); r != nil {
 			buf := make([]byte, 4096)
@@ -408,6 +539,9 @@ func (wi *WorkspaceIndexer) indexFile(path string, skipFunctionBodies bool, visi
 	}
 
 	wi.index.PutFile(parsed.URI, parsed.Symbols)
+	if projectCollector != nil {
+		projectCollector(parsed)
+	}
 	if visitor != nil {
 		visitor(parsed)
 	}

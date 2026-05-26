@@ -17,9 +17,93 @@ type workspaceSymbolResolver struct {
 	idx *indexer.WorkspaceIndexer
 }
 
+type projectFallbackResolver struct {
+	project  *analyse.ProjectIndex
+	fallback workspaceSymbolResolver
+}
+
+func (r projectFallbackResolver) ClassExists(name string) bool {
+	_, ok := r.ResolveClass(name)
+	return ok
+}
+
+func (r projectFallbackResolver) FunctionExists(name string) bool {
+	if r.project != nil && r.project.FunctionExists(name) {
+		return true
+	}
+	return r.fallback.FunctionExists(name)
+}
+
+func (r projectFallbackResolver) ConstantExists(name string) bool {
+	if r.project != nil && r.project.ConstantExists(name) {
+		return true
+	}
+	return r.fallback.ConstantExists(name)
+}
+
+func (r projectFallbackResolver) ResolveClass(name string) (analyse.ResolvedClass, bool) {
+	if r.project != nil {
+		if class, ok := r.project.ResolveClass(name); ok {
+			return class, true
+		}
+	}
+	return r.fallback.ResolveClass(name)
+}
+
+func (r projectFallbackResolver) ResolveMethod(className, methodName string) (analyse.ResolvedMethod, bool) {
+	if r.project != nil {
+		if method, ok := r.project.ResolveMethod(className, methodName); ok {
+			return method, true
+		}
+	}
+	return r.fallback.ResolveMethod(className, methodName)
+}
+
+func (r projectFallbackResolver) ResolveProperty(className, propertyName string) (analyse.ResolvedProperty, bool) {
+	if r.project != nil {
+		if property, ok := r.project.ResolveProperty(className, propertyName); ok {
+			return property, true
+		}
+	}
+	return r.fallback.ResolveProperty(className, propertyName)
+}
+
+func (r projectFallbackResolver) ResolveFunction(name string) (analyse.ResolvedFunction, bool) {
+	if r.project != nil {
+		if fn, ok := r.project.ResolveFunction(name); ok {
+			return fn, true
+		}
+	}
+	return r.fallback.ResolveFunction(name)
+}
+
 func (r workspaceSymbolResolver) ClassExists(name string) bool {
 	_, ok := r.resolveClassSymbol(name)
 	return ok
+}
+
+func (r workspaceSymbolResolver) FunctionExists(name string) bool {
+	fn, ok := r.ResolveFunction(name)
+	return ok && fn.Name != ""
+}
+
+func (r workspaceSymbolResolver) ConstantExists(name string) bool {
+	if r.idx == nil {
+		return false
+	}
+	idx := r.idx.GetIndex()
+	for _, candidate := range resolveWorkspaceTypeCandidates(name) {
+		if sym := idx.GetByFQN(candidate); sym != nil && sym.Kind == indexer.KindConstant {
+			return true
+		}
+	}
+	lookup := unqualifiedName(name)
+	for _, sym := range idx.GetByName(lookup) {
+		if sym.Kind == indexer.KindConstant && strings.EqualFold(sym.Name, lookup) {
+			return true
+		}
+	}
+	return false
 }
 
 func (r workspaceSymbolResolver) ResolveClass(name string) (analyse.ResolvedClass, bool) {
@@ -31,6 +115,10 @@ func (r workspaceSymbolResolver) ResolveClass(name string) (analyse.ResolvedClas
 		Name:       sym.FQN,
 		Extends:    append([]string(nil), sym.Extends...),
 		Implements: append([]string(nil), sym.Implements...),
+		Kind:       resolvedClassKind(sym.Kind),
+		Final:      sym.IsFinal,
+		Abstract:   sym.IsAbstract,
+		Readonly:   sym.IsReadonly,
 	}, true
 }
 
@@ -68,7 +156,7 @@ func (r workspaceSymbolResolver) ResolveProperty(className, propertyName string)
 
 	idx := r.idx.GetIndex()
 	if sym := idx.GetByFQN(classSym.FQN + "::$" + propertyName); sym != nil && sym.Kind == indexer.KindProperty {
-		return analyse.ResolvedProperty{Name: sym.Name, Type: sym.Type}, true
+		return resolvedProperty(sym), true
 	}
 
 	for _, sym := range idx.GetByName(propertyName) {
@@ -79,11 +167,30 @@ func (r workspaceSymbolResolver) ResolveProperty(className, propertyName string)
 			continue
 		}
 		if strings.EqualFold(sym.Name, propertyName) {
-			return analyse.ResolvedProperty{Name: sym.Name, Type: sym.Type}, true
+			return resolvedProperty(sym), true
 		}
 	}
 
 	return analyse.ResolvedProperty{}, false
+}
+
+func (r workspaceSymbolResolver) ResolveFunction(name string) (analyse.ResolvedFunction, bool) {
+	if r.idx == nil {
+		return analyse.ResolvedFunction{}, false
+	}
+	idx := r.idx.GetIndex()
+	for _, candidate := range resolveWorkspaceTypeCandidates(name) {
+		if sym := idx.GetByFQN(candidate); sym != nil && sym.Kind == indexer.KindFunction {
+			return resolvedFunction(sym), true
+		}
+	}
+	lookup := unqualifiedName(name)
+	for _, sym := range idx.GetByName(lookup) {
+		if sym.Kind == indexer.KindFunction && strings.EqualFold(sym.Name, lookup) {
+			return resolvedFunction(sym), true
+		}
+	}
+	return analyse.ResolvedFunction{}, false
 }
 
 func (r workspaceSymbolResolver) resolveClassSymbol(name string) (*indexer.Symbol, bool) {
@@ -159,6 +266,45 @@ func resolvedMethod(sym *indexer.Symbol) analyse.ResolvedMethod {
 		Name:       sym.Name,
 		ReturnType: sym.ReturnType,
 		Params:     params,
+		Visibility: sym.Visibility,
+		IsStatic:   sym.IsStatic,
+		Abstract:   sym.IsAbstract,
+	}
+}
+
+func resolvedFunction(sym *indexer.Symbol) analyse.ResolvedFunction {
+	params := make([]analyse.ResolvedParam, 0, len(sym.Params))
+	for _, param := range sym.Params {
+		params = append(params, analyse.ResolvedParam{
+			Name:       param.Name,
+			Type:       param.Type,
+			HasDefault: param.HasDefault,
+			IsVariadic: param.IsVariadic,
+		})
+	}
+	return analyse.ResolvedFunction{Name: sym.Name, ReturnType: sym.ReturnType, Params: params}
+}
+
+func resolvedProperty(sym *indexer.Symbol) analyse.ResolvedProperty {
+	return analyse.ResolvedProperty{
+		Name:       sym.Name,
+		Type:       sym.Type,
+		Visibility: sym.Visibility,
+		IsStatic:   sym.IsStatic,
+		Readonly:   sym.IsReadonly,
+	}
+}
+
+func resolvedClassKind(kind indexer.SymbolKind) string {
+	switch kind {
+	case indexer.KindInterface:
+		return "interface"
+	case indexer.KindModule:
+		return "trait"
+	case indexer.KindEnum:
+		return "enum"
+	default:
+		return "class"
 	}
 }
 
@@ -196,7 +342,7 @@ func (p *DiagnosticsProvider) analyseParsed(filename, text string, nodes []ast.N
 	suppressions := collectInlineDiagnosticSuppressions(text)
 
 	// Run analysis rules (assignment-in-condition, empty statements, etc.)
-	analysisCtx := p.cache.analysisContext(p.idx)
+	analysisCtx := p.cache.analysisContextForFile(p.idx, filename, text, nodes)
 	analysisCtx.PHPVersion = p.cfg.PHPVersion
 	for _, issue := range analyse.FilterIssues(analyse.RunAnalysisRulesWithContext(filename, nodes, analysisCtx), p.cfg.DiagnosticsOverrides) {
 		sev := lsp.DiagSeverityWarning

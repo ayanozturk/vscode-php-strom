@@ -1,8 +1,11 @@
 package providers
 
 import (
-	"go-phpcs/overrides"
+	"strings"
 	"testing"
+
+	"go-phpcs/analyse"
+	"go-phpcs/overrides"
 
 	"github.com/ayanozturk/vscode-php-strom/indexer"
 )
@@ -359,6 +362,99 @@ class Controller
 			t.Fatalf("unexpected return type diagnostic with workspace resolver: %+v", diag)
 		}
 	}
+}
+
+func TestDiagnosticsProvider_UsesProjectIndexForWorkspaceFunctions(t *testing.T) {
+	idx := indexer.New(indexer.Config{})
+	idx.IndexDocument("file:///workspace/helpers.php", `<?php
+function helper_id(int $id): string
+{
+    return (string) $id;
+}
+`)
+
+	p := &DiagnosticsProvider{idx: idx}
+	diags := p.Analyse("file:///workspace/consumer.php", `<?php
+function consume(): string
+{
+    return helper_id(1);
+}
+`)
+
+	for _, diag := range diags {
+		if code, ok := diag.Code.(string); ok && code == "PHPStan.Level0.Symbols" && strings.Contains(diag.Message, "helper_id") {
+			t.Fatalf("unexpected missing workspace function diagnostic: %+v", diag)
+		}
+	}
+}
+
+func TestProjectFallbackResolverUsesWorkspaceSymbolsWhenProjectMissesClass(t *testing.T) {
+	idx := indexer.New(indexer.Config{})
+	idx.IndexDocument("file:///workspace/vendor/phpunit/TestCase.php", `<?php
+namespace PHPUnit\Framework;
+
+class TestCase {}
+`)
+
+	resolver := projectFallbackResolver{
+		project:  analyse.NewProjectIndex(),
+		fallback: workspaceSymbolResolver{idx: idx},
+	}
+
+	if _, ok := resolver.ResolveClass(`PHPUnit\Framework\TestCase`); !ok {
+		t.Fatal("expected resolver to fall back to workspace symbols for PHPUnit\\Framework\\TestCase")
+	}
+	if !resolver.ClassExists(`PHPUnit\Framework\TestCase`) {
+		t.Fatal("expected ClassExists to use workspace symbol fallback")
+	}
+}
+
+func TestDiagnosticsProvider_OverlaysCurrentFileIntoProjectIndex(t *testing.T) {
+	idx := indexer.New(indexer.Config{})
+	p := &DiagnosticsProvider{idx: idx}
+
+	diags := p.Analyse("file:///workspace/current.php", `<?php
+function local_helper(): string
+{
+    return 'ok';
+}
+
+function consume(): string
+{
+    return local_helper();
+}
+`)
+
+	for _, diag := range diags {
+		if code, ok := diag.Code.(string); ok && code == "PHPStan.Level0.Symbols" && strings.Contains(diag.Message, "local_helper") {
+			t.Fatalf("unexpected missing current-file function diagnostic: %+v", diag)
+		}
+	}
+}
+
+func TestDiagnosticsProvider_UsesProjectIndexForDuplicateClasses(t *testing.T) {
+	idx := indexer.New(indexer.Config{})
+	idx.IndexDocument("file:///workspace/First.php", `<?php
+class DuplicateName {}
+`)
+	idx.IndexDocument("file:///workspace/Second.php", `<?php
+class DuplicateName {}
+`)
+
+	p := &DiagnosticsProvider{idx: idx}
+	for _, uri := range []string{"file:///workspace/First.php", "file:///workspace/Second.php"} {
+		diags := p.Analyse(uri, `<?php
+class DuplicateName {}
+`)
+
+		for _, diag := range diags {
+			if code, ok := diag.Code.(string); ok && code == "PHPStan.Level0.ClassModel" && strings.Contains(diag.Message, "DuplicateName") {
+				return
+			}
+		}
+	}
+
+	t.Fatal("expected duplicate class diagnostic from project index")
 }
 
 func TestDiagnosticsProvider_UsesWorkspaceResolverForMethodArgumentTypes(t *testing.T) {

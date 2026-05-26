@@ -50,7 +50,25 @@ func (c *semanticDocumentCache) snapshot(uri, text string) semanticSnapshot {
 func (c *semanticDocumentCache) analysisContext(idx *indexer.WorkspaceIndexer) *analyse.AnalysisContext {
 	ctx := &analyse.AnalysisContext{}
 	if idx != nil {
-		ctx.Resolver = workspaceSymbolResolver{idx: idx}
+		if project := idx.ProjectIndex(); project != nil {
+			ctx.Project = project
+			ctx.Resolver = projectFallbackResolver{project: project, fallback: workspaceSymbolResolver{idx: idx}}
+		} else {
+			ctx.Resolver = workspaceSymbolResolver{idx: idx}
+		}
+	}
+	return ctx
+}
+
+func (c *semanticDocumentCache) analysisContextForFile(idx *indexer.WorkspaceIndexer, filename, text string, nodes []ast.Node) *analyse.AnalysisContext {
+	ctx := &analyse.AnalysisContext{}
+	if idx != nil {
+		if project := idx.ProjectIndexForFile(filename, text, nodes); project != nil {
+			ctx.Project = project
+			ctx.Resolver = projectFallbackResolver{project: project, fallback: workspaceSymbolResolver{idx: idx}}
+		} else {
+			ctx.Resolver = workspaceSymbolResolver{idx: idx}
+		}
 	}
 	return ctx
 }
