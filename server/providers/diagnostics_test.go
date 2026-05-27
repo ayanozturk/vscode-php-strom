@@ -364,6 +364,115 @@ class Controller
 	}
 }
 
+func TestDiagnosticsProvider_UsesIndexedVendorParentMethodsForInvocation(t *testing.T) {
+	idx := indexer.New(indexer.Config{})
+	idx.IndexDocument("file:///workspace/vendor/phpunit/TestCase.php", `<?php
+namespace PHPUnit\Framework;
+
+class TestCase
+{
+    public function assertSame(mixed $expected, mixed $actual, string $message = ''): void {}
+}
+`)
+
+	p := &DiagnosticsProvider{idx: idx}
+	diags := p.Analyse("file:///workspace/tests/DemoTest.php", `<?php
+namespace App\Tests;
+
+use PHPUnit\Framework\TestCase;
+
+final class DemoTest extends TestCase
+{
+    public function testIt(): void
+    {
+        $this->assertSame(1, 1);
+    }
+}
+`)
+
+	for _, diag := range diags {
+		if code, ok := diag.Code.(string); ok && code == "PHPStan.Level0.Invocation" && strings.Contains(diag.Message, "assertSame") {
+			t.Fatalf("expected indexed vendor parent method signature to satisfy invocation, got %+v", diag)
+		}
+	}
+}
+
+func TestDiagnosticsProvider_UsesIndexedVendorThrowableHierarchy(t *testing.T) {
+	idx := indexer.New(indexer.Config{})
+	idx.IndexDocument("file:///workspace/vendor/nette/JsonException.php", `<?php
+namespace Nette\Utils;
+
+class JsonException extends \JsonException {}
+`)
+
+	p := &DiagnosticsProvider{idx: idx}
+	diags := p.Analyse("file:///workspace/src/Model.php", `<?php
+namespace App;
+
+use Nette\Utils\JsonException;
+
+function fail(): void
+{
+    throw new JsonException('bad');
+}
+`)
+
+	for _, diag := range diags {
+		if code, ok := diag.Code.(string); ok && code == "PHPStan.Level0.ClassModel" && strings.Contains(diag.Message, "JsonException") {
+			t.Fatalf("expected indexed vendor throwable hierarchy to satisfy throw check, got %+v", diag)
+		}
+	}
+}
+
+func TestDiagnosticsProvider_UsesRepositoryPHPDocMethodReturnTypeForArgTypes(t *testing.T) {
+	idx := indexer.New(indexer.Config{})
+	idx.IndexDocument("file:///workspace/src/Shift.php", `<?php
+namespace App\Module\Shift\Entity;
+
+class Shift {}
+`)
+	idx.IndexDocument("file:///workspace/src/ShiftRepository.php", `<?php
+namespace App\Module\Shift\Repository;
+
+use App\Module\Shift\Entity\Shift;
+
+/**
+ * @method Shift|null find($id, $lockMode = null, $lockVersion = null)
+ */
+class ShiftRepository {}
+`)
+
+	p := &DiagnosticsProvider{idx: idx}
+	diags := p.Analyse("file:///workspace/src/Controller.php", `<?php
+namespace App\Module\Shift\Controller;
+
+use App\Module\Shift\Entity\Shift;
+use App\Module\Shift\Repository\ShiftRepository;
+
+class Controller
+{
+    private ShiftRepository $shiftRepository;
+
+    public function run(string $id): void
+    {
+        $shift = $this->shiftRepository->find($id);
+        if ($shift && $this->isShiftAccessibleToCompany($shift)) {}
+    }
+
+    private function isShiftAccessibleToCompany(Shift $shift): bool
+    {
+        return true;
+    }
+}
+`)
+
+	for _, diag := range diags {
+		if code, ok := diag.Code.(string); ok && code == "A.ARG.TYPE" && strings.Contains(diag.Message, "isShiftAccessibleToCompany") {
+			t.Fatalf("expected PHPDoc repository return type to satisfy argument type, got %+v", diag)
+		}
+	}
+}
+
 func TestDiagnosticsProvider_UsesProjectIndexForWorkspaceFunctions(t *testing.T) {
 	idx := indexer.New(indexer.Config{})
 	idx.IndexDocument("file:///workspace/helpers.php", `<?php

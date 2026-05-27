@@ -8,6 +8,7 @@ import (
 	"os"
 	pathpkg "path"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"sync"
@@ -737,6 +738,7 @@ func extractFromNodes(nodes []ast.Node, uri string, ctx extractionContext, syms 
 				sym.Implements = append(sym.Implements, resolveClassLike(ctx, implemented))
 			}
 			*syms = append(*syms, sym)
+			extractPHPDocMethods(n.PHPDoc, uri, classFQN, ctx, syms)
 			extractClassMembers(n, uri, classFQN, ctx, syms)
 
 		case *ast.InterfaceNode:
@@ -950,6 +952,102 @@ func extractClassMembers(class *ast.ClassNode, uri, classFQN string, ctx extract
 			Visibility: defaultVisibility(constant.Visibility),
 		})
 	}
+}
+
+var phpdocMethodPattern = regexp.MustCompile(`^@method\s+(?:(static)\s+)?([^\s]+)\s+([A-Za-z_][A-Za-z0-9_]*)\s*\((.*)\)`)
+
+func extractPHPDocMethods(doc *ast.PHPDocNode, uri, classFQN string, ctx extractionContext, syms *[]*Symbol) {
+	if doc == nil {
+		return
+	}
+	for _, line := range phpdocLines(doc.RawContent) {
+		matches := phpdocMethodPattern.FindStringSubmatch(line)
+		if matches == nil {
+			continue
+		}
+		*syms = append(*syms, &Symbol{
+			FQN:        classFQN + "::" + matches[3],
+			Name:       matches[3],
+			Kind:       KindMethod,
+			URI:        uri,
+			Range:      positionRange(doc.GetPos()),
+			DocComment: doc.RawContent,
+			ReturnType: resolveTypeHint(ctx, matches[2]),
+			IsStatic:   matches[1] == "static",
+			Visibility: "public",
+			Params:     phpdocMethodParams(ctx, matches[4]),
+		})
+	}
+}
+
+func phpdocLines(raw string) []string {
+	raw = strings.TrimSpace(raw)
+	if strings.HasPrefix(raw, "/**") {
+		raw = strings.TrimPrefix(raw, "/**")
+	}
+	if strings.HasSuffix(raw, "*/") {
+		raw = strings.TrimSuffix(raw, "*/")
+	}
+
+	lines := strings.Split(raw, "\n")
+	for i, line := range lines {
+		line = strings.TrimSpace(line)
+		line = strings.TrimPrefix(line, "*")
+		lines[i] = strings.TrimSpace(line)
+	}
+	return lines
+}
+
+func phpdocMethodParams(ctx extractionContext, raw string) []SymbolParam {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+
+	parts := strings.Split(raw, ",")
+	params := make([]SymbolParam, 0, len(parts))
+	for _, part := range parts {
+		param, ok := phpdocMethodParam(ctx, part)
+		if ok {
+			params = append(params, param)
+		}
+	}
+	return params
+}
+
+func phpdocMethodParam(ctx extractionContext, raw string) (SymbolParam, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return SymbolParam{}, false
+	}
+	hasDefault := strings.Contains(raw, "=")
+	if beforeDefault, _, ok := strings.Cut(raw, "="); ok {
+		raw = strings.TrimSpace(beforeDefault)
+	}
+
+	fields := strings.Fields(raw)
+	if len(fields) == 0 {
+		return SymbolParam{}, false
+	}
+	nameToken := fields[len(fields)-1]
+	isVariadic := strings.Contains(nameToken, "...")
+	isPassByRef := strings.Contains(nameToken, "&")
+	name := strings.TrimPrefix(strings.TrimPrefix(strings.TrimPrefix(nameToken, "..."), "&"), "$")
+	if name == "" {
+		return SymbolParam{}, false
+	}
+
+	typeHint := ""
+	if len(fields) > 1 {
+		typeHint = strings.Join(fields[:len(fields)-1], " ")
+	}
+	return SymbolParam{
+		Name:        name,
+		Type:        resolveTypeHint(ctx, typeHint),
+		HasDefault:  hasDefault,
+		IsVariadic:  isVariadic,
+		IsPassByRef: isPassByRef,
+	}, true
 }
 
 func promotedPropertySymbols(class *ast.ClassNode, uri, classFQN string, ctx extractionContext) []*Symbol {

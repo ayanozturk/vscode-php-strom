@@ -141,6 +141,44 @@ class Repository {
 	t.Fatal("expected method symbol")
 }
 
+func TestExtractSymbolsIndexesPHPDocMethodReturnTypes(t *testing.T) {
+	src := `<?php
+namespace App\Module\Shift\Repository;
+
+use App\Module\Shift\Entity\Shift;
+
+/**
+ * @method Shift|null find($id, $lockMode = null, $lockVersion = null)
+ * @method Shift[]    findAll()
+ */
+class ShiftRepository extends AbstractRepository
+{
+}
+`
+
+	syms := extractSymbols("file:///test.php", src)
+	for _, sym := range syms {
+		if sym.Kind != KindMethod || sym.FQN != `\App\Module\Shift\Repository\ShiftRepository::find` {
+			continue
+		}
+		if sym.ReturnType != `App\Module\Shift\Entity\Shift|null` {
+			t.Fatalf("expected PHPDoc method return type to resolve to Shift|null, got %q", sym.ReturnType)
+		}
+		if len(sym.Params) != 3 {
+			t.Fatalf("expected three PHPDoc method params, got %#v", sym.Params)
+		}
+		if sym.Params[0].Name != "id" || sym.Params[0].HasDefault {
+			t.Fatalf("expected required $id param, got %#v", sym.Params[0])
+		}
+		if sym.Params[1].Name != "lockMode" || !sym.Params[1].HasDefault {
+			t.Fatalf("expected optional $lockMode param, got %#v", sym.Params[1])
+		}
+		return
+	}
+
+	t.Fatal("expected PHPDoc @method find symbol")
+}
+
 func TestExtractSymbolsResolvesImplementedInterfacesToFQNs(t *testing.T) {
 	src := `<?php
 namespace Doctrine\Common\Collections;

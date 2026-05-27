@@ -51,21 +51,31 @@ func (r projectFallbackResolver) ResolveClass(name string) (analyse.ResolvedClas
 }
 
 func (r projectFallbackResolver) ResolveMethod(className, methodName string) (analyse.ResolvedMethod, bool) {
-	if r.project != nil {
-		if method, ok := r.project.ResolveMethod(className, methodName); ok {
+	for _, candidate := range r.classLineage(className) {
+		if r.project != nil {
+			if method, ok := resolveDirectProjectMethod(r.project, candidate, methodName); ok {
+				return method, true
+			}
+		}
+		if method, ok := r.fallback.resolveDirectMethod(candidate, methodName); ok {
 			return method, true
 		}
 	}
-	return r.fallback.ResolveMethod(className, methodName)
+	return analyse.ResolvedMethod{}, false
 }
 
 func (r projectFallbackResolver) ResolveProperty(className, propertyName string) (analyse.ResolvedProperty, bool) {
-	if r.project != nil {
-		if property, ok := r.project.ResolveProperty(className, propertyName); ok {
+	for _, candidate := range r.classLineage(className) {
+		if r.project != nil {
+			if property, ok := resolveDirectProjectProperty(r.project, candidate, propertyName); ok {
+				return property, true
+			}
+		}
+		if property, ok := r.fallback.resolveDirectProperty(candidate, propertyName); ok {
 			return property, true
 		}
 	}
-	return r.fallback.ResolveProperty(className, propertyName)
+	return analyse.ResolvedProperty{}, false
 }
 
 func (r projectFallbackResolver) ResolveFunction(name string) (analyse.ResolvedFunction, bool) {
@@ -75,6 +85,81 @@ func (r projectFallbackResolver) ResolveFunction(name string) (analyse.ResolvedF
 		}
 	}
 	return r.fallback.ResolveFunction(name)
+}
+
+func (r projectFallbackResolver) classLineage(className string) []string {
+	var out []string
+	seen := map[string]struct{}{}
+	var walk func(string)
+	walk = func(name string) {
+		key := strings.ToLower(strings.TrimPrefix(strings.TrimSpace(name), `\`))
+		if key == "" {
+			return
+		}
+		if _, ok := seen[key]; ok {
+			return
+		}
+		seen[key] = struct{}{}
+		out = append(out, name)
+		class, ok := r.ResolveClass(name)
+		if !ok {
+			return
+		}
+		for _, parent := range class.Extends {
+			walk(parent)
+		}
+		for _, iface := range class.Implements {
+			walk(iface)
+		}
+		for _, trait := range class.Traits {
+			walk(trait)
+		}
+	}
+	walk(className)
+	return out
+}
+
+func resolveDirectProjectMethod(project *analyse.ProjectIndex, className, methodName string) (analyse.ResolvedMethod, bool) {
+	if project == nil {
+		return analyse.ResolvedMethod{}, false
+	}
+	class, ok := project.ResolveClass(className)
+	if ok {
+		className = class.Name
+	}
+	methods := project.Methods[resolverIndexKey(className)]
+	if methods == nil {
+		return analyse.ResolvedMethod{}, false
+	}
+	method, ok := methods[strings.ToLower(methodName)]
+	if !ok {
+		return analyse.ResolvedMethod{}, false
+	}
+	method.DeclaringClass = className
+	return method, true
+}
+
+func resolveDirectProjectProperty(project *analyse.ProjectIndex, className, propertyName string) (analyse.ResolvedProperty, bool) {
+	if project == nil {
+		return analyse.ResolvedProperty{}, false
+	}
+	class, ok := project.ResolveClass(className)
+	if ok {
+		className = class.Name
+	}
+	properties := project.Properties[resolverIndexKey(className)]
+	if properties == nil {
+		return analyse.ResolvedProperty{}, false
+	}
+	property, ok := properties[strings.ToLower(strings.TrimPrefix(propertyName, "$"))]
+	if !ok {
+		return analyse.ResolvedProperty{}, false
+	}
+	return property, true
+}
+
+func resolverIndexKey(name string) string {
+	return strings.ToLower(strings.TrimPrefix(strings.TrimSpace(name), `\`))
 }
 
 func (r workspaceSymbolResolver) ClassExists(name string) bool {
@@ -123,6 +208,15 @@ func (r workspaceSymbolResolver) ResolveClass(name string) (analyse.ResolvedClas
 }
 
 func (r workspaceSymbolResolver) ResolveMethod(className, methodName string) (analyse.ResolvedMethod, bool) {
+	for _, candidate := range r.classLineage(className) {
+		if method, ok := r.resolveDirectMethod(candidate, methodName); ok {
+			return method, true
+		}
+	}
+	return analyse.ResolvedMethod{}, false
+}
+
+func (r workspaceSymbolResolver) resolveDirectMethod(className, methodName string) (analyse.ResolvedMethod, bool) {
 	classSym, ok := r.resolveClassSymbol(className)
 	if !ok {
 		return analyse.ResolvedMethod{}, false
@@ -149,6 +243,15 @@ func (r workspaceSymbolResolver) ResolveMethod(className, methodName string) (an
 }
 
 func (r workspaceSymbolResolver) ResolveProperty(className, propertyName string) (analyse.ResolvedProperty, bool) {
+	for _, candidate := range r.classLineage(className) {
+		if property, ok := r.resolveDirectProperty(candidate, propertyName); ok {
+			return property, true
+		}
+	}
+	return analyse.ResolvedProperty{}, false
+}
+
+func (r workspaceSymbolResolver) resolveDirectProperty(className, propertyName string) (analyse.ResolvedProperty, bool) {
 	classSym, ok := r.resolveClassSymbol(className)
 	if !ok {
 		return analyse.ResolvedProperty{}, false
@@ -172,6 +275,35 @@ func (r workspaceSymbolResolver) ResolveProperty(className, propertyName string)
 	}
 
 	return analyse.ResolvedProperty{}, false
+}
+
+func (r workspaceSymbolResolver) classLineage(className string) []string {
+	var out []string
+	seen := map[string]struct{}{}
+	var walk func(string)
+	walk = func(name string) {
+		key := strings.ToLower(strings.TrimPrefix(strings.TrimSpace(name), `\`))
+		if key == "" {
+			return
+		}
+		if _, ok := seen[key]; ok {
+			return
+		}
+		seen[key] = struct{}{}
+		out = append(out, name)
+		class, ok := r.ResolveClass(name)
+		if !ok {
+			return
+		}
+		for _, parent := range class.Extends {
+			walk(parent)
+		}
+		for _, iface := range class.Implements {
+			walk(iface)
+		}
+	}
+	walk(className)
+	return out
 }
 
 func (r workspaceSymbolResolver) ResolveFunction(name string) (analyse.ResolvedFunction, bool) {
@@ -263,12 +395,13 @@ func resolvedMethod(sym *indexer.Symbol) analyse.ResolvedMethod {
 		})
 	}
 	return analyse.ResolvedMethod{
-		Name:       sym.Name,
-		ReturnType: sym.ReturnType,
-		Params:     params,
-		Visibility: sym.Visibility,
-		IsStatic:   sym.IsStatic,
-		Abstract:   sym.IsAbstract,
+		Name:           sym.Name,
+		DeclaringClass: strings.TrimSuffix(sym.FQN, "::"+sym.Name),
+		ReturnType:     sym.ReturnType,
+		Params:         params,
+		Visibility:     sym.Visibility,
+		IsStatic:       sym.IsStatic,
+		Abstract:       sym.IsAbstract,
 	}
 }
 
