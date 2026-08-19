@@ -70,6 +70,34 @@ func TestUpdateLoadsDiagnosticsExclude(t *testing.T) {
 	}
 }
 
+func TestUpdateLoadsDiagnosticToggles(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Update(map[string]interface{}{
+		"diagnostics": map[string]interface{}{
+			"undefinedSymbols":   false,
+			"undefinedVariables": false,
+			"typeErrors":         false,
+		},
+	})
+
+	if cfg.Diagnostics.UndefinedSymbols || cfg.Diagnostics.UndefinedVariables || cfg.Diagnostics.TypeErrors {
+		t.Fatalf("expected nested diagnostic toggles to be disabled, got %#v", cfg.Diagnostics)
+	}
+	providerCfg := cfg.toProviderConfig(nil)
+	if !providerCfg.DisableUndefinedSymbols || !providerCfg.DisableUndefinedVariables || !providerCfg.DisableTypeErrors {
+		t.Fatalf("expected disabled toggles to reach providers, got %#v", providerCfg)
+	}
+
+	cfg.Update(map[string]interface{}{
+		"diagnostics.undefinedSymbols":   true,
+		"diagnostics.undefinedVariables": true,
+		"diagnostics.typeErrors":         true,
+	})
+	if !cfg.Diagnostics.UndefinedSymbols || !cfg.Diagnostics.UndefinedVariables || !cfg.Diagnostics.TypeErrors {
+		t.Fatalf("expected flattened diagnostic toggles to be enabled, got %#v", cfg.Diagnostics)
+	}
+}
+
 func TestDefaultConfigIncludesVendorTestsExclude(t *testing.T) {
 	cfg := DefaultConfig()
 	want := "**/vendor/**/{Tests,tests}/**"

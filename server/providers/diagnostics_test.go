@@ -8,6 +8,7 @@ import (
 	"go-phpcs/overrides"
 
 	"github.com/ayanozturk/vscode-php-strom/indexer"
+	"github.com/ayanozturk/vscode-php-strom/lsp"
 )
 
 func TestDiagnosticsProvider_ParseError(t *testing.T) {
@@ -40,6 +41,53 @@ class Foo {
 	if len(diags) == 0 {
 		t.Fatal("expected style diagnostics for visibility/naming issues, got none")
 	}
+}
+
+func TestDiagnosticsProvider_DisablesConfiguredAnalysisCodes(t *testing.T) {
+	cfg := Config{
+		DisableUndefinedSymbols:   true,
+		DisableUndefinedVariables: true,
+		DisableTypeErrors:         true,
+	}
+	disabled := cfg.disabledAnalysisIssueCodes()
+	for _, code := range []string{
+		"PHPStan.Level0.Symbols",
+		"PHPStan.Level0.Variables",
+		"A.RETURN.TYPE",
+		"A.PROP.TYPE",
+		"A.ARG.TYPE",
+		"A.ARG.COUNT",
+	} {
+		if !disabled[code] {
+			t.Fatalf("expected diagnostic code %s to be disabled, got %#v", code, disabled)
+		}
+	}
+}
+
+func TestDiagnosticsProvider_SuppressesDisabledUndefinedVariables(t *testing.T) {
+	source := `<?php
+function run(): void {
+    echo $missing;
+}
+`
+	enabled := (&DiagnosticsProvider{}).Analyse("file:///test.php", source)
+	if !hasDiagnosticCode(enabled, "PHPStan.Level0.Variables") {
+		t.Fatalf("expected undefined-variable diagnostic before disabling it, got %#v", enabled)
+	}
+
+	disabled := (&DiagnosticsProvider{cfg: Config{DisableUndefinedVariables: true}}).Analyse("file:///test.php", source)
+	if hasDiagnosticCode(disabled, "PHPStan.Level0.Variables") {
+		t.Fatalf("expected undefined-variable diagnostic to be disabled, got %#v", disabled)
+	}
+}
+
+func hasDiagnosticCode(diagnostics []lsp.Diagnostic, code string) bool {
+	for _, diagnostic := range diagnostics {
+		if diagnostic.Code == code {
+			return true
+		}
+	}
+	return false
 }
 
 func TestDiagnosticsProvider_StyleOverrideSuppressesMatchingClass(t *testing.T) {

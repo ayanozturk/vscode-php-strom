@@ -279,26 +279,6 @@
           "default": true,
           "description": "Report type errors."
         },
-        "phpstrom.diagnostics.strictTypes": {
-          "type": "boolean",
-          "default": false,
-          "description": "Treat all files as if they have declare(strict_types=1)."
-        },
-        "phpstrom.diagnostics.relaxedTypeCheck": {
-          "type": "boolean",
-          "default": true,
-          "description": "Allow super-types to satisfy sub-type constraints (reduces false positives)."
-        },
-        "phpstrom.diagnostics.noMixedTypeCheck": {
-          "type": "boolean",
-          "default": true,
-          "description": "Allow mixed to satisfy any type constraint."
-        },
-        "phpstrom.diagnostics.typeCheckDocumentedTypes": {
-          "type": "boolean",
-          "default": false,
-          "description": "Include PHPDoc annotated types in type checking."
-        },
         "phpstrom.diagnostics.exclude": {
           "type": "object",
           "default": {},

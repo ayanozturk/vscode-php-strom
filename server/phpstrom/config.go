@@ -26,18 +26,14 @@ type Config struct {
 	}
 	Stubs       []string
 	Diagnostics struct {
-		Enable                   bool
-		Run                      string // "onType" | "onSave"
-		WorkspaceScanOnStart     bool
-		UndefinedSymbols         bool
-		UndefinedVariables       bool
-		TypeErrors               bool
-		StrictTypes              bool
-		RelaxedTypeCheck         bool
-		NoMixedTypeCheck         bool
-		TypeCheckDocumentedTypes bool
-		Exclude                  map[string][]string
-		Overrides                overrides.RuleOverrides
+		Enable               bool
+		Run                  string // "onType" | "onSave"
+		WorkspaceScanOnStart bool
+		UndefinedSymbols     bool
+		UndefinedVariables   bool
+		TypeErrors           bool
+		Exclude              map[string][]string
+		Overrides            overrides.RuleOverrides
 	}
 	Completion struct {
 		InsertUseDeclaration      bool
@@ -83,8 +79,6 @@ func DefaultConfig() *Config {
 	c.Diagnostics.UndefinedSymbols = true
 	c.Diagnostics.UndefinedVariables = true
 	c.Diagnostics.TypeErrors = true
-	c.Diagnostics.RelaxedTypeCheck = true
-	c.Diagnostics.NoMixedTypeCheck = true
 	c.Diagnostics.Exclude = map[string][]string{}
 	c.Diagnostics.Overrides = overrides.RuleOverrides{}
 	c.Completion.InsertUseDeclaration = true
@@ -131,6 +125,15 @@ func (c *Config) Update(settings map[string]interface{}) {
 		if v, ok := diagnostics["workspaceScanOnStart"].(bool); ok {
 			c.Diagnostics.WorkspaceScanOnStart = v
 		}
+		if v, ok := diagnostics["undefinedSymbols"].(bool); ok {
+			c.Diagnostics.UndefinedSymbols = v
+		}
+		if v, ok := diagnostics["undefinedVariables"].(bool); ok {
+			c.Diagnostics.UndefinedVariables = v
+		}
+		if v, ok := diagnostics["typeErrors"].(bool); ok {
+			c.Diagnostics.TypeErrors = v
+		}
 		if overridesMap, ok := parseRuleOverrides(diagnostics["overrides"]); ok {
 			c.Diagnostics.Overrides = overridesMap
 		}
@@ -176,6 +179,15 @@ func (c *Config) Update(settings map[string]interface{}) {
 	}
 	if v, ok := inner["diagnostics.workspaceScanOnStart"].(bool); ok {
 		c.Diagnostics.WorkspaceScanOnStart = v
+	}
+	if v, ok := inner["diagnostics.undefinedSymbols"].(bool); ok {
+		c.Diagnostics.UndefinedSymbols = v
+	}
+	if v, ok := inner["diagnostics.undefinedVariables"].(bool); ok {
+		c.Diagnostics.UndefinedVariables = v
+	}
+	if v, ok := inner["diagnostics.typeErrors"].(bool); ok {
+		c.Diagnostics.TypeErrors = v
 	}
 }
 
@@ -295,22 +307,25 @@ func (c *Config) toProviderConfig(folders []indexer.WorkspaceFolder) providers.C
 	}
 
 	return providers.Config{
-		PHPVersion:              c.Environment.EffectivePHPVersion,
-		InsertUseDeclaration:    c.Completion.InsertUseDeclaration,
-		MaxCompletionItems:      c.Completion.MaxItems,
-		DocumentRoot:            c.Environment.DocumentRoot,
-		BraceStyle:              c.Format.BraceStyle,
-		InsertSpaces:            c.Format.InsertSpaces,
-		TabSize:                 c.Format.TabSize,
-		CodeLensReferences:      c.CodeLens.References,
-		CodeLensImplementations: c.CodeLens.Implementations,
-		CodeLensOverrides:       c.CodeLens.Overrides,
-		CodeLensParent:          c.CodeLens.Parent,
-		InlayHintsParamNames:    c.InlayHints.ParameterNames,
-		InlayHintsParamTypes:    c.InlayHints.ParameterTypes,
-		InlayHintsReturnTypes:   c.InlayHints.ReturnTypes,
-		DiagnosticsExclusions:   providers.BuildDiagnosticsPathExclusions(c.Diagnostics.Exclude, folders),
-		DiagnosticsOverrides:    matcher,
+		PHPVersion:                c.Environment.EffectivePHPVersion,
+		InsertUseDeclaration:      c.Completion.InsertUseDeclaration,
+		MaxCompletionItems:        c.Completion.MaxItems,
+		DocumentRoot:              c.Environment.DocumentRoot,
+		BraceStyle:                c.Format.BraceStyle,
+		InsertSpaces:              c.Format.InsertSpaces,
+		TabSize:                   c.Format.TabSize,
+		CodeLensReferences:        c.CodeLens.References,
+		CodeLensImplementations:   c.CodeLens.Implementations,
+		CodeLensOverrides:         c.CodeLens.Overrides,
+		CodeLensParent:            c.CodeLens.Parent,
+		InlayHintsParamNames:      c.InlayHints.ParameterNames,
+		InlayHintsParamTypes:      c.InlayHints.ParameterTypes,
+		InlayHintsReturnTypes:     c.InlayHints.ReturnTypes,
+		DisableUndefinedSymbols:   !c.Diagnostics.UndefinedSymbols,
+		DisableUndefinedVariables: !c.Diagnostics.UndefinedVariables,
+		DisableTypeErrors:         !c.Diagnostics.TypeErrors,
+		DiagnosticsExclusions:     providers.BuildDiagnosticsPathExclusions(c.Diagnostics.Exclude, folders),
+		DiagnosticsOverrides:      matcher,
 	}
 }
 

@@ -477,6 +477,7 @@ func (p *DiagnosticsProvider) analyseParsed(filename, text string, nodes []ast.N
 	// Run analysis rules (assignment-in-condition, empty statements, etc.)
 	analysisCtx := p.cache.analysisContextForFile(p.idx, filename, text, nodes)
 	analysisCtx.PHPVersion = p.cfg.PHPVersion
+	analysisCtx.DisabledIssueCodes = p.cfg.disabledAnalysisIssueCodes()
 	for _, issue := range analyse.FilterIssues(analyse.RunAnalysisRulesWithContext(filename, nodes, analysisCtx), p.cfg.DiagnosticsOverrides) {
 		sev := lsp.DiagSeverityWarning
 		diags = append(diags, lsp.Diagnostic{
@@ -515,6 +516,25 @@ func (p *DiagnosticsProvider) analyseParsed(filename, text string, nodes []ast.N
 	}
 
 	return suppressions.filter(diags)
+}
+
+func (c Config) disabledAnalysisIssueCodes() map[string]bool {
+	disabled := make(map[string]bool)
+	if c.DisableUndefinedSymbols {
+		disabled["PHPStan.Level0.Symbols"] = true
+	}
+	if c.DisableUndefinedVariables {
+		disabled["PHPStan.Level0.Variables"] = true
+	}
+	if c.DisableTypeErrors {
+		for _, code := range []string{"A.RETURN.TYPE", "A.PROP.TYPE", "A.ARG.TYPE", "A.ARG.COUNT"} {
+			disabled[code] = true
+		}
+	}
+	if len(disabled) == 0 {
+		return nil
+	}
+	return disabled
 }
 
 // lineColToRange converts a 1-based line/column from go-phpcs to an LSP Range.
