@@ -15,7 +15,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/ayanozturk/vscode-php-strom/parser"
+	"github.com/ayanozturk/vscode-php-strom/indexer"
 )
 
 type fileResult struct {
@@ -150,7 +150,7 @@ func parseFile(path string, limit time.Duration) fileResult {
 	r := fileResult{path: path}
 
 	type res struct {
-		file     *parser.File
+		parsed   indexer.ParsedFile
 		duration time.Duration
 		panicked bool
 		panicMsg string
@@ -178,7 +178,7 @@ func parseFile(path string, limit time.Duration) fileResult {
 			ch <- out
 			return
 		}
-		out.file = parser.Parse(string(data))
+		out.parsed = indexer.ParseSourceForIndexWithContext(ctx, path, string(data))
 	}()
 
 	select {
@@ -189,10 +189,8 @@ func parseFile(path string, limit time.Duration) fileResult {
 		r.duration = out.duration
 		r.panicked = out.panicked
 		r.panicMsg = out.panicMsg
-		if out.file != nil {
-			r.errCount = len(out.file.Errors)
-			r.symCount = len(out.file.Stmts)
-		}
+		r.errCount = len(out.parsed.Errors)
+		r.symCount = len(out.parsed.Symbols)
 	}
 	return r
 }
