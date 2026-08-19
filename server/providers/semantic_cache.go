@@ -3,10 +3,10 @@ package providers
 import (
 	"sync"
 
-	"go-phpcs/analyse"
-	"go-phpcs/ast"
-	goplexer "go-phpcs/lexer"
-	goparser "go-phpcs/parser"
+	"github.com/ayanozturk/go-php-parser/analyse"
+	"github.com/ayanozturk/go-php-parser/ast"
+	goplexer "github.com/ayanozturk/go-php-parser/lexer"
+	goparser "github.com/ayanozturk/go-php-parser/parser"
 
 	"github.com/ayanozturk/vscode-php-strom/indexer"
 )

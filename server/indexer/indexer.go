@@ -15,10 +15,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"go-phpcs/analyse"
-	"go-phpcs/ast"
-	goplexer "go-phpcs/lexer"
-	goparser "go-phpcs/parser"
+	"github.com/ayanozturk/go-php-parser/analyse"
+	"github.com/ayanozturk/go-php-parser/ast"
+	goplexer "github.com/ayanozturk/go-php-parser/lexer"
+	goparser "github.com/ayanozturk/go-php-parser/parser"
 )
 
 // WorkspaceIndexer discovers and indexes PHP files in workspace folders.

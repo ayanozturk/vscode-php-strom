@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"go-phpcs/analyse"
-	"go-phpcs/overrides"
+	"github.com/ayanozturk/go-php-parser/analyse"
+	"github.com/ayanozturk/go-php-parser/overrides"
 
 	"github.com/ayanozturk/vscode-php-strom/indexer"
 	"github.com/ayanozturk/vscode-php-strom/lsp"

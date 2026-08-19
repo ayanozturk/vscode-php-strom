@@ -4,9 +4,9 @@ package providers
 // style rules from github.com/ayanozturk/go-php-parser (local: go-phpcs).
 
 import (
-	"go-phpcs/analyse"
-	"go-phpcs/ast"
-	"go-phpcs/style"
+	"github.com/ayanozturk/go-php-parser/analyse"
+	"github.com/ayanozturk/go-php-parser/ast"
+	"github.com/ayanozturk/go-php-parser/style"
 	"strings"
 
 	"github.com/ayanozturk/vscode-php-strom/indexer"

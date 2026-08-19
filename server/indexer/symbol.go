@@ -1,6 +1,6 @@
 package indexer
 
-import "go-phpcs/ast"
+import "github.com/ayanozturk/go-php-parser/ast"
 
 type Range struct {
 	Start ast.Position
