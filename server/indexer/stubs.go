@@ -4,7 +4,6 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"strings"
 )
 
 func (wi *WorkspaceIndexer) loadConfiguredStubs() {
@@ -20,8 +19,11 @@ func (wi *WorkspaceIndexer) loadConfiguredStubs() {
 		}
 		parsed := ParseSourceForIndex(pathToURI(stubPath), string(data))
 		if len(parsed.Errors) > 0 {
-			log.Printf("[indexer] skipping invalid stub %s: %s", name, strings.Join(parsed.Errors, "; "))
-			continue
+			// The parser is intentionally error-tolerant and can return a useful
+			// declaration AST even when a stub contains syntax it does not yet
+			// understand. Keep the recovered symbols instead of dropping the
+			// entire extension stub because one declaration was unsupported.
+			log.Printf("[indexer] indexing recovered stub %s with %d parser error(s)", name, len(parsed.Errors))
 		}
 		wi.index.PutFile(parsed.URI, parsed.Symbols)
 		wi.mu.Lock()

@@ -12,11 +12,17 @@ import (
 
 func TestDiagnosticsProvider_ParseError(t *testing.T) {
 	p := &DiagnosticsProvider{}
-	diags := p.Analyse("file:///test.php", `<?php
+	source := `<?php
 class Foo {
 	public function bar() {
 		// missing closing brace
-`)
+`
+	snapshot := parseSemanticSnapshot(source)
+	if len(snapshot.errors) == 0 {
+		t.Fatal("expected go-php-parser to retain syntax errors with debug disabled")
+	}
+
+	diags := p.Analyse("file:///test.php", source)
 	// Parser errors should surface as diagnostics
 	if len(diags) == 0 {
 		t.Fatal("expected at least one diagnostic for incomplete PHP, got none")
