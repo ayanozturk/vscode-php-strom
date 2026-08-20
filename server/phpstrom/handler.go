@@ -2,10 +2,12 @@ package phpstrom
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -210,7 +212,7 @@ func (h *Handler) HandleNotification(method string, raw json.RawMessage) {
 		}
 		if doc, ok := h.documents.Get(p.TextDocument.URI); ok {
 			h.cancelDocumentAnalysis(p.TextDocument.URI)
-			if text, err := readDocumentTextFromDisk(p.TextDocument.URI); err == nil {
+			if text, err := h.readDocumentTextFromDisk(p.TextDocument.URI); err == nil {
 				if updated, ok := h.documents.SetText(p.TextDocument.URI, text); ok {
 					doc = updated
 				}
@@ -231,12 +233,15 @@ func (h *Handler) HandleNotification(method string, raw json.RawMessage) {
 		if err := json.Unmarshal(raw, &p); err != nil {
 			return
 		}
+		_, wasOpen := h.documents.Get(p.TextDocument.URI)
 		h.documents.Close(p.TextDocument.URI)
 		h.cancelDocumentAnalysis(p.TextDocument.URI)
-		if text, err := readDocumentTextFromDisk(p.TextDocument.URI); err == nil {
-			h.idx.IndexDocument(p.TextDocument.URI, text)
-			h.publishWorkspaceDocumentDiagnostics(p.TextDocument.URI, text)
-			return
+		if wasOpen {
+			if text, err := h.readDocumentTextFromDisk(p.TextDocument.URI); err == nil {
+				h.idx.IndexDocument(p.TextDocument.URI, text)
+				h.publishWorkspaceDocumentDiagnostics(p.TextDocument.URI, text)
+				return
+			}
 		}
 		h.idx.RemoveDocument(p.TextDocument.URI)
 		h.notifyDiagnostics(p.TextDocument.URI, []lsp.Diagnostic{})
@@ -490,7 +495,7 @@ func (h *Handler) runWorkspaceDiagnosticsLocked(scan *workspaceDiagnosticsScanSt
 					continue
 				}
 
-				text, err := readDocumentTextFromDisk(uri)
+				text, err := h.readDocumentTextFromDisk(uri)
 				if err != nil {
 					continue
 				}
@@ -657,14 +662,17 @@ func (s *workspaceDiagnosticsScanState) total() int {
 	return int(s.totalDiagnostics.Load())
 }
 
-func readDocumentTextFromDisk(uri string) (string, error) {
-	path, err := uriToPath(uri)
+func (h *Handler) readDocumentTextFromDisk(uri string) (string, error) {
+	path, err := validatedDocumentPath(uri, h.idx.WorkspaceFolders())
 	if err != nil {
 		return "", err
 	}
-	data, err := os.ReadFile(path)
+	data, size, oversized, err := indexer.ReadFileWithinLimit(path, h.cfg.Files.MaxSize)
 	if err != nil {
 		return "", err
+	}
+	if oversized {
+		return "", fmt.Errorf("document exceeds configured size limit: observed %d bytes, limit %d", size, h.cfg.Files.MaxSize)
 	}
 	return string(data), nil
 }
@@ -674,17 +682,68 @@ func uriToPath(uri string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if parsed.Scheme == "" || parsed.Scheme == "file" {
-		path := parsed.Path
-		if path == "" {
-			path = strings.TrimPrefix(uri, "file://")
-		}
-		if unescaped, err := url.PathUnescape(path); err == nil {
-			path = unescaped
-		}
-		return filepath.FromSlash(path), nil
+	if !strings.EqualFold(parsed.Scheme, "file") || parsed.Opaque != "" || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return "", os.ErrInvalid
 	}
-	return "", os.ErrInvalid
+
+	path := filepath.FromSlash(parsed.Path)
+	if runtime.GOOS == "windows" {
+		if parsed.Host != "" && !strings.EqualFold(parsed.Host, "localhost") {
+			path = `\\` + parsed.Host + path
+		} else if len(path) >= 3 && os.IsPathSeparator(path[0]) && path[2] == ':' {
+			path = path[1:]
+		}
+	} else if parsed.Host != "" && !strings.EqualFold(parsed.Host, "localhost") {
+		return "", os.ErrInvalid
+	}
+	if path == "" || !filepath.IsAbs(path) {
+		return "", os.ErrInvalid
+	}
+	return filepath.Clean(path), nil
+}
+
+func validatedDocumentPath(uri string, folders []indexer.WorkspaceFolder) (string, error) {
+	path, err := uriToPath(uri)
+	if err != nil {
+		return "", err
+	}
+	resolvedPath, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return "", err
+	}
+	info, err := os.Stat(resolvedPath)
+	if err != nil {
+		return "", err
+	}
+	if !info.Mode().IsRegular() {
+		return "", fmt.Errorf("document is not a regular file: %w", os.ErrInvalid)
+	}
+	if len(folders) == 0 {
+		return resolvedPath, nil
+	}
+
+	for _, folder := range folders {
+		root, err := uriToPath(folder.URI)
+		if err != nil {
+			continue
+		}
+		resolvedRoot, err := filepath.EvalSymlinks(root)
+		if err != nil {
+			continue
+		}
+		if pathWithinRoot(resolvedPath, resolvedRoot) {
+			return resolvedPath, nil
+		}
+	}
+	return "", fmt.Errorf("document is outside the configured workspace: %w", os.ErrPermission)
+}
+
+func pathWithinRoot(path, root string) bool {
+	relative, err := filepath.Rel(root, path)
+	if err != nil || filepath.IsAbs(relative) {
+		return false
+	}
+	return relative == "." || (relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)))
 }
 
 // ─── Request helpers ──────────────────────────────────────────────────────────

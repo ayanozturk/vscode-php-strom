@@ -31,7 +31,7 @@ func TestReadFileWithinLimitRejectsOversizedRegularFile(t *testing.T) {
 		t.Fatalf("write oversized fixture: %v", err)
 	}
 
-	data, size, oversized, err := readFileWithinLimit(path, 16)
+	data, size, oversized, err := ReadFileWithinLimit(path, 16)
 	if err != nil {
 		t.Fatalf("read oversized file: %v", err)
 	}
@@ -53,7 +53,7 @@ func TestReadFileWithinLimitAllowsFileAtLimit(t *testing.T) {
 		t.Fatalf("write bounded fixture: %v", err)
 	}
 
-	data, size, oversized, err := readFileWithinLimit(path, int64(len(want)))
+	data, size, oversized, err := ReadFileWithinLimit(path, int64(len(want)))
 	if err != nil {
 		t.Fatalf("read bounded file: %v", err)
 	}

@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -92,6 +94,103 @@ func TestDidSaveRefreshesDocumentFromDiskAndReindexes(t *testing.T) {
 	}
 	if got := h.idx.GetIndex().GetByFQN(`\RGSessionSession`); got == nil {
 		t.Fatal("expected saved file to be reindexed with new class symbol")
+	}
+}
+
+func TestDidSaveDoesNotReloadOversizedFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	filePath := filepath.Join(tmpDir, "Oversized.php")
+	uri := (&url.URL{Scheme: "file", Path: filePath}).String()
+
+	inMemoryText := "<?php\nclass InMemoryClass {}\n"
+	diskText := "<?php\nclass OversizedDiskClass {}\n" + strings.Repeat("x", 128)
+	if err := os.WriteFile(filePath, []byte(diskText), 0o644); err != nil {
+		t.Fatalf("write oversized file: %v", err)
+	}
+
+	srv := &Server{out: io.Discard}
+	h := NewHandler(srv)
+	h.cfg.Files.MaxSize = int64(len(inMemoryText))
+	h.idx.SetWorkspaceFolders([]indexer.WorkspaceFolder{{
+		URI:  (&url.URL{Scheme: "file", Path: tmpDir}).String(),
+		Name: "tmp",
+	}})
+	h.documents.Open(lsp.TextDocumentItem{
+		URI:        uri,
+		LanguageID: "php",
+		Version:    1,
+		Text:       inMemoryText,
+	})
+
+	params, err := json.Marshal(lsp.DidSaveTextDocumentParams{
+		TextDocument: lsp.TextDocumentIdentifier{URI: uri},
+	})
+	if err != nil {
+		t.Fatalf("marshal didSave: %v", err)
+	}
+	h.HandleNotification("textDocument/didSave", params)
+
+	updated, ok := h.documents.Get(uri)
+	if !ok {
+		t.Fatal("expected document to remain open after save")
+	}
+	if updated.Text != inMemoryText {
+		t.Fatalf("expected oversized disk content to be rejected, got %q", updated.Text)
+	}
+}
+
+func TestDidSaveReloadsEncodedWorkspaceFile(t *testing.T) {
+	tmpDir := filepath.Join(t.TempDir(), "workspace with spaces")
+	if err := os.Mkdir(tmpDir, 0o755); err != nil {
+		t.Fatalf("create encoded workspace: %v", err)
+	}
+	filePath := filepath.Join(tmpDir, "Encoded File.php")
+	uri := (&url.URL{Scheme: "file", Path: filePath}).String()
+	diskText := "<?php\nclass EncodedFile {}\n"
+	if err := os.WriteFile(filePath, []byte(diskText), 0o644); err != nil {
+		t.Fatalf("write encoded workspace file: %v", err)
+	}
+
+	srv := &Server{out: io.Discard}
+	h := NewHandler(srv)
+	h.idx.SetWorkspaceFolders([]indexer.WorkspaceFolder{{
+		URI:  (&url.URL{Scheme: "file", Path: tmpDir}).String(),
+		Name: "tmp",
+	}})
+	h.documents.Open(lsp.TextDocumentItem{
+		URI:        uri,
+		LanguageID: "php",
+		Version:    1,
+		Text:       "<?php\nclass OldEncodedFile {}\n",
+	})
+
+	params, err := json.Marshal(lsp.DidSaveTextDocumentParams{
+		TextDocument: lsp.TextDocumentIdentifier{URI: uri},
+	})
+	if err != nil {
+		t.Fatalf("marshal didSave: %v", err)
+	}
+	h.HandleNotification("textDocument/didSave", params)
+
+	updated, ok := h.documents.Get(uri)
+	if !ok || updated.Text != diskText {
+		t.Fatalf("expected encoded workspace file to reload, got %+v", updated)
+	}
+}
+
+func TestURIToPathRejectsUnsupportedForms(t *testing.T) {
+	for _, uri := range []string{
+		"untitled:Untitled-1",
+		"relative.php",
+		"file:relative.php",
+		"file:///workspace/File.php?version=1",
+		"file:///workspace/File.php#fragment",
+	} {
+		t.Run(uri, func(t *testing.T) {
+			if _, err := uriToPath(uri); err == nil {
+				t.Fatalf("expected unsupported URI %q to be rejected", uri)
+			}
+		})
 	}
 }
 
@@ -313,6 +412,115 @@ func TestDidCloseRevertsToDiskDiagnostics(t *testing.T) {
 	}
 	if strings.Contains(payload, `"diagnostics":[]`) {
 		t.Fatalf("expected didClose to preserve disk diagnostics instead of clearing them, got %q", payload)
+	}
+}
+
+func TestDidCloseDoesNotReadOutsideWorkspace(t *testing.T) {
+	workspaceDir := t.TempDir()
+	outsideDir := t.TempDir()
+	filePath := filepath.Join(outsideDir, "Outside.php")
+	uri := (&url.URL{Scheme: "file", Path: filePath}).String()
+	text := "<?php\nclass OutsideWorkspaceClass {}\n"
+	if err := os.WriteFile(filePath, []byte(text), 0o644); err != nil {
+		t.Fatalf("write outside file: %v", err)
+	}
+
+	var out synchronizedBuffer
+	h := NewHandler(&Server{out: &out})
+	h.idx.SetWorkspaceFolders([]indexer.WorkspaceFolder{{
+		URI:  (&url.URL{Scheme: "file", Path: workspaceDir}).String(),
+		Name: "workspace",
+	}})
+	h.documents.Open(lsp.TextDocumentItem{URI: uri, LanguageID: "php", Version: 1, Text: text})
+	h.idx.IndexDocument(uri, text)
+
+	params, err := json.Marshal(lsp.DidCloseTextDocumentParams{
+		TextDocument: lsp.TextDocumentIdentifier{URI: uri},
+	})
+	if err != nil {
+		t.Fatalf("marshal didClose: %v", err)
+	}
+	h.HandleNotification("textDocument/didClose", params)
+
+	if got := h.idx.GetIndex().GetByFQN(`\OutsideWorkspaceClass`); got != nil {
+		t.Fatalf("expected outside-workspace document to be removed, got %+v", got)
+	}
+	if !strings.Contains(out.String(), `"diagnostics":[]`) {
+		t.Fatalf("expected outside-workspace diagnostics to be cleared, got %q", out.String())
+	}
+}
+
+func TestDidCloseDoesNotReadUnopenedDocument(t *testing.T) {
+	workspaceDir := t.TempDir()
+	filePath := filepath.Join(workspaceDir, "Unopened.php")
+	uri := (&url.URL{Scheme: "file", Path: filePath}).String()
+	text := "<?php\nclass Unopened_Document {}\n"
+	if err := os.WriteFile(filePath, []byte(text), 0o644); err != nil {
+		t.Fatalf("write unopened file: %v", err)
+	}
+
+	var out synchronizedBuffer
+	h := NewHandler(&Server{out: &out})
+	h.idx.SetWorkspaceFolders([]indexer.WorkspaceFolder{{
+		URI:  (&url.URL{Scheme: "file", Path: workspaceDir}).String(),
+		Name: "workspace",
+	}})
+
+	params, err := json.Marshal(lsp.DidCloseTextDocumentParams{
+		TextDocument: lsp.TextDocumentIdentifier{URI: uri},
+	})
+	if err != nil {
+		t.Fatalf("marshal didClose: %v", err)
+	}
+	h.HandleNotification("textDocument/didClose", params)
+
+	if got := h.idx.GetIndex().GetByFQN(`\Unopened_Document`); got != nil {
+		t.Fatalf("expected unopened document to remain unindexed, got %+v", got)
+	}
+	if !strings.Contains(out.String(), `"diagnostics":[]`) {
+		t.Fatalf("expected unopened document diagnostics to be cleared, got %q", out.String())
+	}
+}
+
+func TestDidCloseDoesNotFollowSymlinkOutsideWorkspace(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation requires additional privileges on Windows")
+	}
+
+	workspaceDir := t.TempDir()
+	outsideFile := filepath.Join(t.TempDir(), "Secret.php")
+	text := "<?php\nclass SymlinkEscapeClass {}\n"
+	if err := os.WriteFile(outsideFile, []byte(text), 0o644); err != nil {
+		t.Fatalf("write symlink target: %v", err)
+	}
+	linkPath := filepath.Join(workspaceDir, "Linked.php")
+	if err := os.Symlink(outsideFile, linkPath); err != nil {
+		t.Fatalf("create symlink: %v", err)
+	}
+	uri := (&url.URL{Scheme: "file", Path: linkPath}).String()
+
+	var out synchronizedBuffer
+	h := NewHandler(&Server{out: &out})
+	h.idx.SetWorkspaceFolders([]indexer.WorkspaceFolder{{
+		URI:  (&url.URL{Scheme: "file", Path: workspaceDir}).String(),
+		Name: "workspace",
+	}})
+	h.documents.Open(lsp.TextDocumentItem{URI: uri, LanguageID: "php", Version: 1, Text: text})
+	h.idx.IndexDocument(uri, text)
+
+	params, err := json.Marshal(lsp.DidCloseTextDocumentParams{
+		TextDocument: lsp.TextDocumentIdentifier{URI: uri},
+	})
+	if err != nil {
+		t.Fatalf("marshal didClose: %v", err)
+	}
+	h.HandleNotification("textDocument/didClose", params)
+
+	if got := h.idx.GetIndex().GetByFQN(`\SymlinkEscapeClass`); got != nil {
+		t.Fatalf("expected symlink escape document to be removed, got %+v", got)
+	}
+	if !strings.Contains(out.String(), `"diagnostics":[]`) {
+		t.Fatalf("expected symlink escape diagnostics to be cleared, got %q", out.String())
 	}
 }
 

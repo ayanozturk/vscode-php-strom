@@ -555,7 +555,7 @@ func (wi *WorkspaceIndexer) parseIndexableFile(path string, skipFunctionBodies b
 	ctx, cancel := context.WithTimeout(context.Background(), perFileParseTimeout)
 	defer cancel()
 
-	data, size, oversized, err := readFileWithinLimit(path, wi.cfg.MaxSize)
+	data, size, oversized, err := ReadFileWithinLimit(path, wi.cfg.MaxSize)
 	if err != nil {
 		return ParsedFile{}, "read-error"
 	}
@@ -581,7 +581,9 @@ func (wi *WorkspaceIndexer) parseIndexableFile(path string, skipFunctionBodies b
 	return parsed, ""
 }
 
-func readFileWithinLimit(path string, maxSize int64) ([]byte, int64, bool, error) {
+// ReadFileWithinLimit reads at most maxSize+1 bytes so callers can reject
+// oversized or concurrently growing files without allocating their full contents.
+func ReadFileWithinLimit(path string, maxSize int64) ([]byte, int64, bool, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, 0, false, err
