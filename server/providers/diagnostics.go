@@ -4,10 +4,12 @@ package providers
 // style rules from github.com/ayanozturk/go-php-parser (local: go-phpcs).
 
 import (
+	"strconv"
+	"strings"
+
 	"github.com/ayanozturk/go-php-parser/analyse"
 	"github.com/ayanozturk/go-php-parser/ast"
 	"github.com/ayanozturk/go-php-parser/style"
-	"strings"
 
 	"github.com/ayanozturk/vscode-php-strom/indexer"
 	"github.com/ayanozturk/vscode-php-strom/lsp"
@@ -508,7 +510,7 @@ func (p *DiagnosticsProvider) analyseParsed(filename, text string, nodes []ast.N
 	for _, errMsg := range parseErrors {
 		sev := lsp.DiagSeverityError
 		diags = append(diags, lsp.Diagnostic{
-			Range:    lineColToRange(0, 0),
+			Range:    parseErrorRange(errMsg),
 			Severity: &sev,
 			Source:   "phpstrom",
 			Message:  errMsg,
@@ -535,6 +537,23 @@ func (c Config) disabledAnalysisIssueCodes() map[string]bool {
 		return nil
 	}
 	return disabled
+}
+
+func parseErrorRange(message string) lsp.Range {
+	lineText, remainder, ok := strings.Cut(strings.TrimPrefix(message, "line "), ":")
+	if !ok || !strings.HasPrefix(message, "line ") {
+		return lineColToRange(0, 0)
+	}
+	columnText, _, ok := strings.Cut(remainder, ":")
+	if !ok {
+		return lineColToRange(0, 0)
+	}
+	line, lineErr := strconv.Atoi(lineText)
+	column, columnErr := strconv.Atoi(columnText)
+	if lineErr != nil || columnErr != nil {
+		return lineColToRange(0, 0)
+	}
+	return lineColToRange(line, column)
 }
 
 // lineColToRange converts a 1-based line/column from go-phpcs to an LSP Range.

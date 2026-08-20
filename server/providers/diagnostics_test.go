@@ -881,3 +881,17 @@ func TestLineColToRange_ZeroValues(t *testing.T) {
 		t.Errorf("expected 0,0 got %d,%d", r.Start.Line, r.Start.Character)
 	}
 }
+
+func TestParseErrorRange(t *testing.T) {
+	r := parseErrorRange("line 5:10: unexpected token")
+	if r.Start.Line != 4 || r.Start.Character != 9 {
+		t.Errorf("expected line=4 char=9, got line=%d char=%d", r.Start.Line, r.Start.Character)
+	}
+}
+
+func TestParseErrorRange_UnstructuredMessage(t *testing.T) {
+	r := parseErrorRange("parser panic recovered")
+	if r.Start.Line != 0 || r.Start.Character != 0 {
+		t.Errorf("expected fallback 0,0 got %d,%d", r.Start.Line, r.Start.Character)
+	}
+}
