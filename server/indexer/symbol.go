@@ -58,9 +58,11 @@ type Symbol struct {
 	EndChar   uint32
 
 	// Relationships
-	Extends    []string // FQNs of parent classes/interfaces
-	Implements []string // FQNs of implemented interfaces
-	DocComment string
+	Extends        []string // FQNs of parent classes/interfaces
+	Implements     []string // FQNs of implemented interfaces
+	Templates      []string
+	GenericParents []GenericParent
+	DocComment     string
 
 	// For methods/functions: return type and parameter names
 	ReturnType string
@@ -73,6 +75,13 @@ type Symbol struct {
 	IsFinal    bool
 	IsReadonly bool
 	Visibility string // "public" | "protected" | "private"
+}
+
+// GenericParent records the type arguments supplied to an inherited class or
+// interface in PHPDoc, for example Repository<ReviewCycle>.
+type GenericParent struct {
+	FQN           string
+	TypeArguments []string
 }
 
 // SymbolParam captures a parameter's name and type for signature help.

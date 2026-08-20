@@ -40,6 +40,13 @@ func (p *HoverProvider) Provide(uri, text string, pos lsp.Position) *lsp.Hover {
 		if hasHoverTarget {
 			inferredType = hoverTarget.Type
 		}
+		if flowType, ok := inferVariableFlowHoverType(snapshot.nodes, int(pos.Line)+1, unqualifiedName(ident), analysisCtx); ok {
+			inferredType = flowType
+			if !hasHoverTarget {
+				hoverTarget = analyse.HoverTarget{Kind: analyse.HoverTargetVariable, Type: flowType}
+				hasHoverTarget = true
+			}
+		}
 	}
 
 	var sym *indexer.Symbol

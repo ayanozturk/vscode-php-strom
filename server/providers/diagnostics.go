@@ -55,6 +55,9 @@ func (r projectFallbackResolver) ResolveClass(name string) (analyse.ResolvedClas
 }
 
 func (r projectFallbackResolver) ResolveMethod(className, methodName string) (analyse.ResolvedMethod, bool) {
+	if method, ok := r.fallback.ResolveMethod(className, methodName); ok {
+		return method, true
+	}
 	for _, candidate := range r.classLineage(className) {
 		if r.project != nil {
 			if method, ok := resolveDirectProjectMethod(r.project, candidate, methodName); ok {
@@ -212,12 +215,87 @@ func (r workspaceSymbolResolver) ResolveClass(name string) (analyse.ResolvedClas
 }
 
 func (r workspaceSymbolResolver) ResolveMethod(className, methodName string) (analyse.ResolvedMethod, bool) {
-	for _, candidate := range r.classLineage(className) {
-		if method, ok := r.resolveDirectMethod(candidate, methodName); ok {
+	return r.resolveMethodWithTemplates(className, methodName, nil, make(map[string]struct{}))
+}
+
+func (r workspaceSymbolResolver) resolveMethodWithTemplates(className, methodName string, bindings map[string]string, seen map[string]struct{}) (analyse.ResolvedMethod, bool) {
+	classSym, ok := r.resolveClassSymbol(className)
+	if !ok {
+		return analyse.ResolvedMethod{}, false
+	}
+	key := strings.ToLower(strings.TrimPrefix(classSym.FQN, `\`))
+	if _, exists := seen[key]; exists {
+		return analyse.ResolvedMethod{}, false
+	}
+	seen[key] = struct{}{}
+	defer delete(seen, key)
+	if method, found := r.resolveDirectMethod(classSym.FQN, methodName); found {
+		method.ReturnType = applyTemplateBindings(method.ReturnType, bindings)
+		for i := range method.Params {
+			method.Params[i].Type = applyTemplateBindings(method.Params[i].Type, bindings)
+		}
+		return method, true
+	}
+	parents := append(append([]string(nil), classSym.Extends...), classSym.Implements...)
+	for _, parentName := range parents {
+		parentSym, parentOK := r.resolveClassSymbol(parentName)
+		if !parentOK {
+			continue
+		}
+		parentBindings := map[string]string(nil)
+		if relation, relationOK := genericParentRelation(classSym, parentName); relationOK {
+			parentBindings = make(map[string]string, len(parentSym.Templates))
+			for i, template := range parentSym.Templates {
+				if i >= len(relation.TypeArguments) {
+					break
+				}
+				parentBindings[template] = applyTemplateBindings(relation.TypeArguments[i], bindings)
+			}
+		}
+		if method, found := r.resolveMethodWithTemplates(parentSym.FQN, methodName, parentBindings, seen); found {
 			return method, true
 		}
 	}
 	return analyse.ResolvedMethod{}, false
+}
+
+func genericParentRelation(classSym *indexer.Symbol, parentName string) (indexer.GenericParent, bool) {
+	for _, relation := range classSym.GenericParents {
+		if strings.EqualFold(strings.TrimPrefix(relation.FQN, `\`), strings.TrimPrefix(parentName, `\`)) {
+			return relation, true
+		}
+	}
+	return indexer.GenericParent{}, false
+}
+
+func applyTemplateBindings(raw string, bindings map[string]string) string {
+	if raw == "" || len(bindings) == 0 {
+		return raw
+	}
+	var out strings.Builder
+	for start := 0; start < len(raw); {
+		if !isGenericIdentifierByte(raw[start]) {
+			out.WriteByte(raw[start])
+			start++
+			continue
+		}
+		end := start + 1
+		for end < len(raw) && isGenericIdentifierByte(raw[end]) {
+			end++
+		}
+		token := raw[start:end]
+		if replacement, ok := bindings[token]; ok {
+			out.WriteString(replacement)
+		} else {
+			out.WriteString(token)
+		}
+		start = end
+	}
+	return out.String()
+}
+
+func isGenericIdentifierByte(value byte) bool {
+	return value == '\\' || value == '_' || value >= '0' && value <= '9' || value >= 'A' && value <= 'Z' || value >= 'a' && value <= 'z' || value >= 0x80
 }
 
 func (r workspaceSymbolResolver) resolveDirectMethod(className, methodName string) (analyse.ResolvedMethod, bool) {

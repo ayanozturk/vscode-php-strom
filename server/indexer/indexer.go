@@ -694,6 +694,7 @@ func parseSource(ctx context.Context, uri, src string, skipFunctionBodies bool) 
 	p.Ctx = ctx
 	p.SkipFunctionBodies = skipFunctionBodies
 	nodes := p.Parse()
+	recoverMissingMemberPHPDocs(nodes, src)
 	errs := append([]string(nil), p.Errors()...)
 	return ParsedFile{
 		URI:     uri,
@@ -704,6 +705,53 @@ func parseSource(ctx context.Context, uri, src string, skipFunctionBodies bool) 
 		Lines:   countLines([]byte(src)),
 		Bytes:   len(src),
 	}
+}
+
+func recoverMissingMemberPHPDocs(nodes []ast.Node, src string) {
+	for _, node := range nodes {
+		switch n := node.(type) {
+		case *ast.NamespaceNode:
+			recoverMissingMemberPHPDocs(n.Body, src)
+		case *ast.ClassNode:
+			for _, methodNode := range n.Methods {
+				if method, ok := methodNode.(*ast.FunctionNode); ok && method.PHPDoc == nil {
+					method.PHPDoc = phpDocImmediatelyBefore(src, method.GetPos().Offset)
+				}
+			}
+		case *ast.InterfaceNode:
+			for _, member := range n.Members {
+				if method, ok := member.(*ast.InterfaceMethodNode); ok && method.PHPDoc == nil {
+					method.PHPDoc = phpDocImmediatelyBefore(src, method.GetPos().Offset)
+				}
+			}
+		}
+	}
+}
+
+func phpDocImmediatelyBefore(src string, offset int) *ast.PHPDocNode {
+	if offset <= 0 || offset > len(src) {
+		return nil
+	}
+	prefix := src[:offset]
+	end := strings.LastIndex(prefix, "*/")
+	if end < 0 {
+		return nil
+	}
+	start := strings.LastIndex(prefix[:end], "/**")
+	if start < 0 {
+		return nil
+	}
+	if strings.Contains(prefix[start:end], "*/") {
+		return nil
+	}
+	for _, field := range strings.Fields(prefix[end+2:]) {
+		switch strings.ToLower(field) {
+		case "public", "protected", "private", "static", "final", "abstract", "readonly", "&":
+		default:
+			return nil
+		}
+	}
+	return ast.ExtractPHPDocFromComment(prefix[start : end+2])
 }
 
 // extractSymbols parses PHP source and extracts top-level declarations.
@@ -774,17 +822,20 @@ func extractFromNodes(nodes []ast.Node, uri string, ctx extractionContext, syms 
 
 		case *ast.ClassNode:
 			classFQN := fqn(ctx.namespace, n.Name)
+			templates, genericParents := extractGenericMetadata(n.PHPDoc, ctx)
 			sym := &Symbol{
-				FQN:        classFQN,
-				Name:       n.Name,
-				Kind:       KindClass,
-				Namespace:  ctx.namespace,
-				URI:        uri,
-				Range:      positionRange(n.GetPos()),
-				DocComment: docRaw(n.PHPDoc),
-				IsFinal:    hasModifier(n.Modifier, "final"),
-				IsAbstract: hasModifier(n.Modifier, "abstract"),
-				Visibility: "public",
+				FQN:            classFQN,
+				Name:           n.Name,
+				Kind:           KindClass,
+				Namespace:      ctx.namespace,
+				URI:            uri,
+				Range:          positionRange(n.GetPos()),
+				DocComment:     docRaw(n.PHPDoc),
+				Templates:      templates,
+				GenericParents: genericParents,
+				IsFinal:        hasModifier(n.Modifier, "final"),
+				IsAbstract:     hasModifier(n.Modifier, "abstract"),
+				Visibility:     "public",
 			}
 			if n.Extends != "" {
 				sym.Extends = []string{resolveClassLike(ctx, n.Extends)}
@@ -794,26 +845,29 @@ func extractFromNodes(nodes []ast.Node, uri string, ctx extractionContext, syms 
 			}
 			*syms = append(*syms, sym)
 			extractPHPDocMethods(n.PHPDoc, uri, classFQN, ctx, syms)
-			extractClassMembers(n, uri, classFQN, ctx, syms)
+			extractClassMembers(n, uri, classFQN, ctx, templates, syms)
 
 		case *ast.InterfaceNode:
 			interfaceFQN := fqn(ctx.namespace, n.Name)
+			templates, genericParents := extractGenericMetadata(n.PHPDoc, ctx)
 			extends := make([]string, 0, len(n.Extends))
 			for _, parent := range n.Extends {
 				extends = append(extends, resolveClassLike(ctx, parent))
 			}
 			*syms = append(*syms, &Symbol{
-				FQN:        interfaceFQN,
-				Name:       n.Name,
-				Kind:       KindInterface,
-				Namespace:  ctx.namespace,
-				URI:        uri,
-				Range:      positionRange(n.GetPos()),
-				DocComment: docRaw(n.PHPDoc),
-				Extends:    extends,
-				Visibility: "public",
+				FQN:            interfaceFQN,
+				Name:           n.Name,
+				Kind:           KindInterface,
+				Namespace:      ctx.namespace,
+				URI:            uri,
+				Range:          positionRange(n.GetPos()),
+				DocComment:     docRaw(n.PHPDoc),
+				Extends:        extends,
+				Templates:      templates,
+				GenericParents: genericParents,
+				Visibility:     "public",
 			})
-			extractInterfaceMembers(n.Members, uri, interfaceFQN, ctx, syms)
+			extractInterfaceMembers(n.Members, uri, interfaceFQN, ctx, templates, syms)
 
 		case *ast.TraitNode:
 			traitName := ""
@@ -903,6 +957,10 @@ func resolveClassLike(ctx extractionContext, name string) string {
 }
 
 func resolveTypeHint(ctx extractionContext, raw string) string {
+	return resolveTypeHintWithTemplates(ctx, raw, nil)
+}
+
+func resolveTypeHintWithTemplates(ctx extractionContext, raw string, templates []string) string {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return ""
@@ -915,10 +973,18 @@ func resolveTypeHint(ctx extractionContext, raw string) string {
 	}
 
 	parts := strings.Split(raw, "|")
+	templateSet := make(map[string]struct{}, len(templates))
+	for _, template := range templates {
+		templateSet[template] = struct{}{}
+	}
 	for idx, part := range parts {
 		intersections := strings.Split(part, "&")
 		for innerIdx, atom := range intersections {
 			atom = strings.TrimSpace(atom)
+			if _, ok := templateSet[atom]; ok {
+				intersections[innerIdx] = atom
+				continue
+			}
 			if atom == "" || !isResolvableClassLikeType(atom) {
 				intersections[innerIdx] = atom
 				continue
@@ -929,6 +995,114 @@ func resolveTypeHint(ctx extractionContext, raw string) string {
 	}
 
 	return prefix + strings.Join(parts, "|")
+}
+
+func extractGenericMetadata(doc *ast.PHPDocNode, ctx extractionContext) ([]string, []GenericParent) {
+	if doc == nil {
+		return nil, nil
+	}
+	var templates []string
+	var parentExpressions []string
+	for _, rawLine := range strings.Split(doc.RawContent, "\n") {
+		line := strings.TrimSpace(rawLine)
+		line = strings.TrimSpace(strings.TrimPrefix(line, "/**"))
+		line = strings.TrimSpace(strings.TrimSuffix(line, "*/"))
+		line = strings.TrimSpace(strings.TrimPrefix(line, "*"))
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		tag := strings.ToLower(strings.TrimPrefix(fields[0], "@"))
+		switch tag {
+		case "template", "template-covariant", "template-contravariant", "phpstan-template", "psalm-template":
+			templates = append(templates, fields[1])
+		case "extends", "template-extends", "phpstan-extends", "psalm-extends", "implements", "template-implements", "phpstan-implements", "psalm-implements":
+			parentExpressions = append(parentExpressions, strings.Join(fields[1:], " "))
+		}
+	}
+
+	parents := make([]GenericParent, 0, len(parentExpressions))
+	for _, expression := range parentExpressions {
+		name, arguments, ok := parseGenericTypeReference(expression)
+		if !ok || len(arguments) == 0 {
+			continue
+		}
+		parent := GenericParent{FQN: resolveClassLike(ctx, name)}
+		for _, argument := range arguments {
+			parent.TypeArguments = append(parent.TypeArguments, resolveGenericArgument(ctx, argument, templates))
+		}
+		parents = append(parents, parent)
+	}
+	return templates, parents
+}
+
+func parseGenericTypeReference(raw string) (string, []string, bool) {
+	raw = strings.TrimSpace(raw)
+	open := strings.Index(raw, "<")
+	if open <= 0 {
+		return "", nil, false
+	}
+	depth, close := 0, -1
+	for idx, r := range raw[open:] {
+		switch r {
+		case '<':
+			depth++
+		case '>':
+			depth--
+			if depth == 0 {
+				close = open + idx
+				break
+			}
+		}
+		if close >= 0 {
+			break
+		}
+	}
+	if close < 0 {
+		return "", nil, false
+	}
+	return strings.TrimSpace(raw[:open]), splitGenericArguments(raw[open+1 : close]), true
+}
+
+func splitGenericArguments(raw string) []string {
+	start, depth := 0, 0
+	var parts []string
+	for idx, r := range raw {
+		switch r {
+		case '<', '(', '{', '[':
+			depth++
+		case '>', ')', '}', ']':
+			if depth > 0 {
+				depth--
+			}
+		case ',':
+			if depth == 0 {
+				parts = append(parts, strings.TrimSpace(raw[start:idx]))
+				start = idx + 1
+			}
+		}
+	}
+	return append(parts, strings.TrimSpace(raw[start:]))
+}
+
+func resolveGenericArgument(ctx extractionContext, raw string, templates []string) string {
+	raw = strings.TrimSpace(raw)
+	for _, template := range templates {
+		if raw == template {
+			return raw
+		}
+	}
+	if name, arguments, ok := parseGenericTypeReference(raw); ok {
+		for i := range arguments {
+			arguments[i] = resolveGenericArgument(ctx, arguments[i], templates)
+		}
+		base := name
+		if isResolvableClassLikeType(name) {
+			base = strings.TrimPrefix(resolveClassLike(ctx, name), `\`)
+		}
+		return base + "<" + strings.Join(arguments, ",") + ">"
+	}
+	return resolveTypeHintWithTemplates(ctx, raw, templates)
 }
 
 func isResolvableClassLikeType(name string) bool {
@@ -948,7 +1122,7 @@ func unqualifiedTypeName(name string) string {
 	return name
 }
 
-func extractClassMembers(class *ast.ClassNode, uri, classFQN string, ctx extractionContext, syms *[]*Symbol) {
+func extractClassMembers(class *ast.ClassNode, uri, classFQN string, ctx extractionContext, templates []string, syms *[]*Symbol) {
 	for _, property := range promotedPropertySymbols(class, uri, classFQN, ctx) {
 		*syms = append(*syms, property)
 	}
@@ -959,6 +1133,10 @@ func extractClassMembers(class *ast.ClassNode, uri, classFQN string, ctx extract
 			continue
 		}
 		visibility := visibilityFromModifiers(method.Visibility, method.Modifiers)
+		returnType := method.ReturnType
+		if method.PHPDoc != nil && method.PHPDoc.ReturnType != "" {
+			returnType = method.PHPDoc.ReturnType
+		}
 		*syms = append(*syms, &Symbol{
 			FQN:        classFQN + "::" + method.Name,
 			Name:       method.Name,
@@ -966,12 +1144,12 @@ func extractClassMembers(class *ast.ClassNode, uri, classFQN string, ctx extract
 			URI:        uri,
 			Range:      positionRange(method.GetPos()),
 			DocComment: docRaw(method.PHPDoc),
-			ReturnType: resolveTypeHint(ctx, method.ReturnType),
+			ReturnType: resolveTypeHintWithTemplates(ctx, returnType, templates),
 			IsStatic:   hasModifierList(method.Modifiers, "static"),
 			IsAbstract: hasModifierList(method.Modifiers, "abstract"),
 			IsFinal:    hasModifierList(method.Modifiers, "final"),
 			Visibility: visibility,
-			Params:     extractParams(ctx, method.Params),
+			Params:     extractParamsWithPHPDoc(ctx, method.Params, method.PHPDoc, templates),
 		})
 	}
 
@@ -1171,10 +1349,14 @@ func extractTraitMembers(members []ast.Node, uri, traitFQN string, ctx extractio
 	}
 }
 
-func extractInterfaceMembers(members []ast.Node, uri, interfaceFQN string, ctx extractionContext, syms *[]*Symbol) {
+func extractInterfaceMembers(members []ast.Node, uri, interfaceFQN string, ctx extractionContext, templates []string, syms *[]*Symbol) {
 	for _, member := range members {
 		switch n := member.(type) {
 		case *ast.InterfaceMethodNode:
+			returnType := typeNodeToString(n.ReturnType)
+			if n.PHPDoc != nil && n.PHPDoc.ReturnType != "" {
+				returnType = n.PHPDoc.ReturnType
+			}
 			*syms = append(*syms, &Symbol{
 				FQN:        interfaceFQN + "::" + n.Name,
 				Name:       n.Name,
@@ -1182,9 +1364,9 @@ func extractInterfaceMembers(members []ast.Node, uri, interfaceFQN string, ctx e
 				URI:        uri,
 				Range:      positionRange(n.GetPos()),
 				DocComment: docRaw(n.PHPDoc),
-				ReturnType: resolveTypeHint(ctx, typeNodeToString(n.ReturnType)),
+				ReturnType: resolveTypeHintWithTemplates(ctx, returnType, templates),
 				Visibility: defaultVisibility(n.Visibility),
-				Params:     extractParams(ctx, n.Params),
+				Params:     extractParamsWithPHPDoc(ctx, n.Params, n.PHPDoc, templates),
 			})
 		case *ast.ConstantNode:
 			*syms = append(*syms, &Symbol{
@@ -1213,15 +1395,25 @@ func extractEnumCases(cases []*ast.EnumCaseNode, uri, enumFQN string, syms *[]*S
 }
 
 func extractParams(ctx extractionContext, params []ast.Node) []SymbolParam {
+	return extractParamsWithPHPDoc(ctx, params, nil, nil)
+}
+
+func extractParamsWithPHPDoc(ctx extractionContext, params []ast.Node, doc *ast.PHPDocNode, templates []string) []SymbolParam {
 	sp := make([]SymbolParam, 0, len(params))
 	for _, param := range params {
 		p, ok := param.(*ast.ParamNode)
 		if !ok {
 			continue
 		}
+		typeHint := paramTypeToString(p)
+		if doc != nil {
+			if documented := doc.GetParamTypeFromPHPDoc(p.Name); documented != "" {
+				typeHint = documented
+			}
+		}
 		sp = append(sp, SymbolParam{
 			Name:        p.Name,
-			Type:        resolveTypeHint(ctx, paramTypeToString(p)),
+			Type:        resolveTypeHintWithTemplates(ctx, typeHint, templates),
 			HasDefault:  p.DefaultValue != nil,
 			IsVariadic:  p.IsVariadic,
 			IsPassByRef: p.IsByRef,

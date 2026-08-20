@@ -241,6 +241,40 @@ class ShiftRepository extends AbstractRepository
 	t.Fatal("expected PHPDoc @method find symbol")
 }
 
+func TestExtractSymbolsIndexesGenericClassInheritance(t *testing.T) {
+	syms := extractSymbols("file:///workspace/Repositories.php", `<?php
+namespace App;
+
+/**
+ * @template T
+ */
+abstract class GenericStore {
+    /**
+     * @return T|null
+     */
+    public function lookup(string $id): ?object {}
+}
+
+/**
+ * @extends GenericStore<Record>
+ */
+class RecordStore extends GenericStore {}
+`)
+	for _, sym := range syms {
+		if sym.FQN == `\App\GenericStore::lookup` && sym.ReturnType != "T|null" {
+			t.Fatalf("expected template method return type to be preserved, got %q", sym.ReturnType)
+		}
+		if sym.Name != "RecordStore" {
+			continue
+		}
+		if len(sym.GenericParents) != 1 || sym.GenericParents[0].FQN != `\App\GenericStore` || len(sym.GenericParents[0].TypeArguments) != 1 || sym.GenericParents[0].TypeArguments[0] != `App\Record` {
+			t.Fatalf("unexpected generic parent metadata: %#v", sym.GenericParents)
+		}
+		return
+	}
+	t.Fatal("expected RecordStore symbol")
+}
+
 func TestExtractSymbolsResolvesImplementedInterfacesToFQNs(t *testing.T) {
 	src := `<?php
 namespace Doctrine\Common\Collections;

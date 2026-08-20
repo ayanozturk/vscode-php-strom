@@ -530,6 +530,61 @@ class Controller
 	}
 }
 
+func TestDiagnosticsProvider_BindsInheritedGenericMethodReturnType(t *testing.T) {
+	idx := indexer.New(indexer.Config{})
+	idx.IndexDocument("file:///workspace/Record.php", `<?php
+namespace App;
+class Record {}
+`)
+	idx.IndexDocument("file:///workspace/GenericStore.php", `<?php
+namespace App;
+/** @template T */
+abstract class GenericStore
+{
+    /** @return T|null */
+    public function lookup(string $id): ?object {}
+}
+`)
+	idx.IndexDocument("file:///workspace/RecordStore.php", `<?php
+namespace App;
+/** @extends GenericStore<Record> */
+class RecordStore extends GenericStore {}
+`)
+	idx.IndexDocument("file:///workspace/RecordProcessor.php", `<?php
+namespace App;
+class RecordProcessor
+{
+    public function process(Record $record): void {}
+}
+`)
+
+	p := &DiagnosticsProvider{idx: idx}
+	diags := p.Analyse("file:///workspace/Controller.php", `<?php
+namespace App;
+
+class Controller
+{
+    private RecordStore $store;
+    private RecordProcessor $processor;
+
+    public function run(string $id): void
+    {
+        $record = $this->store->lookup($id);
+        if (!$record) {
+            return;
+        }
+        $this->processor->process($record);
+    }
+}
+`)
+
+	for _, diag := range diags {
+		if code, ok := diag.Code.(string); ok && code == "A.ARG.TYPE" && strings.Contains(diag.Message, "process") {
+			t.Fatalf("expected inherited generic return type to satisfy argument type, got %+v", diag)
+		}
+	}
+}
+
 func TestDiagnosticsProvider_UsesProjectIndexForWorkspaceFunctions(t *testing.T) {
 	idx := indexer.New(indexer.Config{})
 	idx.IndexDocument("file:///workspace/helpers.php", `<?php

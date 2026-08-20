@@ -104,6 +104,60 @@ class Example
 	}
 }
 
+func TestHoverProviderBindsGenericAssignmentAndNarrowsAfterNullGuard(t *testing.T) {
+	idx := indexer.New(indexer.Config{})
+	idx.IndexDocument("file:///workspace/Record.php", "<?php\nnamespace App;\nclass Record {}\n")
+	idx.IndexDocument("file:///workspace/GenericStore.php", `<?php
+namespace App;
+/** @template T */
+abstract class GenericStore
+{
+    /** @return T|null */
+    public function lookup(string $id): ?object {}
+}
+`)
+	idx.IndexDocument("file:///workspace/RecordStore.php", `<?php
+namespace App;
+/** @extends GenericStore<Record> */
+class RecordStore extends GenericStore {}
+`)
+	idx.IndexDocument("file:///workspace/RecordProcessor.php", `<?php
+namespace App;
+class RecordProcessor
+{
+    public function process(Record $record): void {}
+}
+`)
+	provider := &HoverProvider{idx: idx}
+	text := `<?php
+namespace App;
+
+class Controller
+{
+    private RecordStore $store;
+    private RecordProcessor $processor;
+
+    public function run(string $id): void
+    {
+        $record = $this->store->lookup($id);
+        if (!$record) {
+            throw new \RuntimeException();
+        }
+        $this->processor->process($record);
+    }
+}
+`
+
+	assigned := provider.Provide("file:///workspace/Controller.php", text, lsp.Position{Line: 10, Character: 10})
+	if assigned == nil || !strings.Contains(assigned.Contents.Value, "```php\nApp\\Record|null\n```") {
+		t.Fatalf("expected bound nullable assignment hover, got %#v", assigned)
+	}
+	afterGuard := provider.Provide("file:///workspace/Controller.php", text, lsp.Position{Line: 14, Character: 35})
+	if afterGuard == nil || !strings.Contains(afterGuard.Contents.Value, "```php\nApp\\Record\n```") {
+		t.Fatalf("expected non-null hover after terminating guard, got %#v", afterGuard)
+	}
+}
+
 func TestHoverProviderShowsWorkspaceResolvedPropertyType(t *testing.T) {
 	idx := indexer.New(indexer.Config{})
 	idx.IndexDocument("file:///workspace/UserRepository.php", `<?php
