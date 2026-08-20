@@ -29,5 +29,5 @@ export async function run(): Promise<void> {
   assert.ok(languages.includes('php'), 'expected PHP language contribution');
 
   const scanOnStart = manifest.contributes?.configuration?.properties?.['phpstrom.diagnostics.workspaceScanOnStart'];
-  assert.equal(scanOnStart?.default, true, 'expected full workspace analysis to run after activation');
+  assert.equal(scanOnStart?.default, false, 'expected startup to index symbols without running full diagnostics');
 }

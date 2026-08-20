@@ -35,18 +35,28 @@ func inferVariableFlowHoverType(nodes []ast.Node, targetLine int, variableName s
 }
 
 func inferVariableTypeThroughStatements(allNodes, statements []ast.Node, targetLine int, variableName string, ctx *analyse.AnalysisContext) (string, bool) {
+	return inferVariableTypeThroughStatementsWithScope(allNodes, statements, targetLine, variableName, ctx, make(map[string]string))
+}
+
+func inferVariableTypeThroughStatementsWithScope(allNodes, statements []ast.Node, targetLine int, variableName string, ctx *analyse.AnalysisContext, variableTypes map[string]string) (string, bool) {
 	currentType := ""
 	for _, statement := range statements {
 		if assignment := assignmentFromStatement(statement); assignment != nil {
-			if variable, ok := assignment.Left.(*ast.VariableNode); ok && variable.Name == variableName {
-				currentType = inferAssignmentRightType(allNodes, assignment.Right, ctx)
+			if variable, ok := assignment.Left.(*ast.VariableNode); ok {
+				assignedType := inferAssignmentRightType(allNodes, assignment.Right, ctx, variableTypes)
+				if assignedType != "" {
+					variableTypes[variable.Name] = assignedType
+				}
+				if variable.Name == variableName {
+					currentType = assignedType
+				}
 			}
 		}
 
 		if nodeContainsVariableAtLine(statement, targetLine, variableName) {
 			if conditional, ok := statement.(*ast.IfNode); ok {
 				if nodesContainVariableAtLine(conditional.Body, targetLine, variableName) {
-					return inferVariableTypeThroughStatements(allNodes, conditional.Body, targetLine, variableName, ctx)
+					return inferVariableTypeThroughStatementsWithScope(allNodes, conditional.Body, targetLine, variableName, ctx, cloneHoverVariableTypes(variableTypes))
 				}
 			}
 			return currentType, currentType != ""
@@ -57,6 +67,14 @@ func inferVariableTypeThroughStatements(allNodes, statements []ast.Node, targetL
 		}
 	}
 	return currentType, currentType != ""
+}
+
+func cloneHoverVariableTypes(source map[string]string) map[string]string {
+	cloned := make(map[string]string, len(source))
+	for name, typeName := range source {
+		cloned[name] = typeName
+	}
+	return cloned
 }
 
 func assignmentFromStatement(node ast.Node) *ast.AssignmentNode {
@@ -71,14 +89,28 @@ func assignmentFromStatement(node ast.Node) *ast.AssignmentNode {
 	}
 }
 
-func inferAssignmentRightType(allNodes []ast.Node, node ast.Node, ctx *analyse.AnalysisContext) string {
+func inferAssignmentRightType(allNodes []ast.Node, node ast.Node, ctx *analyse.AnalysisContext, variableTypes map[string]string) string {
 	call, ok := node.(*ast.MethodCallNode)
 	if !ok {
 		return ""
 	}
+	if receiver, ok := call.Object.(*ast.VariableNode); ok && ctx != nil && ctx.Resolver != nil {
+		if receiverType := variableTypes[receiver.Name]; receiverType != "" {
+			if className, single := analyse.ParseType(receiverType).SingleClassName(); single {
+				if method, resolved := ctx.Resolver.ResolveMethod(className, call.Method); resolved {
+					return method.ReturnType
+				}
+			}
+		}
+	}
 	target, ok := analyse.InferHoverTargetAtPosition(allNodes, call.GetPos().Line, call.GetPos().Column, call.Method, ctx)
 	if !ok {
 		return ""
+	}
+	if (target.Type == "" || target.Type == "mixed") && target.ReceiverClass != "" && ctx != nil && ctx.Resolver != nil {
+		if method, resolved := ctx.Resolver.ResolveMethod(target.ReceiverClass, call.Method); resolved {
+			return method.ReturnType
+		}
 	}
 	return target.Type
 }

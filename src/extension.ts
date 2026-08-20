@@ -268,14 +268,19 @@ async function startClient(context: vscode.ExtensionContext, clearCache = false)
 
   client.onNotification(
     'phpstrom/workspaceDiagnosticsFinished',
-    (params: { filesWithDiagnostics: number; totalDiagnostics: number; capped: boolean }) => {
-      diagnosticsTreeProvider.finishWorkspaceScan({
+    (params: { filesWithDiagnostics: number; totalDiagnostics: number; capped: boolean; applied: boolean }) => {
+      const summary = {
         totalDiagnostics: params.totalDiagnostics,
         capped: params.capped,
-      });
+      };
+      if (params.applied) {
+        diagnosticsTreeProvider.finishWorkspaceScan(summary);
+      } else {
+        diagnosticsTreeProvider.cancelWorkspaceScan(summary);
+      }
       outputChannel.appendLine(
-        params.capped
-          ? `[phpstrom] Project diagnostics scan stopped at ${params.totalDiagnostics.toLocaleString()} diagnostics across ${params.filesWithDiagnostics.toLocaleString()} file(s)`
+        !params.applied
+          ? `[phpstrom] Project diagnostics scan reached its safety limit and was not applied (${params.totalDiagnostics.toLocaleString()} diagnostics collected)`
           : `[phpstrom] Project diagnostics scan complete — ${params.filesWithDiagnostics.toLocaleString()} file(s) with diagnostics`,
       );
     },
@@ -445,7 +450,7 @@ function getConfiguration(): Record<string, unknown> {
     diagnostics: {
       enable: config.get<boolean>('diagnostics.enable', true),
       run: config.get<string>('diagnostics.run', 'onType'),
-      workspaceScanOnStart: config.get<boolean>('diagnostics.workspaceScanOnStart', true),
+      workspaceScanOnStart: config.get<boolean>('diagnostics.workspaceScanOnStart', false),
       undefinedSymbols: config.get<boolean>('diagnostics.undefinedSymbols', true),
       undefinedVariables: config.get<boolean>('diagnostics.undefinedVariables', true),
       typeErrors: config.get<boolean>('diagnostics.typeErrors', true),

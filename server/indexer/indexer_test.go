@@ -425,3 +425,34 @@ func TestCollectWorkspaceFilePathsIndexesGitignoredVendorDependencies(t *testing
 
 	t.Fatalf("expected gitignored Composer dependency to be indexed, got %#v", paths)
 }
+
+func TestUpdateConfigAppliesWorkspaceExcludes(t *testing.T) {
+	tmpDir := t.TempDir()
+	excludedFile := filepath.Join(tmpDir, "generated", "Generated.php")
+	if err := os.MkdirAll(filepath.Dir(excludedFile), 0o755); err != nil {
+		t.Fatalf("mkdir generated tree: %v", err)
+	}
+	if err := os.WriteFile(excludedFile, []byte("<?php\nclass Generated {}\n"), 0o644); err != nil {
+		t.Fatalf("write generated file: %v", err)
+	}
+
+	wi := New(Config{Associations: []string{"**/*.php"}, MaxSize: 1_000_000})
+	folders := []WorkspaceFolder{{URI: pathToURI(tmpDir), Name: "tmp"}}
+	wi.SetWorkspaceFolders(folders)
+	wi.UpdateConfig(Config{
+		Associations: []string{"**/*.php"},
+		Exclude:      []string{"**/generated/**"},
+		MaxSize:      1_000_000,
+	})
+
+	paths := wi.collectWorkspaceFilePaths(folders, wi.gitignores)
+	if len(paths) != 0 {
+		t.Fatalf("expected updated excludes to omit generated files, got %#v", paths)
+	}
+}
+
+func TestDiagnosticWorkerCountLeavesInteractiveCapacity(t *testing.T) {
+	if got := DiagnosticWorkerCountFor(1_000); got > 2 {
+		t.Fatalf("expected at most two full-analysis workers, got %d", got)
+	}
+}

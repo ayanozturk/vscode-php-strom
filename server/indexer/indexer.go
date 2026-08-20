@@ -80,22 +80,34 @@ func splitPathSegments(p string) []string {
 
 // New creates a WorkspaceIndexer with the given configuration.
 func New(cfg Config) *WorkspaceIndexer {
-	var compiledExcludes [][]string
-	for _, pat := range cfg.Exclude {
-		for _, expanded := range expandBracePattern(filepath.ToSlash(pat)) {
-			compiledExcludes = append(compiledExcludes, splitPathSegments(expanded))
-		}
-	}
 	wi := &WorkspaceIndexer{
 		cfg:              cfg,
 		index:            newIndex(),
 		project:          analyse.NewProjectIndex(),
 		projectNodes:     make(map[string][]ast.Node),
 		projectHashes:    make(map[string]uint64),
-		compiledExcludes: compiledExcludes,
+		compiledExcludes: compileExcludePatterns(cfg.Exclude),
 	}
 	wi.loadConfiguredStubs()
 	return wi
+}
+
+// UpdateConfig applies file discovery and size settings to future indexing work.
+func (wi *WorkspaceIndexer) UpdateConfig(cfg Config) {
+	wi.mu.Lock()
+	wi.cfg = cfg
+	wi.compiledExcludes = compileExcludePatterns(cfg.Exclude)
+	wi.mu.Unlock()
+}
+
+func compileExcludePatterns(patterns []string) [][]string {
+	var compiled [][]string
+	for _, pattern := range patterns {
+		for _, expanded := range expandBracePattern(filepath.ToSlash(pattern)) {
+			compiled = append(compiled, splitPathSegments(expanded))
+		}
+	}
+	return compiled
 }
 
 // SetWorkspaceFolders updates the list of root folders to index.
@@ -259,6 +271,16 @@ func WorkerCountFor(total int) int {
 	}
 	if workers > total {
 		workers = total
+	}
+	return workers
+}
+
+// DiagnosticWorkerCountFor leaves CPU capacity for VS Code and interactive
+// language features while a full-project analysis is running.
+func DiagnosticWorkerCountFor(total int) int {
+	workers := WorkerCountFor(total)
+	if workers > 2 {
+		return 2
 	}
 	return workers
 }
@@ -427,8 +449,8 @@ func (wi *WorkspaceIndexer) collectWorkspaceFilePathsParallel(folders []Workspac
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 
-	// Limit concurrent directory walks to avoid OS file descriptor exhaustion
-	sem := make(chan struct{}, 32)
+	// Keep discovery I/O bounded so activation does not monopolise the disk.
+	sem := make(chan struct{}, 8)
 
 	var walk func(string)
 	walk = func(path string) {
@@ -555,12 +577,15 @@ func (wi *WorkspaceIndexer) parseIndexableFile(path string, skipFunctionBodies b
 	ctx, cancel := context.WithTimeout(context.Background(), perFileParseTimeout)
 	defer cancel()
 
-	data, size, oversized, err := ReadFileWithinLimit(path, wi.cfg.MaxSize)
+	wi.mu.RLock()
+	maxSize := wi.cfg.MaxSize
+	wi.mu.RUnlock()
+	data, size, oversized, err := ReadFileWithinLimit(path, maxSize)
 	if err != nil {
 		return ParsedFile{}, "read-error"
 	}
 	if oversized {
-		log.Printf("[indexer] skipping oversized file (observed %d bytes, limit %d): %s", size, wi.cfg.MaxSize, path)
+		log.Printf("[indexer] skipping oversized file (observed %d bytes, limit %d): %s", size, maxSize, path)
 		return ParsedFile{}, "oversized-file"
 	}
 
@@ -646,11 +671,14 @@ func countLines(data []byte) int {
 }
 
 func (wi *WorkspaceIndexer) shouldExcludeDir(path string) bool {
-	if len(wi.compiledExcludes) == 0 {
+	wi.mu.RLock()
+	compiledExcludes := append([][]string(nil), wi.compiledExcludes...)
+	wi.mu.RUnlock()
+	if len(compiledExcludes) == 0 {
 		return false
 	}
 	segments := splitPathSegments(path)
-	for _, patternSegments := range wi.compiledExcludes {
+	for _, patternSegments := range compiledExcludes {
 		if matchSegmentSequence(patternSegments, segments) {
 			return true
 		}
@@ -714,18 +742,77 @@ func recoverMissingMemberPHPDocs(nodes []ast.Node, src string) {
 			recoverMissingMemberPHPDocs(n.Body, src)
 		case *ast.ClassNode:
 			for _, methodNode := range n.Methods {
-				if method, ok := methodNode.(*ast.FunctionNode); ok && method.PHPDoc == nil {
-					method.PHPDoc = phpDocImmediatelyBefore(src, method.GetPos().Offset)
+				if method, ok := methodNode.(*ast.FunctionNode); ok {
+					if method.PHPDoc == nil {
+						method.PHPDoc = phpDocImmediatelyBefore(src, method.GetPos().Offset)
+					}
+					repairGenericPHPDocTypes(method.PHPDoc)
 				}
 			}
 		case *ast.InterfaceNode:
 			for _, member := range n.Members {
-				if method, ok := member.(*ast.InterfaceMethodNode); ok && method.PHPDoc == nil {
-					method.PHPDoc = phpDocImmediatelyBefore(src, method.GetPos().Offset)
+				if method, ok := member.(*ast.InterfaceMethodNode); ok {
+					if method.PHPDoc == nil {
+						method.PHPDoc = phpDocImmediatelyBefore(src, method.GetPos().Offset)
+					}
+					repairGenericPHPDocTypes(method.PHPDoc)
 				}
 			}
 		}
 	}
+}
+
+func repairGenericPHPDocTypes(doc *ast.PHPDocNode) {
+	if doc == nil {
+		return
+	}
+	for _, rawLine := range strings.Split(doc.RawContent, "\n") {
+		line := strings.TrimSpace(rawLine)
+		line = strings.TrimSpace(strings.TrimPrefix(line, "/**"))
+		line = strings.TrimSpace(strings.TrimSuffix(line, "*/"))
+		line = strings.TrimSpace(strings.TrimPrefix(line, "*"))
+		switch {
+		case strings.HasPrefix(line, "@return"):
+			typeName, _ := phpDocTypeAndRest(strings.TrimSpace(strings.TrimPrefix(line, "@return")))
+			doc.ReturnType = typeName
+		case strings.HasPrefix(line, "@var"):
+			typeName, _ := phpDocTypeAndRest(strings.TrimSpace(strings.TrimPrefix(line, "@var")))
+			doc.VarType = typeName
+		case strings.HasPrefix(line, "@param"):
+			typeName, remainder := phpDocTypeAndRest(strings.TrimSpace(strings.TrimPrefix(line, "@param")))
+			fields := strings.Fields(remainder)
+			if typeName == "" || len(fields) == 0 {
+				continue
+			}
+			name := strings.TrimPrefix(fields[0], "$")
+			for paramIdx := range doc.Params {
+				if doc.Params[paramIdx].Name == name {
+					doc.Params[paramIdx].Type = typeName
+					break
+				}
+			}
+		}
+	}
+}
+
+func phpDocTypeAndRest(value string) (string, string) {
+	value = strings.TrimSpace(value)
+	depth := 0
+	for idx, r := range value {
+		switch r {
+		case '<', '(', '{', '[':
+			depth++
+		case '>', ')', '}', ']':
+			if depth > 0 {
+				depth--
+			}
+		case ' ', '\t':
+			if depth == 0 {
+				return strings.TrimSpace(value[:idx]), strings.TrimSpace(value[idx:])
+			}
+		}
+	}
+	return strings.TrimSpace(value), ""
 }
 
 func phpDocImmediatelyBefore(src string, offset int) *ast.PHPDocNode {
@@ -983,6 +1070,17 @@ func resolveTypeHintWithTemplates(ctx extractionContext, raw string, templates [
 			atom = strings.TrimSpace(atom)
 			if _, ok := templateSet[atom]; ok {
 				intersections[innerIdx] = atom
+				continue
+			}
+			if name, arguments, ok := parseGenericTypeReference(atom); ok {
+				for argumentIdx := range arguments {
+					arguments[argumentIdx] = resolveGenericArgument(ctx, arguments[argumentIdx], templates)
+				}
+				base := name
+				if isResolvableClassLikeType(name) {
+					base = strings.TrimPrefix(resolveClassLike(ctx, name), `\`)
+				}
+				intersections[innerIdx] = base + "<" + strings.Join(arguments, ",") + ">"
 				continue
 			}
 			if atom == "" || !isResolvableClassLikeType(atom) {

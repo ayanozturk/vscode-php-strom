@@ -222,6 +222,14 @@ export class ProjectDiagnosticsTreeProvider implements vscode.TreeDataProvider<D
     this.treeDataEmitter.fire();
   }
 
+  cancelWorkspaceScan(summary?: ScanSummary): void {
+    this.stagedDiagnosticsByUri = undefined;
+    this.workspaceScanInProgress = false;
+    this.lastScanSummary = summary;
+    this.updateViewPresentation();
+    this.treeDataEmitter.fire();
+  }
+
   clear(): void {
     this.diagnosticsByUri.clear();
     this.stagedDiagnosticsByUri = undefined;

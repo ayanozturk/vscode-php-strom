@@ -6,6 +6,7 @@ import (
 
 	"github.com/ayanozturk/go-php-parser/analyse"
 	"github.com/ayanozturk/go-php-parser/overrides"
+	"github.com/ayanozturk/go-php-parser/sharedcache"
 
 	"github.com/ayanozturk/vscode-php-strom/indexer"
 	"github.com/ayanozturk/vscode-php-strom/lsp"
@@ -127,6 +128,36 @@ class Foo
 `)
 	// May still have style issues; just verify it doesn't panic
 	_ = diags
+}
+
+func TestDiagnosticsProvider_UsesCurrentDocumentForSourceBackedRules(t *testing.T) {
+	const uri = "file:///snapshot-boundary.php"
+	const filename = "/snapshot-boundary.php"
+	sharedcache.StoreCachedFileContent(filename, []byte("<?php\n;\n"))
+	t.Cleanup(func() { sharedcache.DeleteCachedFileContent(filename) })
+
+	source := `<?php
+final class BuilderExample
+{
+    public function configure(object $builder): void
+    {
+        $builder
+            ->add('field', [
+                'rules' => [
+                    new Constraint(
+                        pattern: '/^[a-z]+$/',
+                        message: 'Enter a valid value.',
+                    ),
+                ],
+            ]);
+    }
+}
+`
+
+	diagnostics := (&DiagnosticsProvider{}).Analyse(uri, source)
+	if hasDiagnosticCode(diagnostics, "Generic.CodeAnalysis.EmptyStatement") {
+		t.Fatalf("expected source-backed rules to use the current document snapshot, got %+v", diagnostics)
+	}
 }
 
 func TestDiagnosticsProvider_MethodClosingBraceOnOwnLine(t *testing.T) {

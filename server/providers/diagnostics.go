@@ -4,11 +4,14 @@ package providers
 // style rules from github.com/ayanozturk/go-php-parser (local: go-phpcs).
 
 import (
+	"hash/crc32"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/ayanozturk/go-php-parser/analyse"
 	"github.com/ayanozturk/go-php-parser/ast"
+	"github.com/ayanozturk/go-php-parser/sharedcache"
 	"github.com/ayanozturk/go-php-parser/style"
 
 	"github.com/ayanozturk/vscode-php-strom/indexer"
@@ -16,6 +19,21 @@ import (
 )
 
 const parserDiagnosticCode = "Parser Errors"
+
+var analysisSourceLocks [64]sync.Mutex
+
+func runAnalysisRulesForSource(filename, text string, nodes []ast.Node, ctx *analyse.AnalysisContext) []analyse.AnalysisIssue {
+	lock := &analysisSourceLocks[crc32.ChecksumIEEE([]byte(filename))%uint32(len(analysisSourceLocks))]
+	lock.Lock()
+	defer lock.Unlock()
+
+	source := []byte(text)
+	sharedcache.StoreCachedFileContent(filename, source)
+	defer sharedcache.DeleteCachedFileContent(filename)
+	defer sharedcache.DeleteCachedLines(source)
+
+	return analyse.RunAnalysisRulesWithContext(filename, nodes, ctx)
+}
 
 type workspaceSymbolResolver struct {
 	idx *indexer.WorkspaceIndexer
@@ -560,7 +578,7 @@ func (p *DiagnosticsProvider) analyseParsed(filename, text string, nodes []ast.N
 	analysisCtx := p.cache.analysisContextForFile(p.idx, filename, text, nodes)
 	analysisCtx.PHPVersion = p.cfg.PHPVersion
 	analysisCtx.DisabledIssueCodes = p.cfg.disabledAnalysisIssueCodes()
-	for _, issue := range analyse.FilterIssues(analyse.RunAnalysisRulesWithContext(filename, nodes, analysisCtx), p.cfg.DiagnosticsOverrides) {
+	for _, issue := range analyse.FilterIssues(runAnalysisRulesForSource(filename, text, nodes, analysisCtx), p.cfg.DiagnosticsOverrides) {
 		sev := lsp.DiagSeverityWarning
 		diags = append(diags, lsp.Diagnostic{
 			Range:    lineColToRange(issue.Line, issue.Column),

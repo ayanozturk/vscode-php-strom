@@ -1,6 +1,7 @@
 package phpstrom
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -8,11 +9,13 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/ayanozturk/go-php-parser/overrides"
 	"github.com/ayanozturk/vscode-php-strom/indexer"
 	"github.com/ayanozturk/vscode-php-strom/lsp"
 	"github.com/ayanozturk/vscode-php-strom/providers"
@@ -25,13 +28,22 @@ type Handler struct {
 	documents *DocumentStore
 	idx       *indexer.WorkspaceIndexer
 	prov      *providers.Registry
+	runtimeMu sync.RWMutex
 
 	workspaceDiagnosticsMu sync.Mutex
+	workspaceIndexMu       sync.Mutex
+	workspaceRequestMu     sync.Mutex
+	workspaceRequestActive bool
+	workspaceRequestQueued bool
+	workspaceRequestIndex  bool
 	publishedDiagnosticsMu sync.Mutex
 	publishedDiagnostics   map[string]struct{}
 	documentAnalysisMu     sync.Mutex
 	documentAnalysisTimers map[string]*time.Timer
 	documentAnalysisSem    chan struct{}
+	initialIndexing        atomic.Bool
+	initialIndexDone       chan struct{}
+	initialIndexDoneOnce   sync.Once
 }
 
 const workspaceDiagnosticsLimit = 50_000
@@ -47,6 +59,14 @@ type workspaceDiagnosticsFinishedParams struct {
 	FilesWithDiagnostics int  `json:"filesWithDiagnostics"`
 	TotalDiagnostics     int  `json:"totalDiagnostics"`
 	Capped               bool `json:"capped"`
+	Applied              bool `json:"applied"`
+}
+
+type workspaceDiagnosticResult struct {
+	diagnostics []lsp.Diagnostic
+	version     int
+	text        string
+	open        bool
 }
 
 func NewHandler(srv *Server) *Handler {
@@ -64,6 +84,7 @@ func NewHandler(srv *Server) *Handler {
 		publishedDiagnostics:   make(map[string]struct{}),
 		documentAnalysisTimers: make(map[string]*time.Timer),
 		documentAnalysisSem:    make(chan struct{}, maxDocumentAnalysisWorkers),
+		initialIndexDone:       make(chan struct{}),
 	}
 
 	idx.OnIndexingStart(func() { srv.Notify("phpstrom/indexingStarted", nil) })
@@ -174,10 +195,19 @@ func (h *Handler) HandleRequest(method string, raw json.RawMessage) (interface{}
 func (h *Handler) HandleNotification(method string, raw json.RawMessage) {
 	switch method {
 	case "initialized":
-		if h.cfg.Diagnostics.WorkspaceScanOnStart {
-			go h.indexAndPublishWorkspaceDiagnostics()
-		} else {
-			go h.indexWorkspace()
+		if h.initialIndexing.CompareAndSwap(false, true) {
+			go func() {
+				h.runtimeMu.RLock()
+				scanOnStart := h.cfg.Diagnostics.WorkspaceScanOnStart
+				h.runtimeMu.RUnlock()
+				if scanOnStart {
+					h.indexAndPublishWorkspaceDiagnostics()
+				} else {
+					h.indexWorkspace()
+				}
+				h.initialIndexing.Store(false)
+				h.initialIndexDoneOnce.Do(func() { close(h.initialIndexDone) })
+			}()
 		}
 
 	case "textDocument/didOpen":
@@ -187,9 +217,10 @@ func (h *Handler) HandleNotification(method string, raw json.RawMessage) {
 			return
 		}
 		doc := h.documents.Open(p.TextDocument)
-		h.idx.IndexDocument(doc.URI, doc.Text)
 		if h.cfg.Diagnostics.Run == "onType" {
 			h.scheduleDocumentAnalysis(doc.URI, doc.Version, 0)
+		} else {
+			h.scheduleDocumentIndex(doc.URI, doc.Version, 0)
 		}
 
 	case "textDocument/didChange":
@@ -253,18 +284,66 @@ func (h *Handler) HandleNotification(method string, raw json.RawMessage) {
 		if err := json.Unmarshal(raw, &p); err != nil {
 			return
 		}
+		h.runtimeMu.Lock()
+		beforeDiagnostics := workspaceDiagnosticsFingerprint(h.cfg)
+		beforeStubs := strings.Join(h.cfg.Stubs, "\x00")
+		beforePHPVersion := h.cfg.resolvePHPVersion(h.idx.WorkspaceFolders())
 		h.cfg.Update(p.Settings)
 		folders := h.idx.WorkspaceFolders()
 		phpVersion := h.cfg.resolvePHPVersion(folders)
-		h.idx.SetStubs(h.cfg.stubsPath(), h.cfg.Stubs, phpVersion)
+		h.idx.UpdateConfig(h.cfg.toIndexerConfig())
+		if beforeStubs != strings.Join(h.cfg.Stubs, "\x00") || beforePHPVersion != phpVersion {
+			h.idx.SetStubs(h.cfg.stubsPath(), h.cfg.Stubs, phpVersion)
+		}
 		h.prov = providers.NewRegistry(h.idx, h.cfg.toProviderConfig(folders))
-		go h.runWorkspaceDiagnosticsScan(false)
+		afterDiagnostics := workspaceDiagnosticsFingerprint(h.cfg)
+		h.runtimeMu.Unlock()
+		if !bytes.Equal(beforeDiagnostics, afterDiagnostics) {
+			h.requestWorkspaceDiagnostics(false)
+		}
+
+	case "workspace/didChangeWorkspaceFolders":
+		var p lsp.DidChangeWorkspaceFoldersParams
+		if err := json.Unmarshal(raw, &p); err != nil {
+			return
+		}
+		folders := h.idx.WorkspaceFolders()
+		removed := make(map[string]struct{}, len(p.Event.Removed))
+		for _, folder := range p.Event.Removed {
+			removed[string(folder.URI)] = struct{}{}
+		}
+		next := make([]indexer.WorkspaceFolder, 0, len(folders)+len(p.Event.Added))
+		for _, folder := range folders {
+			if _, ok := removed[folder.URI]; !ok {
+				next = append(next, folder)
+			}
+		}
+		for _, folder := range p.Event.Added {
+			next = append(next, indexer.WorkspaceFolder{URI: string(folder.URI), Name: folder.Name})
+		}
+		h.idx.SetWorkspaceFolders(next)
+		h.runtimeMu.Lock()
+		h.prov = providers.NewRegistry(h.idx, h.cfg.toProviderConfig(next))
+		scanOnStart := h.cfg.Diagnostics.WorkspaceScanOnStart
+		h.runtimeMu.Unlock()
+		go func() {
+			h.indexWorkspace()
+			if scanOnStart {
+				h.requestWorkspaceDiagnostics(false)
+				return
+			}
+			seen := make(map[string]struct{})
+			for _, uri := range h.idx.WorkspaceFileURIs() {
+				seen[uri] = struct{}{}
+			}
+			h.clearDiagnosticsOutsideWorkspace(seen)
+		}()
 
 	case "phpstrom/indexWorkspace":
 		go h.indexWorkspace()
 
 	case "phpstrom/scanWorkspaceDiagnostics":
-		go h.indexAndPublishWorkspaceDiagnostics()
+		h.requestWorkspaceDiagnostics(true)
 
 	case "exit":
 		h.cancelAllDocumentAnalysis()
@@ -285,6 +364,7 @@ func (h *Handler) initialize(raw json.RawMessage) (interface{}, *lsp.ResponseErr
 	}
 	h.idx.SetWorkspaceFolders(folders)
 	h.cfg.ApplyInitOptions(p.InitializationOptions)
+	h.idx.UpdateConfig(h.cfg.toIndexerConfig())
 	phpVersion := h.cfg.resolvePHPVersion(folders)
 	h.idx.SetStubs(h.cfg.stubsPath(), h.cfg.Stubs, phpVersion)
 	h.prov = providers.NewRegistry(h.idx, h.cfg.toProviderConfig(h.idx.WorkspaceFolders()))
@@ -341,7 +421,10 @@ func (h *Handler) initialize(raw json.RawMessage) (interface{}, *lsp.ResponseErr
 }
 
 func (h *Handler) publishDiagnostics(uri, text string, version int) bool {
-	diags := h.prov.Diagnostics.Analyse(uri, text)
+	h.runtimeMu.RLock()
+	diagnosticsProvider := h.prov.Diagnostics
+	h.runtimeMu.RUnlock()
+	diags := diagnosticsProvider.Analyse(uri, text)
 	if diags == nil {
 		diags = []lsp.Diagnostic{}
 	}
@@ -373,6 +456,10 @@ func (h *Handler) scheduleDocumentWork(uri string, version int, delay time.Durat
 			delete(h.documentAnalysisTimers, uri)
 		}
 		h.documentAnalysisMu.Unlock()
+
+		if h.initialIndexing.Load() {
+			<-h.initialIndexDone
+		}
 
 		doc, ok := h.documents.Snapshot(uri)
 		if !ok || doc.Version != version {
@@ -414,62 +501,125 @@ func (h *Handler) cancelAllDocumentAnalysis() {
 }
 
 func (h *Handler) indexWorkspace() {
+	h.workspaceIndexMu.Lock()
+	defer h.workspaceIndexMu.Unlock()
 	h.idx.IndexWorkspace()
+}
+
+func (h *Handler) requestWorkspaceDiagnostics(indexWorkspace bool) {
+	h.workspaceRequestMu.Lock()
+	h.workspaceRequestQueued = true
+	h.workspaceRequestIndex = h.workspaceRequestIndex || indexWorkspace
+	if h.workspaceRequestActive {
+		h.workspaceRequestMu.Unlock()
+		return
+	}
+	h.workspaceRequestActive = true
+	h.workspaceRequestMu.Unlock()
+
+	go func() {
+		for {
+			h.workspaceRequestMu.Lock()
+			if !h.workspaceRequestQueued {
+				h.workspaceRequestActive = false
+				h.workspaceRequestMu.Unlock()
+				return
+			}
+			index := h.workspaceRequestIndex
+			h.workspaceRequestQueued = false
+			h.workspaceRequestIndex = false
+			h.workspaceRequestMu.Unlock()
+
+			h.runWorkspaceDiagnosticsScan(index)
+		}
+	}()
 }
 
 func (h *Handler) indexAndPublishWorkspaceDiagnostics() {
-	h.srv.Notify("phpstrom/workspaceDiagnosticsStarted", nil)
-
 	h.workspaceDiagnosticsMu.Lock()
 	defer h.workspaceDiagnosticsMu.Unlock()
+	h.srv.Notify("phpstrom/workspaceDiagnosticsStarted", nil)
 	scan := newWorkspaceDiagnosticsScanState()
-	defer h.srv.Notify("phpstrom/workspaceDiagnosticsFinished", workspaceDiagnosticsFinishedParams{
-		FilesWithDiagnostics: h.publishedDiagnosticsCount(),
-		TotalDiagnostics:     scan.total(),
-		Capped:               scan.capped(),
-	})
 
-	if !h.cfg.Diagnostics.Enable {
-		h.idx.IndexWorkspace()
+	h.runtimeMu.RLock()
+	diagnosticsEnabled := h.cfg.Diagnostics.Enable
+	h.runtimeMu.RUnlock()
+	if !diagnosticsEnabled {
+		h.indexWorkspace()
 		h.clearPublishedDiagnostics()
+		h.notifyWorkspaceDiagnosticsFinished(scan, true)
 		return
 	}
 
-	h.idx.IndexWorkspace()
-	h.runWorkspaceDiagnosticsLocked(scan)
+	h.indexWorkspace()
+	applied := h.runWorkspaceDiagnosticsLocked(scan)
+	h.notifyWorkspaceDiagnosticsFinished(scan, applied)
 }
 
 func (h *Handler) runWorkspaceDiagnosticsScan(indexWorkspace bool) {
+	h.workspaceDiagnosticsMu.Lock()
+	defer h.workspaceDiagnosticsMu.Unlock()
 	h.srv.Notify("phpstrom/workspaceDiagnosticsStarted", nil)
 	scan := newWorkspaceDiagnosticsScanState()
-	defer h.srv.Notify("phpstrom/workspaceDiagnosticsFinished", workspaceDiagnosticsFinishedParams{
+
+	if indexWorkspace {
+		h.indexWorkspace()
+	}
+	applied := h.runWorkspaceDiagnosticsLocked(scan)
+	h.notifyWorkspaceDiagnosticsFinished(scan, applied)
+}
+
+func (h *Handler) notifyWorkspaceDiagnosticsFinished(scan *workspaceDiagnosticsScanState, applied bool) {
+	h.srv.Notify("phpstrom/workspaceDiagnosticsFinished", workspaceDiagnosticsFinishedParams{
 		FilesWithDiagnostics: h.publishedDiagnosticsCount(),
 		TotalDiagnostics:     scan.total(),
 		Capped:               scan.capped(),
+		Applied:              applied,
 	})
+}
 
-	if indexWorkspace {
-		h.idx.IndexWorkspace()
+func workspaceDiagnosticsFingerprint(cfg *Config) []byte {
+	value := struct {
+		Enable             bool
+		UndefinedSymbols   bool
+		UndefinedVariables bool
+		TypeErrors         bool
+		Exclude            map[string][]string
+		Overrides          overrides.RuleOverrides
+		PHPVersion         string
+		DocumentRoot       string
+		Stubs              []string
+	}{
+		Enable:             cfg.Diagnostics.Enable,
+		UndefinedSymbols:   cfg.Diagnostics.UndefinedSymbols,
+		UndefinedVariables: cfg.Diagnostics.UndefinedVariables,
+		TypeErrors:         cfg.Diagnostics.TypeErrors,
+		Exclude:            cfg.Diagnostics.Exclude,
+		Overrides:          cfg.Diagnostics.Overrides,
+		PHPVersion:         cfg.Environment.EffectivePHPVersion,
+		DocumentRoot:       cfg.Environment.DocumentRoot,
+		Stubs:              cfg.Stubs,
 	}
-	h.runWorkspaceDiagnostics(scan)
+	encoded, _ := json.Marshal(value)
+	return encoded
 }
 
-func (h *Handler) runWorkspaceDiagnostics(scan *workspaceDiagnosticsScanState) {
-	h.workspaceDiagnosticsMu.Lock()
-	defer h.workspaceDiagnosticsMu.Unlock()
-	h.runWorkspaceDiagnosticsLocked(scan)
-}
-
-func (h *Handler) runWorkspaceDiagnosticsLocked(scan *workspaceDiagnosticsScanState) {
-	if !h.cfg.Diagnostics.Enable {
+func (h *Handler) runWorkspaceDiagnosticsLocked(scan *workspaceDiagnosticsScanState) bool {
+	h.runtimeMu.RLock()
+	diagnosticsEnabled := h.cfg.Diagnostics.Enable
+	diagnosticsProvider := h.prov.Diagnostics
+	h.runtimeMu.RUnlock()
+	if !diagnosticsEnabled {
 		h.clearPublishedDiagnostics()
-		return
+		return true
 	}
 
 	workspaceURIs := h.idx.WorkspaceFileURIs()
 	seen := make(map[string]struct{}, len(workspaceURIs))
+	results := make(map[string]workspaceDiagnosticResult, len(workspaceURIs))
+	var resultsMu sync.Mutex
 	jobs := make(chan string, len(workspaceURIs))
-	workerCount := indexer.WorkerCountFor(len(workspaceURIs))
+	workerCount := indexer.DiagnosticWorkerCountFor(len(workspaceURIs))
 	var wg sync.WaitGroup
 
 	for _, uri := range workspaceURIs {
@@ -486,27 +636,73 @@ func (h *Handler) runWorkspaceDiagnosticsLocked(scan *workspaceDiagnosticsScanSt
 				if scan.capped() {
 					return
 				}
-				if h.prov.Diagnostics.IgnoresAll(uri) {
+				if diagnosticsProvider.IgnoresAll(uri) {
+					resultsMu.Lock()
+					results[uri] = workspaceDiagnosticResult{diagnostics: []lsp.Diagnostic{}}
+					resultsMu.Unlock()
 					continue
 				}
 
 				if doc, ok := h.documents.Snapshot(uri); ok {
-					h.publishDiagnosticsForScan(uri, doc.Text, doc.Version, scan)
+					diags := diagnosticsProvider.Analyse(uri, doc.Text)
+					if diags == nil {
+						diags = []lsp.Diagnostic{}
+					}
+					if !scan.allow(len(diags)) {
+						return
+					}
+					resultsMu.Lock()
+					results[uri] = workspaceDiagnosticResult{diagnostics: diags, version: doc.Version, text: doc.Text, open: true}
+					resultsMu.Unlock()
 					continue
 				}
 
 				text, err := h.readDocumentTextFromDisk(uri)
 				if err != nil {
+					resultsMu.Lock()
+					results[uri] = workspaceDiagnosticResult{diagnostics: []lsp.Diagnostic{}}
+					resultsMu.Unlock()
 					continue
 				}
-				h.publishWorkspaceDocumentDiagnosticsForScan(uri, text, scan)
+				diags := diagnosticsProvider.Analyse(uri, text)
+				if diags == nil {
+					diags = []lsp.Diagnostic{}
+				}
+				if !scan.allow(len(diags)) {
+					return
+				}
+				resultsMu.Lock()
+				results[uri] = workspaceDiagnosticResult{diagnostics: diags}
+				resultsMu.Unlock()
 			}
 		}()
 	}
 
 	wg.Wait()
+	if scan.capped() {
+		return false
+	}
 
+	resultURIs := make([]string, 0, len(results))
+	for uri := range results {
+		resultURIs = append(resultURIs, uri)
+	}
+	sort.Strings(resultURIs)
+	for _, uri := range resultURIs {
+		result := results[uri]
+		if result.open {
+			current, ok := h.documents.Snapshot(uri)
+			if !ok || current.Version != result.version || current.Text != result.text {
+				continue
+			}
+		}
+		if len(result.diagnostics) == 0 && !h.hasPublishedDiagnostics(uri) {
+			continue
+		}
+		h.notifyDiagnostics(uri, result.diagnostics)
+	}
 	h.clearDiagnosticsOutsideWorkspace(seen)
+	return true
 }
 
 func (h *Handler) publishWorkspaceDocumentDiagnostics(uri, text string) bool {
@@ -625,6 +821,13 @@ func (h *Handler) publishedDiagnosticsCount() int {
 	return len(h.publishedDiagnostics)
 }
 
+func (h *Handler) hasPublishedDiagnostics(uri string) bool {
+	h.publishedDiagnosticsMu.Lock()
+	defer h.publishedDiagnosticsMu.Unlock()
+	_, ok := h.publishedDiagnostics[uri]
+	return ok
+}
+
 type workspaceDiagnosticsScanState struct {
 	totalDiagnostics atomic.Int64
 	isCapped         atomic.Bool
@@ -667,7 +870,10 @@ func (h *Handler) readDocumentTextFromDisk(uri string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	data, size, oversized, err := indexer.ReadFileWithinLimit(path, h.cfg.Files.MaxSize)
+	h.runtimeMu.RLock()
+	maxSize := h.cfg.Files.MaxSize
+	h.runtimeMu.RUnlock()
+	data, size, oversized, err := indexer.ReadFileWithinLimit(path, maxSize)
 	if err != nil {
 		return "", err
 	}

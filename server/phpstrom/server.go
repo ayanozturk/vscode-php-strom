@@ -44,7 +44,11 @@ func (s *Server) Run() error {
 			log.Printf("read error: %v", err)
 			return err
 		}
-		go s.dispatch(msg)
+		// Preserve the order in which LSP messages arrive. In particular,
+		// initialized, didOpen, and didChange are causally related notifications;
+		// dispatching each message in its own goroutine allowed later document
+		// updates to overtake earlier lifecycle messages.
+		s.dispatch(msg)
 	}
 }
 

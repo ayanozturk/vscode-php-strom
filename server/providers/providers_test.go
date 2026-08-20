@@ -158,6 +158,46 @@ class Controller
 	}
 }
 
+func TestHoverProviderInfersGenericMethodResultFromInheritedReceiverFactory(t *testing.T) {
+	idx := indexer.New(indexer.Config{})
+	idx.IndexDocument("file:///workspace/Member.php", `<?php
+namespace Domain;
+class Member
+{
+    /** @return Sequence<string, Member> */
+    public function peers(): Sequence {}
+}
+`)
+	idx.IndexDocument("file:///workspace/BaseEndpoint.php", `<?php
+namespace Web;
+use Domain\Member;
+abstract class BaseEndpoint
+{
+    protected function currentMember(): Member {}
+}
+`)
+	provider := &HoverProvider{idx: idx}
+	text := `<?php
+namespace Web;
+class TeamEndpoint extends BaseEndpoint
+{
+    public function run(): void
+    {
+        $member = $this->currentMember();
+        $peers = $member->peers();
+    }
+}
+`
+	receiver := provider.Provide("file:///workspace/TeamEndpoint.php", text, lsp.Position{Line: 6, Character: 10})
+	if receiver == nil || !strings.Contains(receiver.Contents.Value, "```php\nDomain\\Member\n```") {
+		t.Fatalf("expected inherited factory return type for receiver assignment, got %#v", receiver)
+	}
+	result := provider.Provide("file:///workspace/TeamEndpoint.php", text, lsp.Position{Line: 7, Character: 10})
+	if result == nil || !strings.Contains(result.Contents.Value, "```php\nDomain\\Sequence<string,Domain\\Member>\n```") {
+		t.Fatalf("expected generic method result for inherited receiver, got %#v", result)
+	}
+}
+
 func TestHoverProviderShowsWorkspaceResolvedPropertyType(t *testing.T) {
 	idx := indexer.New(indexer.Config{})
 	idx.IndexDocument("file:///workspace/UserRepository.php", `<?php
