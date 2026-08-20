@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"hash/fnv"
+	"io"
 	"log"
+	"math"
 	"os"
 	pathpkg "path"
 	"path/filepath"
@@ -553,12 +555,12 @@ func (wi *WorkspaceIndexer) parseIndexableFile(path string, skipFunctionBodies b
 	ctx, cancel := context.WithTimeout(context.Background(), perFileParseTimeout)
 	defer cancel()
 
-	data, err := os.ReadFile(path)
+	data, size, oversized, err := readFileWithinLimit(path, wi.cfg.MaxSize)
 	if err != nil {
 		return ParsedFile{}, "read-error"
 	}
-	if int64(len(data)) > wi.cfg.MaxSize {
-		log.Printf("[indexer] skipping oversized file (%d bytes): %s", len(data), path)
+	if oversized {
+		log.Printf("[indexer] skipping oversized file (observed %d bytes, limit %d): %s", size, wi.cfg.MaxSize, path)
 		return ParsedFile{}, "oversized-file"
 	}
 
@@ -577,6 +579,57 @@ func (wi *WorkspaceIndexer) parseIndexableFile(path string, skipFunctionBodies b
 	}
 
 	return parsed, ""
+}
+
+func readFileWithinLimit(path string, maxSize int64) ([]byte, int64, bool, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, 0, false, err
+	}
+	defer file.Close()
+
+	info, err := file.Stat()
+	if err != nil {
+		return nil, 0, false, err
+	}
+	if info.Size() > maxSize {
+		return nil, info.Size(), true, nil
+	}
+
+	data, oversized, err := readAtMostWithSizeHint(file, maxSize, info.Size())
+	if err != nil {
+		return nil, 0, false, err
+	}
+	if oversized {
+		return nil, maxSize + 1, true, nil
+	}
+	return data, int64(len(data)), false, nil
+}
+
+func readAtMost(reader io.Reader, maxSize int64) ([]byte, bool, error) {
+	return readAtMostWithSizeHint(reader, maxSize, 0)
+}
+
+func readAtMostWithSizeHint(reader io.Reader, maxSize, sizeHint int64) ([]byte, bool, error) {
+	readLimit := maxSize
+	if readLimit < math.MaxInt64 {
+		readLimit++
+	}
+
+	var buffer bytes.Buffer
+	maxInt := int64(^uint(0) >> 1)
+	if sizeHint > 0 && sizeHint <= maxInt-int64(bytes.MinRead) {
+		buffer.Grow(int(sizeHint) + bytes.MinRead)
+	}
+	_, err := buffer.ReadFrom(io.LimitReader(reader, readLimit))
+	if err != nil {
+		return nil, false, err
+	}
+	data := buffer.Bytes()
+	if int64(len(data)) > maxSize {
+		return nil, true, nil
+	}
+	return data, false, nil
 }
 
 func countLines(data []byte) int {

@@ -1,10 +1,72 @@
 package indexer
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"testing"
 )
+
+func TestReadAtMostStopsAfterLimitSentinel(t *testing.T) {
+	source := bytes.NewReader(bytes.Repeat([]byte("x"), 128))
+
+	data, oversized, err := readAtMost(source, 16)
+	if err != nil {
+		t.Fatalf("read bounded input: %v", err)
+	}
+	if !oversized {
+		t.Fatal("expected input larger than the limit to be rejected")
+	}
+	if len(data) != 0 {
+		t.Fatalf("expected oversized data to be discarded, got %d bytes", len(data))
+	}
+	if got, want := source.Len(), 111; got != want {
+		t.Fatalf("expected only limit+1 bytes to be consumed, %d bytes remain; want %d", got, want)
+	}
+}
+
+func TestReadFileWithinLimitRejectsOversizedRegularFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "oversized.php")
+	if err := os.WriteFile(path, bytes.Repeat([]byte("x"), 128), 0o644); err != nil {
+		t.Fatalf("write oversized fixture: %v", err)
+	}
+
+	data, size, oversized, err := readFileWithinLimit(path, 16)
+	if err != nil {
+		t.Fatalf("read oversized file: %v", err)
+	}
+	if !oversized {
+		t.Fatal("expected oversized regular file to be rejected")
+	}
+	if size != 128 {
+		t.Fatalf("expected reported size 128, got %d", size)
+	}
+	if len(data) != 0 {
+		t.Fatalf("expected oversized data to be discarded, got %d bytes", len(data))
+	}
+}
+
+func TestReadFileWithinLimitAllowsFileAtLimit(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "bounded.php")
+	want := []byte("<?php\n")
+	if err := os.WriteFile(path, want, 0o644); err != nil {
+		t.Fatalf("write bounded fixture: %v", err)
+	}
+
+	data, size, oversized, err := readFileWithinLimit(path, int64(len(want)))
+	if err != nil {
+		t.Fatalf("read bounded file: %v", err)
+	}
+	if oversized {
+		t.Fatal("did not expect file at the size limit to be rejected")
+	}
+	if size != int64(len(want)) {
+		t.Fatalf("expected reported size %d, got %d", len(want), size)
+	}
+	if !bytes.Equal(data, want) {
+		t.Fatalf("expected %q, got %q", want, data)
+	}
+}
 
 func TestBuildLineOffsets(t *testing.T) {
 	src := "<?php\nclass Foo\n{\n}\n"
