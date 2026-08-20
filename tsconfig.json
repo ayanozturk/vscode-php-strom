@@ -17,6 +17,6 @@
     "declaration": true,
     "declarationMap": true
   },
-  "include": ["src/extension.ts", "src/client/**/*.ts"],
+  "include": ["src/extension.ts", "src/client/**/*.ts", "src/test/**/*.ts"],
   "exclude": ["src/server/**", "node_modules", "out", "dist"]
 }

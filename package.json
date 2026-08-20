@@ -571,7 +571,7 @@
     "vsix": "vsce package --no-dependencies -o phpstrom-universal.vsix",
     "publish:marketplace": "vsce publish",
     "lint": "eslint src --ext ts",
-    "test": "node ./out/test/runTest.js"
+    "test": "npm run compile && node ./out/test/runTest.js"
   },
   "dependencies": {
     "fast-glob": "^3.3.2",

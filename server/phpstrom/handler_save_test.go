@@ -8,12 +8,36 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/ayanozturk/vscode-php-strom/indexer"
 	"github.com/ayanozturk/vscode-php-strom/lsp"
 )
+
+type synchronizedBuffer struct {
+	mu     sync.Mutex
+	buffer bytes.Buffer
+}
+
+func (b *synchronizedBuffer) Write(data []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buffer.Write(data)
+}
+
+func (b *synchronizedBuffer) Len() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buffer.Len()
+}
+
+func (b *synchronizedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buffer.String()
+}
 
 func TestDidSaveRefreshesDocumentFromDiskAndReindexes(t *testing.T) {
 	tmpDir := t.TempDir()
@@ -72,7 +96,7 @@ func TestDidSaveRefreshesDocumentFromDiskAndReindexes(t *testing.T) {
 }
 
 func TestPublishDiagnosticsDropsStaleResults(t *testing.T) {
-	var out bytes.Buffer
+	var out synchronizedBuffer
 	srv := &Server{out: &out}
 	h := NewHandler(srv)
 
@@ -108,7 +132,7 @@ func TestPublishDiagnosticsDropsStaleResults(t *testing.T) {
 }
 
 func TestDidChangeDebouncesOnTypeAnalysis(t *testing.T) {
-	var out bytes.Buffer
+	var out synchronizedBuffer
 	srv := &Server{out: &out}
 	h := NewHandler(srv)
 
@@ -175,7 +199,7 @@ func TestDidSavePublishesEmptyDiagnosticsWhenIssueIsFixed(t *testing.T) {
 		t.Fatalf("write initial file: %v", err)
 	}
 
-	var out bytes.Buffer
+	var out synchronizedBuffer
 	srv := &Server{out: &out}
 	h := NewHandler(srv)
 	h.cfg.Diagnostics.Run = "onSave"
@@ -233,7 +257,7 @@ func TestWorkspaceDiagnosticsPublishesClosedFiles(t *testing.T) {
 		t.Fatalf("write workspace file: %v", err)
 	}
 
-	var out bytes.Buffer
+	var out synchronizedBuffer
 	srv := &Server{out: &out}
 	h := NewHandler(srv)
 	h.idx.SetWorkspaceFolders([]indexer.WorkspaceFolder{{URI: "file://" + filepath.ToSlash(tmpDir), Name: "tmp"}})
@@ -260,7 +284,7 @@ func TestDidCloseRevertsToDiskDiagnostics(t *testing.T) {
 		t.Fatalf("write workspace file: %v", err)
 	}
 
-	var out bytes.Buffer
+	var out synchronizedBuffer
 	srv := &Server{out: &out}
 	h := NewHandler(srv)
 	h.documents.Open(lsp.TextDocumentItem{
@@ -293,7 +317,7 @@ func TestDidCloseRevertsToDiskDiagnostics(t *testing.T) {
 }
 
 func TestWorkspaceDiagnosticsStopsAtLimit(t *testing.T) {
-	var out bytes.Buffer
+	var out synchronizedBuffer
 	srv := &Server{out: &out}
 	h := NewHandler(srv)
 	perFileDiagnostics := len(h.prov.Diagnostics.Analyse("file:///workspace/File0.php", "<?php\nclass Bad_Class_0 {}\n"))
