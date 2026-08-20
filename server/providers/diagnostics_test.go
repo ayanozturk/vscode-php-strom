@@ -28,6 +28,9 @@ class Foo {
 	if len(diags) == 0 {
 		t.Fatal("expected at least one diagnostic for incomplete PHP, got none")
 	}
+	if !hasDiagnosticCode(diags, "Parser Errors") {
+		t.Fatalf("expected parser diagnostics to use the Parser Errors group code, got %#v", diags)
+	}
 }
 
 func TestDiagnosticsProvider_StyleIssue(t *testing.T) {

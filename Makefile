@@ -1,10 +1,12 @@
-.PHONY: all deps prepare-go-work build build-server build-server-local build-server-dev build-ext install package publish clean test test-server test-server-dev
+.PHONY: all deps prepare-go-work build build-server build-server-local build-server-dev build-ext install package publish release clean test test-server test-server-dev
 
 BINARY_NAME := phpstrom
 BIN_DIR     := bin
 SERVER_DIR  := server
 GO          := go
 NPM         := npm
+MAKE_CMD    := $(MAKE)
+VERSION_BUMP ?= patch
 GOFLAGS     :=
 TARGETS     := darwin-arm64 darwin-x64 linux-arm64 linux-x64 win32-arm64 win32-x64
 CACHE_DIR   := .cache
@@ -91,6 +93,26 @@ install: build
 	  if [ -z "$$CODE" ]; then echo "ERROR: 'code' CLI not found. Open VS Code → Command Palette → 'Install code command in PATH', then re-run make install."; exit 1; fi; \
 	  "$$CODE" --install-extension $(VSIX)
 	@echo "==> Done. Reload VS Code to activate the new version."
+
+## release: bump the extension version, build and install it, then commit the version metadata
+release:
+	@set -eu; \
+	case "$(VERSION_BUMP)" in \
+		major|minor|patch|premajor|preminor|prepatch|prerelease) ;; \
+		*) echo "ERROR: VERSION_BUMP must be one of major, minor, patch, premajor, preminor, prepatch, or prerelease."; exit 1 ;; \
+	esac; \
+	if ! git diff --quiet -- package.json package-lock.json || ! git diff --cached --quiet -- package.json package-lock.json; then \
+		echo "ERROR: package.json or package-lock.json has uncommitted changes."; \
+		exit 1; \
+	fi; \
+	OLD_VERSION=$$(node -p "require('./package.json').version"); \
+	$(NPM) version "$(VERSION_BUMP)" --no-git-tag-version; \
+	NEW_VERSION=$$(node -p "require('./package.json').version"); \
+	$(MAKE_CMD) install; \
+	git add package.json package-lock.json; \
+	git diff --cached --check; \
+	git commit -m "Bump extension version to $$NEW_VERSION"; \
+	echo "==> Released $$OLD_VERSION -> $$NEW_VERSION"
 
 ## package: build + produce VSIX only (no install)
 package: build deps

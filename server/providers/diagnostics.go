@@ -15,6 +15,8 @@ import (
 	"github.com/ayanozturk/vscode-php-strom/lsp"
 )
 
+const parserDiagnosticCode = "Parser Errors"
+
 type workspaceSymbolResolver struct {
 	idx *indexer.WorkspaceIndexer
 }
@@ -512,6 +514,7 @@ func (p *DiagnosticsProvider) analyseParsed(filename, text string, nodes []ast.N
 		diags = append(diags, lsp.Diagnostic{
 			Range:    parseErrorRange(errMsg),
 			Severity: &sev,
+			Code:     parserDiagnosticCode,
 			Source:   "phpstrom",
 			Message:  errMsg,
 		})

@@ -25,6 +25,7 @@ type fileResult struct {
 	panicked bool
 	panicMsg string
 	errCount int
+	errors   []string
 	symCount int
 }
 
@@ -139,6 +140,13 @@ func main() {
 			fmt.Printf("PANIC              %s\n  %s\n", rel, r.panicMsg)
 		case r.errCount > 0:
 			fmt.Printf("PARSE ERR (%3d)   %s  [%s]\n", r.errCount, rel, r.duration.Round(time.Millisecond))
+			for i, parseErr := range r.errors {
+				if i == 5 {
+					fmt.Printf("  ... %d more\n", len(r.errors)-i)
+					break
+				}
+				fmt.Printf("  %s\n", parseErr)
+			}
 		default:
 			fmt.Printf("SLOW     (%s)  %s\n", r.duration.Round(time.Millisecond), rel)
 		}
@@ -178,7 +186,7 @@ func parseFile(path string, limit time.Duration) fileResult {
 			ch <- out
 			return
 		}
-		out.parsed = indexer.ParseSourceForIndexWithContext(ctx, path, string(data))
+		out.parsed = indexer.ParseSourceWithContext(ctx, path, string(data))
 	}()
 
 	select {
@@ -190,6 +198,7 @@ func parseFile(path string, limit time.Duration) fileResult {
 		r.panicked = out.panicked
 		r.panicMsg = out.panicMsg
 		r.errCount = len(out.parsed.Errors)
+		r.errors = out.parsed.Errors
 		r.symCount = len(out.parsed.Symbols)
 	}
 	return r

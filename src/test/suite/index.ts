@@ -7,6 +7,9 @@ type ExtensionManifest = {
   contributes?: {
     commands?: Array<{ command?: string }>;
     languages?: Array<{ id?: string }>;
+    configuration?: {
+      properties?: Record<string, { default?: unknown }>;
+    };
   };
 };
 
@@ -24,4 +27,7 @@ export async function run(): Promise<void> {
 
   const languages = manifest.contributes?.languages?.map(({ id }) => id) ?? [];
   assert.ok(languages.includes('php'), 'expected PHP language contribution');
+
+  const scanOnStart = manifest.contributes?.configuration?.properties?.['phpstrom.diagnostics.workspaceScanOnStart'];
+  assert.equal(scanOnStart?.default, true, 'expected full workspace analysis to run after activation');
 }

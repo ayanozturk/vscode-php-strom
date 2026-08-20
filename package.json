@@ -2,7 +2,7 @@
   "name": "phpstrom",
   "displayName": "PHP Strom",
   "description": "High-performance, fully open-source PHP language intelligence for VS Code — a complete LSP implementation covering all features.",
-  "version": "0.1.18",
+  "version": "0.1.19",
   "publisher": "AOSSoftware",
   "license": "MIT",
   "repository": {
@@ -261,8 +261,8 @@
         },
         "phpstrom.diagnostics.workspaceScanOnStart": {
           "type": "boolean",
-          "default": false,
-          "description": "Scan every workspace PHP file for diagnostics when the server starts. When disabled, PHP Strom still indexes symbols and analyses opened/saved files; use PHP Strom: Refresh Problems Scan to run a full project scan manually."
+          "default": true,
+          "description": "Run full analysis on every workspace PHP file when PHP Strom starts, including after a full VS Code reload. Disable this to index symbols only at startup and use PHP Strom: Refresh Problems Scan when needed."
         },
         "phpstrom.diagnostics.undefinedSymbols": {
           "type": "boolean",

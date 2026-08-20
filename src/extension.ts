@@ -445,7 +445,7 @@ function getConfiguration(): Record<string, unknown> {
     diagnostics: {
       enable: config.get<boolean>('diagnostics.enable', true),
       run: config.get<string>('diagnostics.run', 'onType'),
-      workspaceScanOnStart: config.get<boolean>('diagnostics.workspaceScanOnStart', false),
+      workspaceScanOnStart: config.get<boolean>('diagnostics.workspaceScanOnStart', true),
       undefinedSymbols: config.get<boolean>('diagnostics.undefinedSymbols', true),
       undefinedVariables: config.get<boolean>('diagnostics.undefinedVariables', true),
       typeErrors: config.get<boolean>('diagnostics.typeErrors', true),
