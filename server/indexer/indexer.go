@@ -3,6 +3,7 @@ package indexer
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"hash/fnv"
 	"io"
 	"log"
@@ -462,6 +463,10 @@ func (wi *WorkspaceIndexer) collectWorkspaceFilePathsParallel(folders []Workspac
 		var subdirs []string
 		for _, d := range entries {
 			p := filepath.Join(path, d.Name())
+			entryType := d.Type()
+			if entryType&os.ModeSymlink != 0 {
+				continue
+			}
 			if d.IsDir() {
 				if wi.shouldExcludeDir(p) {
 					continue
@@ -473,6 +478,9 @@ func (wi *WorkspaceIndexer) collectWorkspaceFilePathsParallel(folders []Workspac
 				}
 				subdirs = append(subdirs, p)
 			} else {
+				if !entryType.IsRegular() {
+					continue
+				}
 				if ignoresPath(gitignores, p, false) && !shouldIndexGitignoredPath(p) {
 					continue
 				}
@@ -609,7 +617,7 @@ func (wi *WorkspaceIndexer) parseIndexableFile(path string, skipFunctionBodies b
 // ReadFileWithinLimit reads at most maxSize+1 bytes so callers can reject
 // oversized or concurrently growing files without allocating their full contents.
 func ReadFileWithinLimit(path string, maxSize int64) ([]byte, int64, bool, error) {
-	file, err := os.Open(path)
+	file, err := openFileForBoundedRead(path)
 	if err != nil {
 		return nil, 0, false, err
 	}
@@ -618,6 +626,9 @@ func ReadFileWithinLimit(path string, maxSize int64) ([]byte, int64, bool, error
 	info, err := file.Stat()
 	if err != nil {
 		return nil, 0, false, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, 0, false, fmt.Errorf("read %s: not a regular file: %w", path, os.ErrInvalid)
 	}
 	if info.Size() > maxSize {
 		return nil, info.Size(), true, nil
