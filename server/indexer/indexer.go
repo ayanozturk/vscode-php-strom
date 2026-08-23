@@ -1346,7 +1346,7 @@ func phpdocMethodParams(ctx extractionContext, raw string) []SymbolParam {
 		return nil
 	}
 
-	parts := strings.Split(raw, ",")
+	parts := splitGenericArguments(raw)
 	params := make([]SymbolParam, 0, len(parts))
 	for _, part := range parts {
 		param, ok := phpdocMethodParam(ctx, part)

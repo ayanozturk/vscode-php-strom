@@ -561,6 +561,39 @@ class Controller
 	}
 }
 
+func TestDiagnosticsProvider_AcceptsRequiredGenericPHPDocMethodArgument(t *testing.T) {
+	idx := indexer.New(indexer.Config{})
+	idx.IndexDocument("file:///workspace/src/RecordStore.php", `<?php
+namespace App;
+
+/**
+ * @method object|null lookup(array<string, mixed> $criteria, ?array<string, mixed> $orderBy = null)
+ */
+class RecordStore {}
+`)
+
+	p := &DiagnosticsProvider{idx: idx}
+	diags := p.Analyse("file:///workspace/src/RecordService.php", `<?php
+namespace App;
+
+class RecordService
+{
+    public function __construct(private RecordStore $store) {}
+
+    public function find(string $name): ?object
+    {
+        return $this->store->lookup(['name' => $name]);
+    }
+}
+`)
+
+	for _, diag := range diags {
+		if code, ok := diag.Code.(string); ok && code == "A.ARG.COUNT" {
+			t.Fatalf("expected one required generic PHPDoc method argument to be accepted, got %+v", diag)
+		}
+	}
+}
+
 func TestDiagnosticsProvider_BindsInheritedGenericMethodReturnType(t *testing.T) {
 	idx := indexer.New(indexer.Config{})
 	idx.IndexDocument("file:///workspace/Record.php", `<?php

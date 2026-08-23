@@ -241,6 +241,38 @@ class ShiftRepository extends AbstractRepository
 	t.Fatal("expected PHPDoc @method find symbol")
 }
 
+func TestExtractSymbolsKeepsGenericPHPDocMethodParametersIntact(t *testing.T) {
+	src := `<?php
+namespace App;
+
+/**
+ * @method Record|null lookup(array<string, mixed> $criteria, ?array<string, mixed> $orderBy = null)
+ */
+class RecordStore
+{
+}
+`
+
+	syms := extractSymbols("file:///test.php", src)
+	for _, sym := range syms {
+		if sym.Kind != KindMethod || sym.FQN != `\App\RecordStore::lookup` {
+			continue
+		}
+		if len(sym.Params) != 2 {
+			t.Fatalf("expected two PHPDoc method params, got %#v", sym.Params)
+		}
+		if sym.Params[0].Name != "criteria" || sym.Params[0].Type != "array<string,mixed>" || sym.Params[0].HasDefault {
+			t.Fatalf("expected required generic criteria param, got %#v", sym.Params[0])
+		}
+		if sym.Params[1].Name != "orderBy" || sym.Params[1].Type != "?array<string,mixed>" || !sym.Params[1].HasDefault {
+			t.Fatalf("expected optional generic orderBy param, got %#v", sym.Params[1])
+		}
+		return
+	}
+
+	t.Fatal("expected generic PHPDoc @method symbol")
+}
+
 func TestExtractSymbolsIndexesGenericClassInheritance(t *testing.T) {
 	syms := extractSymbols("file:///workspace/Repositories.php", `<?php
 namespace App;
