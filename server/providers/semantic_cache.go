@@ -51,7 +51,6 @@ func (c *semanticDocumentCache) analysisContext(idx *indexer.WorkspaceIndexer) *
 	ctx := &analyse.AnalysisContext{}
 	if idx != nil {
 		if project := idx.ProjectIndex(); project != nil {
-			ctx.Project = project
 			ctx.Resolver = projectFallbackResolver{project: project, fallback: workspaceSymbolResolver{idx: idx}}
 		} else {
 			ctx.Resolver = workspaceSymbolResolver{idx: idx}
@@ -64,7 +63,6 @@ func (c *semanticDocumentCache) analysisContextForFile(idx *indexer.WorkspaceInd
 	ctx := &analyse.AnalysisContext{}
 	if idx != nil {
 		if project := idx.ProjectIndexForFile(filename, text, nodes); project != nil {
-			ctx.Project = project
 			ctx.Resolver = projectFallbackResolver{project: project, fallback: workspaceSymbolResolver{idx: idx}}
 		} else {
 			ctx.Resolver = workspaceSymbolResolver{idx: idx}

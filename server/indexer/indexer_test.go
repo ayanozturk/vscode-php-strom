@@ -153,6 +153,29 @@ class Example {
 	}
 }
 
+func TestExtractSymbolsIndexesEveryGroupedProperty(t *testing.T) {
+	src := `<?php
+class Coordinates {
+    public int $horizontal = 0, $vertical = 0;
+}`
+	syms := extractSymbols("file:///test.php", src)
+	properties := map[string]*Symbol{}
+	for _, sym := range syms {
+		if sym.Kind == KindProperty {
+			properties[sym.Name] = sym
+		}
+	}
+	for _, name := range []string{"horizontal", "vertical"} {
+		property := properties[name]
+		if property == nil {
+			t.Fatalf("expected grouped property %q to be indexed, got %#v", name, properties)
+		}
+		if property.Type != "int" || property.Visibility != "public" {
+			t.Fatalf("unexpected grouped property symbol %q: %#v", name, property)
+		}
+	}
+}
+
 func TestExtractSymbolsCreatesPromotedPropertySymbols(t *testing.T) {
 	src := `<?php
 class SessionStore {}

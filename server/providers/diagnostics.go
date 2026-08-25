@@ -5,6 +5,7 @@ package providers
 
 import (
 	"hash/crc32"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -89,6 +90,24 @@ func (r projectFallbackResolver) ResolveMethod(className, methodName string) (an
 	return analyse.ResolvedMethod{}, false
 }
 
+func (r projectFallbackResolver) ResolveOwnMethod(className, methodName string) (analyse.ResolvedMethod, bool) {
+	if r.project != nil {
+		if method, ok := r.project.ResolveOwnMethod(className, methodName); ok {
+			return method, true
+		}
+	}
+	return r.fallback.ResolveOwnMethod(className, methodName)
+}
+
+func (r projectFallbackResolver) MethodsDeclaredBy(className string) []analyse.ResolvedMethod {
+	if r.project != nil {
+		if methods := r.project.MethodsDeclaredBy(className); len(methods) > 0 {
+			return methods
+		}
+	}
+	return r.fallback.MethodsDeclaredBy(className)
+}
+
 func (r projectFallbackResolver) ResolveProperty(className, propertyName string) (analyse.ResolvedProperty, bool) {
 	for _, candidate := range r.classLineage(className) {
 		if r.project != nil {
@@ -103,6 +122,24 @@ func (r projectFallbackResolver) ResolveProperty(className, propertyName string)
 	return analyse.ResolvedProperty{}, false
 }
 
+func (r projectFallbackResolver) ResolveConstant(className, constantName string) (analyse.ResolvedConstant, bool) {
+	if r.project != nil {
+		if constant, ok := r.project.ResolveConstant(className, constantName); ok {
+			return constant, true
+		}
+	}
+	return r.fallback.ResolveConstant(className, constantName)
+}
+
+func (r projectFallbackResolver) ResolveOwnConstant(className, constantName string) (analyse.ResolvedConstant, bool) {
+	if r.project != nil {
+		if constant, ok := r.project.ResolveOwnConstant(className, constantName); ok {
+			return constant, true
+		}
+	}
+	return r.fallback.ResolveOwnConstant(className, constantName)
+}
+
 func (r projectFallbackResolver) ResolveFunction(name string) (analyse.ResolvedFunction, bool) {
 	if r.project != nil {
 		if fn, ok := r.project.ResolveFunction(name); ok {
@@ -110,6 +147,13 @@ func (r projectFallbackResolver) ResolveFunction(name string) (analyse.ResolvedF
 		}
 	}
 	return r.fallback.ResolveFunction(name)
+}
+
+func (r projectFallbackResolver) DuplicateClasses(filename string) []analyse.DuplicateSymbol {
+	if r.project == nil {
+		return nil
+	}
+	return r.project.DuplicateClasses(filename)
 }
 
 func (r projectFallbackResolver) classLineage(className string) []string {
@@ -236,6 +280,32 @@ func (r workspaceSymbolResolver) ResolveMethod(className, methodName string) (an
 	return r.resolveMethodWithTemplates(className, methodName, nil, make(map[string]struct{}))
 }
 
+func (r workspaceSymbolResolver) ResolveOwnMethod(className, methodName string) (analyse.ResolvedMethod, bool) {
+	return r.resolveDirectMethod(className, methodName)
+}
+
+func (r workspaceSymbolResolver) MethodsDeclaredBy(className string) []analyse.ResolvedMethod {
+	classSym, ok := r.resolveClassSymbol(className)
+	if !ok {
+		return nil
+	}
+	prefix := strings.ToLower(classSym.FQN + "::")
+	var methods []analyse.ResolvedMethod
+	for _, sym := range r.idx.GetIndex().AllSymbols() {
+		if sym.Kind == indexer.KindMethod && strings.HasPrefix(strings.ToLower(sym.FQN), prefix) {
+			method := resolvedMethod(sym)
+			if classSym.Kind == indexer.KindInterface {
+				method.Abstract = true
+			}
+			methods = append(methods, method)
+		}
+	}
+	sort.Slice(methods, func(i, j int) bool {
+		return strings.ToLower(methods[i].Name) < strings.ToLower(methods[j].Name)
+	})
+	return methods
+}
+
 func (r workspaceSymbolResolver) resolveMethodWithTemplates(className, methodName string, bindings map[string]string, seen map[string]struct{}) (analyse.ResolvedMethod, bool) {
 	classSym, ok := r.resolveClassSymbol(className)
 	if !ok {
@@ -324,7 +394,11 @@ func (r workspaceSymbolResolver) resolveDirectMethod(className, methodName strin
 
 	idx := r.idx.GetIndex()
 	if sym := idx.GetByFQN(classSym.FQN + "::" + methodName); sym != nil && sym.Kind == indexer.KindMethod {
-		return resolvedMethod(sym), true
+		method := resolvedMethod(sym)
+		if classSym.Kind == indexer.KindInterface {
+			method.Abstract = true
+		}
+		return method, true
 	}
 
 	for _, sym := range idx.GetByName(methodName) {
@@ -335,7 +409,11 @@ func (r workspaceSymbolResolver) resolveDirectMethod(className, methodName strin
 			continue
 		}
 		if strings.EqualFold(sym.Name, methodName) {
-			return resolvedMethod(sym), true
+			method := resolvedMethod(sym)
+			if classSym.Kind == indexer.KindInterface {
+				method.Abstract = true
+			}
+			return method, true
 		}
 	}
 
@@ -349,6 +427,32 @@ func (r workspaceSymbolResolver) ResolveProperty(className, propertyName string)
 		}
 	}
 	return analyse.ResolvedProperty{}, false
+}
+
+func (r workspaceSymbolResolver) ResolveConstant(className, constantName string) (analyse.ResolvedConstant, bool) {
+	for _, candidate := range r.classLineage(className) {
+		if constant, ok := r.ResolveOwnConstant(candidate, constantName); ok {
+			return constant, true
+		}
+	}
+	return analyse.ResolvedConstant{}, false
+}
+
+func (r workspaceSymbolResolver) ResolveOwnConstant(className, constantName string) (analyse.ResolvedConstant, bool) {
+	classSym, ok := r.resolveClassSymbol(className)
+	if !ok {
+		return analyse.ResolvedConstant{}, false
+	}
+	idx := r.idx.GetIndex()
+	if sym := idx.GetByFQN(classSym.FQN + "::" + constantName); sym != nil && sym.Kind == indexer.KindConstant {
+		return resolvedConstant(sym), true
+	}
+	for _, sym := range idx.GetByName(constantName) {
+		if sym.Kind == indexer.KindConstant && strings.HasPrefix(sym.FQN, classSym.FQN+"::") && strings.EqualFold(sym.Name, constantName) {
+			return resolvedConstant(sym), true
+		}
+	}
+	return analyse.ResolvedConstant{}, false
 }
 
 func (r workspaceSymbolResolver) resolveDirectProperty(className, propertyName string) (analyse.ResolvedProperty, bool) {
@@ -423,6 +527,10 @@ func (r workspaceSymbolResolver) ResolveFunction(name string) (analyse.ResolvedF
 		}
 	}
 	return analyse.ResolvedFunction{}, false
+}
+
+func (r workspaceSymbolResolver) DuplicateClasses(string) []analyse.DuplicateSymbol {
+	return nil
 }
 
 func (r workspaceSymbolResolver) resolveClassSymbol(name string) (*indexer.Symbol, bool) {
@@ -525,6 +633,16 @@ func resolvedProperty(sym *indexer.Symbol) analyse.ResolvedProperty {
 		Visibility: sym.Visibility,
 		IsStatic:   sym.IsStatic,
 		Readonly:   sym.IsReadonly,
+	}
+}
+
+func resolvedConstant(sym *indexer.Symbol) analyse.ResolvedConstant {
+	return analyse.ResolvedConstant{
+		Name:           sym.Name,
+		DeclaringClass: strings.TrimSuffix(sym.FQN, "::"+sym.Name),
+		Type:           sym.Type,
+		Visibility:     sym.Visibility,
+		Final:          sym.IsFinal,
 	}
 }
 

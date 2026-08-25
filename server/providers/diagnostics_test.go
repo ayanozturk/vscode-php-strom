@@ -34,6 +34,33 @@ class Foo {
 	}
 }
 
+func TestDiagnosticsProviderAcceptsExpandedParserCompatibilitySyntax(t *testing.T) {
+	source := `<?php
+namespace Example;
+
+interface Readable {}
+interface Writable {}
+
+function open_resource(): null|(Readable&Writable) {
+    yield;
+    return null;
+}
+
+final class Coordinates {
+    public int $horizontal = 0, $vertical = 0;
+
+    public function render(): void {
+        $formatter = new readonly class {};
+        array_walk([], fn(string $value) => print $value);
+        namespace\prepare();
+    }
+}`
+	diagnostics := (&DiagnosticsProvider{}).Analyse("file:///compatibility.php", source)
+	if hasDiagnosticCode(diagnostics, "Parser Errors") {
+		t.Fatalf("expected compatibility syntax to avoid parser diagnostics, got %#v", diagnostics)
+	}
+}
+
 func TestDiagnosticsProvider_StyleIssue(t *testing.T) {
 	p := &DiagnosticsProvider{}
 	// PSR-12: method visibility must be declared; method name should be camelCase
@@ -691,6 +718,30 @@ class TestCase {}
 	}
 	if !resolver.ClassExists(`PHPUnit\Framework\TestCase`) {
 		t.Fatal("expected ClassExists to use workspace symbol fallback")
+	}
+}
+
+func TestWorkspaceSymbolResolverSupportsClassModelQueries(t *testing.T) {
+	idx := indexer.New(indexer.Config{})
+	idx.IndexDocument("file:///workspace/Contract.php", `<?php
+interface Contract {
+    public const string FORMAT = 'json';
+    public function execute(string $value): void;
+}
+`)
+
+	resolver := workspaceSymbolResolver{idx: idx}
+	method, ok := resolver.ResolveOwnMethod("Contract", "execute")
+	if !ok || method.Name != "execute" || !method.Abstract {
+		t.Fatalf("expected own abstract method, got %#v, %v", method, ok)
+	}
+	methods := resolver.MethodsDeclaredBy("Contract")
+	if len(methods) != 1 || methods[0].Name != "execute" {
+		t.Fatalf("expected declared method, got %#v", methods)
+	}
+	constant, ok := resolver.ResolveOwnConstant("Contract", "FORMAT")
+	if !ok || constant.Name != "FORMAT" || constant.Visibility != "public" {
+		t.Fatalf("expected own class constant, got %#v, %v", constant, ok)
 	}
 }
 
