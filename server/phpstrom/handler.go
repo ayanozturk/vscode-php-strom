@@ -539,7 +539,10 @@ func (h *Handler) indexAndPublishWorkspaceDiagnostics() {
 	h.workspaceDiagnosticsMu.Lock()
 	defer h.workspaceDiagnosticsMu.Unlock()
 	h.srv.Notify("phpstrom/workspaceDiagnosticsStarted", nil)
-	scan := newWorkspaceDiagnosticsScanState()
+	totalFiles := len(h.idx.WorkspaceFileURIs())
+	scan := newWorkspaceDiagnosticsScanState(totalFiles, func(done, total int) {
+		h.srv.Notify("phpstrom/workspaceDiagnosticsProgress", map[string]int{"done": done, "total": total})
+	})
 
 	h.runtimeMu.RLock()
 	diagnosticsEnabled := h.cfg.Diagnostics.Enable
@@ -560,7 +563,10 @@ func (h *Handler) runWorkspaceDiagnosticsScan(indexWorkspace bool) {
 	h.workspaceDiagnosticsMu.Lock()
 	defer h.workspaceDiagnosticsMu.Unlock()
 	h.srv.Notify("phpstrom/workspaceDiagnosticsStarted", nil)
-	scan := newWorkspaceDiagnosticsScanState()
+	totalFiles := len(h.idx.WorkspaceFileURIs())
+	scan := newWorkspaceDiagnosticsScanState(totalFiles, func(done, total int) {
+		h.srv.Notify("phpstrom/workspaceDiagnosticsProgress", map[string]int{"done": done, "total": total})
+	})
 
 	if indexWorkspace {
 		h.indexWorkspace()
@@ -640,6 +646,10 @@ func (h *Handler) runWorkspaceDiagnosticsLocked(scan *workspaceDiagnosticsScanSt
 					resultsMu.Lock()
 					results[uri] = workspaceDiagnosticResult{diagnostics: []lsp.Diagnostic{}}
 					resultsMu.Unlock()
+					done := int(scan.processedFiles.Add(1))
+					if scan.onProgress != nil && done%10 == 0 {
+						scan.onProgress(done, scan.totalFiles)
+					}
 					continue
 				}
 
@@ -654,6 +664,10 @@ func (h *Handler) runWorkspaceDiagnosticsLocked(scan *workspaceDiagnosticsScanSt
 					resultsMu.Lock()
 					results[uri] = workspaceDiagnosticResult{diagnostics: diags, version: doc.Version, text: doc.Text, open: true}
 					resultsMu.Unlock()
+					done := int(scan.processedFiles.Add(1))
+					if scan.onProgress != nil && done%10 == 0 {
+						scan.onProgress(done, scan.totalFiles)
+					}
 					continue
 				}
 
@@ -662,6 +676,10 @@ func (h *Handler) runWorkspaceDiagnosticsLocked(scan *workspaceDiagnosticsScanSt
 					resultsMu.Lock()
 					results[uri] = workspaceDiagnosticResult{diagnostics: []lsp.Diagnostic{}}
 					resultsMu.Unlock()
+					done := int(scan.processedFiles.Add(1))
+					if scan.onProgress != nil && done%10 == 0 {
+						scan.onProgress(done, scan.totalFiles)
+					}
 					continue
 				}
 				diags := diagnosticsProvider.Analyse(uri, text)
@@ -674,6 +692,10 @@ func (h *Handler) runWorkspaceDiagnosticsLocked(scan *workspaceDiagnosticsScanSt
 				resultsMu.Lock()
 				results[uri] = workspaceDiagnosticResult{diagnostics: diags}
 				resultsMu.Unlock()
+				done := int(scan.processedFiles.Add(1))
+				if scan.onProgress != nil && done%10 == 0 {
+					scan.onProgress(done, scan.totalFiles)
+				}
 			}
 		}()
 	}
@@ -830,11 +852,14 @@ func (h *Handler) hasPublishedDiagnostics(uri string) bool {
 
 type workspaceDiagnosticsScanState struct {
 	totalDiagnostics atomic.Int64
+	processedFiles   atomic.Int64
+	totalFiles       int
 	isCapped         atomic.Bool
+	onProgress       func(done, total int)
 }
 
-func newWorkspaceDiagnosticsScanState() *workspaceDiagnosticsScanState {
-	return &workspaceDiagnosticsScanState{}
+func newWorkspaceDiagnosticsScanState(totalFiles int, onProgress func(done, total int)) *workspaceDiagnosticsScanState {
+	return &workspaceDiagnosticsScanState{totalFiles: totalFiles, onProgress: onProgress}
 }
 
 func (s *workspaceDiagnosticsScanState) allow(count int) bool {

@@ -104,6 +104,7 @@ export class ProjectDiagnosticsTreeProvider implements vscode.TreeDataProvider<D
   private readonly treeDataEmitter = new vscode.EventEmitter<DiagnosticsViewNode | undefined | void>();
   private view: vscode.TreeView<DiagnosticsViewNode> | undefined;
   private workspaceScanInProgress = false;
+  private workspaceScanProgress = { done: 0, total: 0 };
   private lastScanSummary: ScanSummary | undefined;
   private viewMode: DiagnosticsViewMode = 'tree';
   private filePathFilter = '';
@@ -202,6 +203,7 @@ export class ProjectDiagnosticsTreeProvider implements vscode.TreeDataProvider<D
 
   beginWorkspaceScan(): void {
     this.workspaceScanInProgress = true;
+    this.workspaceScanProgress = { done: 0, total: 0 };
     this.stagedDiagnosticsByUri = new Map<string, readonly vscode.Diagnostic[]>();
     this.lastScanSummary = undefined;
     this.updateViewPresentation();
@@ -228,6 +230,11 @@ export class ProjectDiagnosticsTreeProvider implements vscode.TreeDataProvider<D
     this.lastScanSummary = summary;
     this.updateViewPresentation();
     this.treeDataEmitter.fire();
+  }
+
+  updateWorkspaceScanProgress(done: number, total: number): void {
+    this.workspaceScanProgress = { done, total };
+    this.updateViewPresentation();
   }
 
   clear(): void {
@@ -397,7 +404,12 @@ export class ProjectDiagnosticsTreeProvider implements vscode.TreeDataProvider<D
 
     if (this.workspaceScanInProgress) {
       const filterText = this.formatFilterSummary();
-      this.view.message = filterText ? `Scanning project diagnostics… ${filterText}` : 'Scanning project diagnostics…';
+      const progressText = this.workspaceScanProgress.total > 0
+        ? ` (${formatCount(this.workspaceScanProgress.done)}/${formatCount(this.workspaceScanProgress.total)} files)`
+        : '';
+      this.view.message = filterText
+        ? `Scanning project diagnostics…${progressText} ${filterText}`
+        : `Scanning project diagnostics…${progressText}`;
       this.view.badge = undefined;
       return;
     }

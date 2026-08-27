@@ -267,6 +267,13 @@ async function startClient(context: vscode.ExtensionContext, clearCache = false)
   });
 
   client.onNotification(
+    'phpstrom/workspaceDiagnosticsProgress',
+    (params: { done: number; total: number }) => {
+      diagnosticsTreeProvider.updateWorkspaceScanProgress(params.done, params.total);
+    },
+  );
+
+  client.onNotification(
     'phpstrom/workspaceDiagnosticsFinished',
     (params: { filesWithDiagnostics: number; totalDiagnostics: number; capped: boolean; applied: boolean }) => {
       const summary = {
