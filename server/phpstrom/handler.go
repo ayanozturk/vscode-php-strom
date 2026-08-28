@@ -92,7 +92,7 @@ func NewHandler(srv *Server) *Handler {
 		srv.Notify("phpstrom/indexingProgress", map[string]int{"done": done, "total": total})
 	})
 	idx.OnIndexingDone(func(summary indexer.IndexingSummary) {
-		srv.Notify("phpstrom/indexingFinished", map[string]interface{}{
+		srv.Notify("phpstrom/indexingFinished", map[string]any{
 			"fileCount":       summary.FilesIndexed,
 			"filesDiscovered": summary.FilesDiscovered,
 			"symbolCount":     summary.SymbolsIndexed,
@@ -124,7 +124,7 @@ func linesPerSecond(summary indexer.IndexingSummary) float64 {
 }
 
 // HandleRequest processes a request with an ID and returns a result.
-func (h *Handler) HandleRequest(method string, raw json.RawMessage) (interface{}, *lsp.ResponseError) {
+func (h *Handler) HandleRequest(method string, raw json.RawMessage) (any, *lsp.ResponseError) {
 	switch method {
 	case "initialize":
 		return h.initialize(raw)
@@ -279,7 +279,7 @@ func (h *Handler) HandleNotification(method string, raw json.RawMessage) {
 
 	case "workspace/didChangeConfiguration":
 		var p struct {
-			Settings map[string]interface{} `json:"settings"`
+			Settings map[string]any `json:"settings"`
 		}
 		if err := json.Unmarshal(raw, &p); err != nil {
 			return
@@ -352,7 +352,7 @@ func (h *Handler) HandleNotification(method string, raw json.RawMessage) {
 
 // ─── initialize ───────────────────────────────────────────────────────────────
 
-func (h *Handler) initialize(raw json.RawMessage) (interface{}, *lsp.ResponseError) {
+func (h *Handler) initialize(raw json.RawMessage) (any, *lsp.ResponseError) {
 	var p lsp.InitializeParams
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return nil, &lsp.ResponseError{Code: lsp.InvalidParams, Message: err.Error()}
@@ -634,7 +634,7 @@ func (h *Handler) runWorkspaceDiagnosticsLocked(scan *workspaceDiagnosticsScanSt
 	}
 	close(jobs)
 
-	for worker := 0; worker < workerCount; worker++ {
+	for range workerCount {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -647,7 +647,7 @@ func (h *Handler) runWorkspaceDiagnosticsLocked(scan *workspaceDiagnosticsScanSt
 					results[uri] = workspaceDiagnosticResult{diagnostics: []lsp.Diagnostic{}}
 					resultsMu.Unlock()
 					done := int(scan.processedFiles.Add(1))
-					if scan.onProgress != nil && done%10 == 0 {
+					if scan.onProgress != nil && done%50 == 0 {
 						scan.onProgress(done, scan.totalFiles)
 					}
 					continue
@@ -665,7 +665,7 @@ func (h *Handler) runWorkspaceDiagnosticsLocked(scan *workspaceDiagnosticsScanSt
 					results[uri] = workspaceDiagnosticResult{diagnostics: diags, version: doc.Version, text: doc.Text, open: true}
 					resultsMu.Unlock()
 					done := int(scan.processedFiles.Add(1))
-					if scan.onProgress != nil && done%10 == 0 {
+					if scan.onProgress != nil && done%50 == 0 {
 						scan.onProgress(done, scan.totalFiles)
 					}
 					continue
@@ -677,7 +677,7 @@ func (h *Handler) runWorkspaceDiagnosticsLocked(scan *workspaceDiagnosticsScanSt
 					results[uri] = workspaceDiagnosticResult{diagnostics: []lsp.Diagnostic{}}
 					resultsMu.Unlock()
 					done := int(scan.processedFiles.Add(1))
-					if scan.onProgress != nil && done%10 == 0 {
+					if scan.onProgress != nil && done%50 == 0 {
 						scan.onProgress(done, scan.totalFiles)
 					}
 					continue
@@ -693,7 +693,7 @@ func (h *Handler) runWorkspaceDiagnosticsLocked(scan *workspaceDiagnosticsScanSt
 				results[uri] = workspaceDiagnosticResult{diagnostics: diags}
 				resultsMu.Unlock()
 				done := int(scan.processedFiles.Add(1))
-				if scan.onProgress != nil && done%10 == 0 {
+				if scan.onProgress != nil && done%50 == 0 {
 					scan.onProgress(done, scan.totalFiles)
 				}
 			}
@@ -742,43 +742,6 @@ func (h *Handler) publishWorkspaceDocumentDiagnosticsForScan(uri, text string, s
 		diags = []lsp.Diagnostic{}
 	}
 	if !scan.allow(len(diags)) {
-		return false
-	}
-	h.notifyDiagnostics(uri, diags)
-	return true
-}
-
-func (h *Handler) publishWorkspaceParsedDiagnostics(parsed indexer.ParsedFile) bool {
-	diags := h.prov.Diagnostics.AnalyseParsed(parsed.URI, parsed.Text, parsed.Nodes, parsed.Errors)
-	if diags == nil {
-		diags = []lsp.Diagnostic{}
-	}
-	h.notifyDiagnostics(parsed.URI, diags)
-	return true
-}
-
-func (h *Handler) publishWorkspaceParsedDiagnosticsForScan(parsed indexer.ParsedFile, scan *workspaceDiagnosticsScanState) bool {
-	diags := h.prov.Diagnostics.AnalyseParsed(parsed.URI, parsed.Text, parsed.Nodes, parsed.Errors)
-	if diags == nil {
-		diags = []lsp.Diagnostic{}
-	}
-	if !scan.allow(len(diags)) {
-		return false
-	}
-	h.notifyDiagnostics(parsed.URI, diags)
-	return true
-}
-
-func (h *Handler) publishDiagnosticsForScan(uri, text string, version int, scan *workspaceDiagnosticsScanState) bool {
-	diags := h.prov.Diagnostics.Analyse(uri, text)
-	if diags == nil {
-		diags = []lsp.Diagnostic{}
-	}
-	if !scan.allow(len(diags)) {
-		return false
-	}
-	current, ok := h.documents.Snapshot(uri)
-	if !ok || current.Version != version || current.Text != text {
 		return false
 	}
 	h.notifyDiagnostics(uri, diags)
@@ -979,7 +942,7 @@ func pathWithinRoot(path, root string) bool {
 
 // ─── Request helpers ──────────────────────────────────────────────────────────
 
-func (h *Handler) completion(raw json.RawMessage) (interface{}, *lsp.ResponseError) {
+func (h *Handler) completion(raw json.RawMessage) (any, *lsp.ResponseError) {
 	var p lsp.CompletionParams
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return nil, &lsp.ResponseError{Code: lsp.InvalidParams, Message: err.Error()}
@@ -991,7 +954,7 @@ func (h *Handler) completion(raw json.RawMessage) (interface{}, *lsp.ResponseErr
 	return h.prov.Completion.Provide(doc.URI, doc.Text, p.Position, p.Context), nil
 }
 
-func (h *Handler) completionResolve(raw json.RawMessage) (interface{}, *lsp.ResponseError) {
+func (h *Handler) completionResolve(raw json.RawMessage) (any, *lsp.ResponseError) {
 	var item lsp.CompletionItem
 	if err := json.Unmarshal(raw, &item); err != nil {
 		return nil, &lsp.ResponseError{Code: lsp.InvalidParams, Message: err.Error()}
@@ -999,7 +962,7 @@ func (h *Handler) completionResolve(raw json.RawMessage) (interface{}, *lsp.Resp
 	return h.prov.Completion.Resolve(item), nil
 }
 
-func (h *Handler) hover(raw json.RawMessage) (interface{}, *lsp.ResponseError) {
+func (h *Handler) hover(raw json.RawMessage) (any, *lsp.ResponseError) {
 	var p lsp.HoverParams
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return nil, &lsp.ResponseError{Code: lsp.InvalidParams, Message: err.Error()}
@@ -1011,7 +974,7 @@ func (h *Handler) hover(raw json.RawMessage) (interface{}, *lsp.ResponseError) {
 	return h.prov.Hover.Provide(doc.URI, doc.Text, p.Position), nil
 }
 
-func (h *Handler) definition(raw json.RawMessage) (interface{}, *lsp.ResponseError) {
+func (h *Handler) definition(raw json.RawMessage) (any, *lsp.ResponseError) {
 	var p lsp.DefinitionParams
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return nil, &lsp.ResponseError{Code: lsp.InvalidParams, Message: err.Error()}
@@ -1023,7 +986,7 @@ func (h *Handler) definition(raw json.RawMessage) (interface{}, *lsp.ResponseErr
 	return h.prov.Definition.Provide(doc.URI, doc.Text, p.Position), nil
 }
 
-func (h *Handler) declaration(raw json.RawMessage) (interface{}, *lsp.ResponseError) {
+func (h *Handler) declaration(raw json.RawMessage) (any, *lsp.ResponseError) {
 	var p lsp.DefinitionParams
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return nil, &lsp.ResponseError{Code: lsp.InvalidParams, Message: err.Error()}
@@ -1035,7 +998,7 @@ func (h *Handler) declaration(raw json.RawMessage) (interface{}, *lsp.ResponseEr
 	return h.prov.Declaration.Provide(doc.URI, doc.Text, p.Position), nil
 }
 
-func (h *Handler) typeDefinition(raw json.RawMessage) (interface{}, *lsp.ResponseError) {
+func (h *Handler) typeDefinition(raw json.RawMessage) (any, *lsp.ResponseError) {
 	var p lsp.DefinitionParams
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return nil, &lsp.ResponseError{Code: lsp.InvalidParams, Message: err.Error()}
@@ -1047,7 +1010,7 @@ func (h *Handler) typeDefinition(raw json.RawMessage) (interface{}, *lsp.Respons
 	return h.prov.TypeDefinition.Provide(doc.URI, doc.Text, p.Position), nil
 }
 
-func (h *Handler) implementation(raw json.RawMessage) (interface{}, *lsp.ResponseError) {
+func (h *Handler) implementation(raw json.RawMessage) (any, *lsp.ResponseError) {
 	var p lsp.DefinitionParams
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return nil, &lsp.ResponseError{Code: lsp.InvalidParams, Message: err.Error()}
@@ -1059,7 +1022,7 @@ func (h *Handler) implementation(raw json.RawMessage) (interface{}, *lsp.Respons
 	return h.prov.Implementation.Provide(doc.URI, doc.Text, p.Position), nil
 }
 
-func (h *Handler) references(raw json.RawMessage) (interface{}, *lsp.ResponseError) {
+func (h *Handler) references(raw json.RawMessage) (any, *lsp.ResponseError) {
 	var p lsp.ReferenceParams
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return nil, &lsp.ResponseError{Code: lsp.InvalidParams, Message: err.Error()}
@@ -1071,7 +1034,7 @@ func (h *Handler) references(raw json.RawMessage) (interface{}, *lsp.ResponseErr
 	return h.prov.References.Provide(doc.URI, doc.Text, p.Position, p.Context.IncludeDeclaration), nil
 }
 
-func (h *Handler) documentHighlight(raw json.RawMessage) (interface{}, *lsp.ResponseError) {
+func (h *Handler) documentHighlight(raw json.RawMessage) (any, *lsp.ResponseError) {
 	var p lsp.DocumentHighlightParams
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return nil, &lsp.ResponseError{Code: lsp.InvalidParams, Message: err.Error()}
@@ -1083,7 +1046,7 @@ func (h *Handler) documentHighlight(raw json.RawMessage) (interface{}, *lsp.Resp
 	return h.prov.Highlight.Provide(doc.URI, doc.Text, p.Position), nil
 }
 
-func (h *Handler) documentSymbol(raw json.RawMessage) (interface{}, *lsp.ResponseError) {
+func (h *Handler) documentSymbol(raw json.RawMessage) (any, *lsp.ResponseError) {
 	var p lsp.DocumentSymbolParams
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return nil, &lsp.ResponseError{Code: lsp.InvalidParams, Message: err.Error()}
@@ -1095,7 +1058,7 @@ func (h *Handler) documentSymbol(raw json.RawMessage) (interface{}, *lsp.Respons
 	return h.prov.Symbol.ProvideDocument(doc.URI, doc.Text), nil
 }
 
-func (h *Handler) workspaceSymbol(raw json.RawMessage) (interface{}, *lsp.ResponseError) {
+func (h *Handler) workspaceSymbol(raw json.RawMessage) (any, *lsp.ResponseError) {
 	var p lsp.WorkspaceSymbolParams
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return nil, &lsp.ResponseError{Code: lsp.InvalidParams, Message: err.Error()}
@@ -1103,7 +1066,7 @@ func (h *Handler) workspaceSymbol(raw json.RawMessage) (interface{}, *lsp.Respon
 	return h.prov.Symbol.ProvideWorkspace(p.Query), nil
 }
 
-func (h *Handler) signatureHelp(raw json.RawMessage) (interface{}, *lsp.ResponseError) {
+func (h *Handler) signatureHelp(raw json.RawMessage) (any, *lsp.ResponseError) {
 	var p lsp.SignatureHelpParams
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return nil, &lsp.ResponseError{Code: lsp.InvalidParams, Message: err.Error()}
@@ -1115,7 +1078,7 @@ func (h *Handler) signatureHelp(raw json.RawMessage) (interface{}, *lsp.Response
 	return h.prov.SignatureHelp.Provide(doc.URI, doc.Text, p.Position), nil
 }
 
-func (h *Handler) formatting(raw json.RawMessage) (interface{}, *lsp.ResponseError) {
+func (h *Handler) formatting(raw json.RawMessage) (any, *lsp.ResponseError) {
 	var p lsp.DocumentFormattingParams
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return nil, &lsp.ResponseError{Code: lsp.InvalidParams, Message: err.Error()}
@@ -1127,7 +1090,7 @@ func (h *Handler) formatting(raw json.RawMessage) (interface{}, *lsp.ResponseErr
 	return h.prov.Formatting.Format(doc.URI, doc.Text, p.Options), nil
 }
 
-func (h *Handler) rangeFormatting(raw json.RawMessage) (interface{}, *lsp.ResponseError) {
+func (h *Handler) rangeFormatting(raw json.RawMessage) (any, *lsp.ResponseError) {
 	var p lsp.DocumentRangeFormattingParams
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return nil, &lsp.ResponseError{Code: lsp.InvalidParams, Message: err.Error()}
@@ -1139,7 +1102,7 @@ func (h *Handler) rangeFormatting(raw json.RawMessage) (interface{}, *lsp.Respon
 	return h.prov.Formatting.FormatRange(doc.URI, doc.Text, p.Range, p.Options), nil
 }
 
-func (h *Handler) rename(raw json.RawMessage) (interface{}, *lsp.ResponseError) {
+func (h *Handler) rename(raw json.RawMessage) (any, *lsp.ResponseError) {
 	var p lsp.RenameParams
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return nil, &lsp.ResponseError{Code: lsp.InvalidParams, Message: err.Error()}
@@ -1151,7 +1114,7 @@ func (h *Handler) rename(raw json.RawMessage) (interface{}, *lsp.ResponseError) 
 	return h.prov.Rename.Provide(doc.URI, doc.Text, p.Position, p.NewName), nil
 }
 
-func (h *Handler) prepareRename(raw json.RawMessage) (interface{}, *lsp.ResponseError) {
+func (h *Handler) prepareRename(raw json.RawMessage) (any, *lsp.ResponseError) {
 	var p lsp.PrepareRenameParams
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return nil, &lsp.ResponseError{Code: lsp.InvalidParams, Message: err.Error()}
@@ -1163,7 +1126,7 @@ func (h *Handler) prepareRename(raw json.RawMessage) (interface{}, *lsp.Response
 	return h.prov.Rename.Prepare(doc.URI, doc.Text, p.Position), nil
 }
 
-func (h *Handler) foldingRange(raw json.RawMessage) (interface{}, *lsp.ResponseError) {
+func (h *Handler) foldingRange(raw json.RawMessage) (any, *lsp.ResponseError) {
 	var p lsp.FoldingRangeParams
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return nil, &lsp.ResponseError{Code: lsp.InvalidParams, Message: err.Error()}
@@ -1175,7 +1138,7 @@ func (h *Handler) foldingRange(raw json.RawMessage) (interface{}, *lsp.ResponseE
 	return h.prov.Folding.Provide(doc.URI, doc.Text), nil
 }
 
-func (h *Handler) selectionRange(raw json.RawMessage) (interface{}, *lsp.ResponseError) {
+func (h *Handler) selectionRange(raw json.RawMessage) (any, *lsp.ResponseError) {
 	var p lsp.SelectionRangeParams
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return nil, &lsp.ResponseError{Code: lsp.InvalidParams, Message: err.Error()}
@@ -1187,7 +1150,7 @@ func (h *Handler) selectionRange(raw json.RawMessage) (interface{}, *lsp.Respons
 	return h.prov.SelectionRange.Provide(doc.URI, doc.Text, p.Positions), nil
 }
 
-func (h *Handler) codeAction(raw json.RawMessage) (interface{}, *lsp.ResponseError) {
+func (h *Handler) codeAction(raw json.RawMessage) (any, *lsp.ResponseError) {
 	var p lsp.CodeActionParams
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return nil, &lsp.ResponseError{Code: lsp.InvalidParams, Message: err.Error()}
@@ -1199,7 +1162,7 @@ func (h *Handler) codeAction(raw json.RawMessage) (interface{}, *lsp.ResponseErr
 	return h.prov.CodeAction.Provide(doc.URI, doc.Text, p.Range, p.Context), nil
 }
 
-func (h *Handler) codeActionResolve(raw json.RawMessage) (interface{}, *lsp.ResponseError) {
+func (h *Handler) codeActionResolve(raw json.RawMessage) (any, *lsp.ResponseError) {
 	var a lsp.CodeAction
 	if err := json.Unmarshal(raw, &a); err != nil {
 		return nil, &lsp.ResponseError{Code: lsp.InvalidParams, Message: err.Error()}
@@ -1207,7 +1170,7 @@ func (h *Handler) codeActionResolve(raw json.RawMessage) (interface{}, *lsp.Resp
 	return h.prov.CodeAction.Resolve(a), nil
 }
 
-func (h *Handler) codeLens(raw json.RawMessage) (interface{}, *lsp.ResponseError) {
+func (h *Handler) codeLens(raw json.RawMessage) (any, *lsp.ResponseError) {
 	var p lsp.CodeLensParams
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return nil, &lsp.ResponseError{Code: lsp.InvalidParams, Message: err.Error()}
@@ -1219,7 +1182,7 @@ func (h *Handler) codeLens(raw json.RawMessage) (interface{}, *lsp.ResponseError
 	return h.prov.CodeLens.Provide(doc.URI, doc.Text), nil
 }
 
-func (h *Handler) codeLensResolve(raw json.RawMessage) (interface{}, *lsp.ResponseError) {
+func (h *Handler) codeLensResolve(raw json.RawMessage) (any, *lsp.ResponseError) {
 	var l lsp.CodeLens
 	if err := json.Unmarshal(raw, &l); err != nil {
 		return nil, &lsp.ResponseError{Code: lsp.InvalidParams, Message: err.Error()}
@@ -1227,7 +1190,7 @@ func (h *Handler) codeLensResolve(raw json.RawMessage) (interface{}, *lsp.Respon
 	return h.prov.CodeLens.Resolve(l), nil
 }
 
-func (h *Handler) inlayHint(raw json.RawMessage) (interface{}, *lsp.ResponseError) {
+func (h *Handler) inlayHint(raw json.RawMessage) (any, *lsp.ResponseError) {
 	var p lsp.InlayHintParams
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return nil, &lsp.ResponseError{Code: lsp.InvalidParams, Message: err.Error()}
@@ -1239,7 +1202,7 @@ func (h *Handler) inlayHint(raw json.RawMessage) (interface{}, *lsp.ResponseErro
 	return h.prov.InlayHints.Provide(doc.URI, doc.Text, p.Range), nil
 }
 
-func (h *Handler) documentLink(raw json.RawMessage) (interface{}, *lsp.ResponseError) {
+func (h *Handler) documentLink(raw json.RawMessage) (any, *lsp.ResponseError) {
 	var p lsp.DocumentLinkParams
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return nil, &lsp.ResponseError{Code: lsp.InvalidParams, Message: err.Error()}
@@ -1251,7 +1214,7 @@ func (h *Handler) documentLink(raw json.RawMessage) (interface{}, *lsp.ResponseE
 	return h.prov.DocumentLinks.Provide(doc.URI, doc.Text), nil
 }
 
-func (h *Handler) inlineValue(raw json.RawMessage) (interface{}, *lsp.ResponseError) {
+func (h *Handler) inlineValue(raw json.RawMessage) (any, *lsp.ResponseError) {
 	var p lsp.InlineValueParams
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return nil, &lsp.ResponseError{Code: lsp.InvalidParams, Message: err.Error()}
@@ -1263,7 +1226,7 @@ func (h *Handler) inlineValue(raw json.RawMessage) (interface{}, *lsp.ResponseEr
 	return h.prov.InlineValues.Provide(doc.URI, doc.Text, p.Range), nil
 }
 
-func (h *Handler) typeHierarchyPrepare(raw json.RawMessage) (interface{}, *lsp.ResponseError) {
+func (h *Handler) typeHierarchyPrepare(raw json.RawMessage) (any, *lsp.ResponseError) {
 	var p lsp.TypeHierarchyPrepareParams
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return nil, &lsp.ResponseError{Code: lsp.InvalidParams, Message: err.Error()}
@@ -1275,7 +1238,7 @@ func (h *Handler) typeHierarchyPrepare(raw json.RawMessage) (interface{}, *lsp.R
 	return h.prov.TypeHierarchy.Prepare(doc.URI, doc.Text, p.Position), nil
 }
 
-func (h *Handler) typeHierarchySupertypes(raw json.RawMessage) (interface{}, *lsp.ResponseError) {
+func (h *Handler) typeHierarchySupertypes(raw json.RawMessage) (any, *lsp.ResponseError) {
 	var p lsp.TypeHierarchySupertypesParams
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return nil, &lsp.ResponseError{Code: lsp.InvalidParams, Message: err.Error()}
@@ -1283,7 +1246,7 @@ func (h *Handler) typeHierarchySupertypes(raw json.RawMessage) (interface{}, *ls
 	return h.prov.TypeHierarchy.Supertypes(p.Item), nil
 }
 
-func (h *Handler) typeHierarchySubtypes(raw json.RawMessage) (interface{}, *lsp.ResponseError) {
+func (h *Handler) typeHierarchySubtypes(raw json.RawMessage) (any, *lsp.ResponseError) {
 	var p lsp.TypeHierarchySubtypesParams
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return nil, &lsp.ResponseError{Code: lsp.InvalidParams, Message: err.Error()}

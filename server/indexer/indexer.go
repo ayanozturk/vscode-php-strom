@@ -7,12 +7,14 @@ import (
 	"hash/fnv"
 	"io"
 	"log"
+	"maps"
 	"math"
 	"os"
 	pathpkg "path"
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -40,10 +42,10 @@ type WorkspaceIndexer struct {
 	onStart          func()
 	onDone           func(IndexingSummary)
 	onProgress       func(done, total int)
-	processedCount   int64
-	indexedCount     int64
-	indexedLines     int64
-	indexedBytes     int64
+	processedCount   atomic.Int64
+	indexedCount     atomic.Int64
+	indexedLines     atomic.Int64
+	indexedBytes     atomic.Int64
 }
 
 const perFileParseTimeout = 20 * time.Second
@@ -188,22 +190,18 @@ func (wi *WorkspaceIndexer) indexWorkspace(visitor func(ParsedFile)) {
 	parsedProjectNodes := make(map[string][]ast.Node, len(paths))
 	parsedProjectHashes := make(map[string]uint64, len(paths))
 	var parsedProjectMu sync.Mutex
-	atomic.StoreInt64(&wi.processedCount, 0)
-	atomic.StoreInt64(&wi.indexedCount, 0)
-	atomic.StoreInt64(&wi.indexedLines, 0)
-	atomic.StoreInt64(&wi.indexedBytes, 0)
+	wi.processedCount.Store(0)
+	wi.indexedCount.Store(0)
+	wi.indexedLines.Store(0)
+	wi.indexedBytes.Store(0)
 
 	// Report at most every 1% of files (min 10, max 200) to avoid flooding the client.
-	reportEvery := total / 100
-	if reportEvery < 10 {
-		reportEvery = 10
-	}
+	reportEvery := max(total/100, 10)
 	if reportEvery > 200 {
 		reportEvery = 200
 	}
 
-	for i := 0; i < numWorkers; i++ {
-		workerID := i
+	for workerID := range numWorkers {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -217,11 +215,11 @@ func (wi *WorkspaceIndexer) indexWorkspace(visitor func(ParsedFile)) {
 					parsedProjectMu.Unlock()
 				})
 				if indexed {
-					atomic.AddInt64(&wi.indexedCount, 1)
-					atomic.AddInt64(&wi.indexedLines, int64(lines))
-					atomic.AddInt64(&wi.indexedBytes, int64(bytesScanned))
+					wi.indexedCount.Add(1)
+					wi.indexedLines.Add(int64(lines))
+					wi.indexedBytes.Add(int64(bytesScanned))
 				}
-				done := int(atomic.AddInt64(&wi.processedCount, 1))
+				done := int(wi.processedCount.Add(1))
 				if done%reportEvery == 0 || done == total {
 					log.Printf("[indexer] progress %d/%d", done, total)
 					if wi.onProgress != nil {
@@ -236,13 +234,13 @@ func (wi *WorkspaceIndexer) indexWorkspace(visitor func(ParsedFile)) {
 
 	wi.replaceWorkspaceProjectNodes(parsedProjectNodes, parsedProjectHashes)
 
-	count := int(atomic.LoadInt64(&wi.indexedCount))
+	count := int(wi.indexedCount.Load())
 	summary := IndexingSummary{
 		FilesDiscovered: total,
 		FilesIndexed:    count,
 		SymbolsIndexed:  wi.index.Size(),
-		LinesScanned:    atomic.LoadInt64(&wi.indexedLines),
-		BytesScanned:    atomic.LoadInt64(&wi.indexedBytes),
+		LinesScanned:    wi.indexedLines.Load(),
+		BytesScanned:    wi.indexedBytes.Load(),
 		Duration:        time.Since(started),
 	}
 	log.Printf(
@@ -263,10 +261,7 @@ func WorkerCountFor(total int) int {
 	if total <= 0 {
 		return 0
 	}
-	workers := runtime.GOMAXPROCS(0)
-	if workers < 1 {
-		workers = 1
-	}
+	workers := max(runtime.GOMAXPROCS(0), 1)
 	if workers > 4 {
 		workers = 4
 	}
@@ -276,14 +271,24 @@ func WorkerCountFor(total int) int {
 	return workers
 }
 
-// DiagnosticWorkerCountFor leaves CPU capacity for VS Code and interactive
-// language features while a full-project analysis is running.
+// DiagnosticWorkerCountFor scales diagnostics workers with file count while
+// preserving interactive responsiveness. Large workspaces get more workers.
 func DiagnosticWorkerCountFor(total int) int {
-	workers := WorkerCountFor(total)
-	if workers > 2 {
-		return 2
+	base := WorkerCountFor(total)
+	if total < 1000 {
+		if base > 2 {
+			return 2
+		}
+	} else if total < 10000 {
+		if base > 3 {
+			return 3
+		}
+	} else {
+		if base > 4 {
+			return 4
+		}
 	}
-	return workers
+	return base
 }
 
 // IndexDocument re-indexes a single open document from its text content.
@@ -355,9 +360,7 @@ func (wi *WorkspaceIndexer) ProjectIndexForFile(filename, text string, nodes []a
 		return project
 	}
 	parsed := make(map[string][]ast.Node, len(wi.projectNodes)+1)
-	for uri, projectNodes := range wi.projectNodes {
-		parsed[uri] = projectNodes
-	}
+	maps.Copy(parsed, wi.projectNodes)
 	wi.mu.RUnlock()
 
 	parsed[filename] = nodes
@@ -423,9 +426,7 @@ func (wi *WorkspaceIndexer) replaceWorkspaceProjectNodes(nodes map[string][]ast.
 
 func (wi *WorkspaceIndexer) rebuildProjectIndexLocked() {
 	parsed := make(map[string][]ast.Node, len(wi.projectNodes))
-	for uri, nodes := range wi.projectNodes {
-		parsed[uri] = nodes
-	}
+	maps.Copy(parsed, wi.projectNodes)
 	wi.project = analyse.BuildProjectIndex(parsed)
 }
 
@@ -523,21 +524,14 @@ func (wi *WorkspaceIndexer) collectWorkspaceFilePathsParallel(folders []Workspac
 }
 
 func shouldIndexGitignoredPath(path string) bool {
-	for _, segment := range splitPathSegments(path) {
-		if segment == "vendor" {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(splitPathSegments(path), "vendor")
 }
 
 func (wi *WorkspaceIndexer) trackWorkspaceURI(uri string) {
 	wi.mu.Lock()
 	defer wi.mu.Unlock()
-	for _, existing := range wi.workspaceURIs {
-		if existing == uri {
-			return
-		}
+	if slices.Contains(wi.workspaceURIs, uri) {
+		return
 	}
 	wi.workspaceURIs = append(wi.workspaceURIs, uri)
 }
@@ -1036,12 +1030,7 @@ func resolveClassLike(ctx extractionContext, name string) string {
 		return ensureLeadingSlash(name)
 	}
 
-	firstSegment := name
-	remainder := ""
-	if idx := strings.Index(name, `\`); idx >= 0 {
-		firstSegment = name[:idx]
-		remainder = name[idx+1:]
-	}
+	firstSegment, remainder, _ := strings.Cut(name, `\`)
 	if target, ok := ctx.aliases[strings.ToLower(firstSegment)]; ok {
 		if remainder != "" {
 			return ensureLeadingSlash(target + `\` + remainder)
@@ -1160,7 +1149,6 @@ func parseGenericTypeReference(raw string) (string, []string, bool) {
 			depth--
 			if depth == 0 {
 				close = open + idx
-				break
 			}
 		}
 		if close >= 0 {
@@ -1196,10 +1184,8 @@ func splitGenericArguments(raw string) []string {
 
 func resolveGenericArgument(ctx extractionContext, raw string, templates []string) string {
 	raw = strings.TrimSpace(raw)
-	for _, template := range templates {
-		if raw == template {
-			return raw
-		}
+	if slices.Contains(templates, raw) {
+		return raw
 	}
 	if name, arguments, ok := parseGenericTypeReference(raw); ok {
 		for i := range arguments {
@@ -1232,9 +1218,7 @@ func unqualifiedTypeName(name string) string {
 }
 
 func extractClassMembers(class *ast.ClassNode, uri, classFQN string, ctx extractionContext, templates []string, syms *[]*Symbol) {
-	for _, property := range promotedPropertySymbols(class, uri, classFQN, ctx) {
-		*syms = append(*syms, property)
-	}
+	*syms = append(*syms, promotedPropertySymbols(class, uri, classFQN, ctx)...)
 
 	for _, methodNode := range class.Methods {
 		method, ok := methodNode.(*ast.FunctionNode)
@@ -1324,12 +1308,8 @@ func extractPHPDocMethods(doc *ast.PHPDocNode, uri, classFQN string, ctx extract
 
 func phpdocLines(raw string) []string {
 	raw = strings.TrimSpace(raw)
-	if strings.HasPrefix(raw, "/**") {
-		raw = strings.TrimPrefix(raw, "/**")
-	}
-	if strings.HasSuffix(raw, "*/") {
-		raw = strings.TrimSuffix(raw, "*/")
-	}
+	raw = strings.TrimPrefix(raw, "/**")
+	raw = strings.TrimSuffix(raw, "*/")
 
 	lines := strings.Split(raw, "\n")
 	for i, line := range lines {
@@ -1602,12 +1582,7 @@ func hasModifier(modifier, want string) bool {
 }
 
 func hasModifierList(modifiers []string, want string) bool {
-	for _, modifier := range modifiers {
-		if modifier == want {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(modifiers, want)
 }
 
 func visibilityFromModifiers(legacy string, modifiers []string) string {
@@ -1784,7 +1759,7 @@ func loadWorkspaceGitignore(folder WorkspaceFolder) (workspaceGitignore, bool) {
 func ignoresPath(matchers []workspaceGitignore, filename string, isDir bool) bool {
 	segments := splitPathSegments(filename)
 	for _, matcher := range matchers {
-		if matcher.ignoresWithSegments(filename, segments, isDir) {
+		if matcher.ignoresWithSegments(segments, isDir) {
 			return true
 		}
 	}
@@ -1801,7 +1776,7 @@ func canSkipIgnoredDir(matchers []workspaceGitignore, dir string) bool {
 	return true
 }
 
-func (m workspaceGitignore) ignoresWithSegments(filename string, segments []string, isDir bool) bool {
+func (m workspaceGitignore) ignoresWithSegments(segments []string, isDir bool) bool {
 	relSegments, ok := m.relativeWorkspaceSegments(segments)
 	if !ok {
 		return false

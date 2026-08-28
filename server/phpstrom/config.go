@@ -76,7 +76,7 @@ func DefaultConfig() *Config {
 	c.Stubs = []string{"Core", "SPL"}
 	c.Diagnostics.Enable = true
 	c.Diagnostics.Run = "onType"
-	c.Diagnostics.WorkspaceScanOnStart = true
+	c.Diagnostics.WorkspaceScanOnStart = false
 	c.Diagnostics.UndefinedSymbols = true
 	c.Diagnostics.UndefinedVariables = true
 	c.Diagnostics.TypeErrors = true

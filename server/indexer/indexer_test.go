@@ -507,7 +507,13 @@ func TestUpdateConfigAppliesWorkspaceExcludes(t *testing.T) {
 }
 
 func TestDiagnosticWorkerCountLeavesInteractiveCapacity(t *testing.T) {
-	if got := DiagnosticWorkerCountFor(1_000); got > 2 {
-		t.Fatalf("expected at most two full-analysis workers, got %d", got)
+	if got := DiagnosticWorkerCountFor(999); got > 2 {
+		t.Fatalf("expected at most two full-analysis workers for small workspaces, got %d", got)
+	}
+	if got := DiagnosticWorkerCountFor(1_000); got > 3 {
+		t.Fatalf("expected at most three full-analysis workers for medium workspaces, got %d", got)
+	}
+	if got := DiagnosticWorkerCountFor(10_000); got > 4 {
+		t.Fatalf("expected at most four full-analysis workers for large workspaces, got %d", got)
 	}
 }

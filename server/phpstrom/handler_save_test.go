@@ -533,9 +533,9 @@ func TestWorkspaceDiagnosticsStopsAtLimit(t *testing.T) {
 		t.Fatal("expected synthetic test file to emit diagnostics")
 	}
 
-	scan := newWorkspaceDiagnosticsScanState()
+	scan := newWorkspaceDiagnosticsScanState(workspaceDiagnosticsLimit+5, nil)
 	published := 0
-	for index := 0; index < workspaceDiagnosticsLimit+5; index++ {
+	for index := range workspaceDiagnosticsLimit + 5 {
 		uri := "file:///workspace/File" + strconv.Itoa(index) + ".php"
 		text := "<?php\nclass Bad_Class_" + strconv.Itoa(index) + " {}\n"
 		if h.publishWorkspaceDocumentDiagnosticsForScan(uri, text, scan) {
