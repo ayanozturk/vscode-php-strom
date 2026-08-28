@@ -42,6 +42,26 @@ func TestDefinitionProviderPrefersClassLikeExactMatch(t *testing.T) {
 	}
 }
 
+func TestDefinitionProviderResolvesMethodCallOverSameNamedClass(t *testing.T) {
+	idx := indexer.New(indexer.Config{})
+	idx.IndexDocument("file:///workspace/CacheInterface.php", "<?php\nnamespace RG\\Caching;\ninterface CacheInterface { public function set($k, $v, $ttl); }\n")
+	// Unrelated class that happens to share the member name "set" as its
+	// own type name, mirroring vendor/RG classes literally named `Set`.
+	idx.IndexDocument("file:///workspace/Set.php", "<?php\nnamespace Some\\Other\\Ns;\nclass Set {}\n")
+
+	provider := &DefinitionProvider{idx: idx, cache: newSemanticDocumentCache()}
+	text := "<?php\nclass Repo {\n    public function __construct(private \\RG\\Caching\\CacheInterface $cache) {}\n    public function run() {\n        $this->cache->set('k', 'v', 0);\n    }\n}\n"
+	// Position on "set" inside `$this->cache->set(...)`.
+	locs := provider.Provide("file:///workspace/Repo.php", text, lsp.Position{Line: 4, Character: 24})
+
+	if len(locs) != 1 {
+		t.Fatalf("expected a single definition for the method call, got %d: %+v", len(locs), locs)
+	}
+	if locs[0].URI != "file:///workspace/CacheInterface.php" {
+		t.Fatalf("expected CacheInterface::set definition, got %s", locs[0].URI)
+	}
+}
+
 func TestDefinitionProviderResolvesConfiguredStubClass(t *testing.T) {
 	stubsPath, err := filepath.Abs("../../stubs")
 	if err != nil {

@@ -64,8 +64,8 @@ func NewRegistry(idx *indexer.WorkspaceIndexer, cfg Config) *Registry {
 	semanticCache := newSemanticDocumentCache()
 	r.Completion = &CompletionProvider{idx: idx, cfg: cfg}
 	r.Hover = &HoverProvider{idx: idx, cache: semanticCache}
-	r.Definition = &DefinitionProvider{idx: idx}
-	r.Declaration = &DeclarationProvider{idx: idx}
+	r.Definition = &DefinitionProvider{idx: idx, cache: semanticCache}
+	r.Declaration = &DeclarationProvider{idx: idx, cache: semanticCache}
 	r.TypeDefinition = &TypeDefinitionProvider{idx: idx}
 	r.Implementation = &ImplementationProvider{idx: idx}
 	r.References = &ReferencesProvider{idx: idx}

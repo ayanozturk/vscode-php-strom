@@ -98,14 +98,42 @@ func hoverTypeFromSymbol(sym *indexer.Symbol) string {
 
 // ─── Definition ───────────────────────────────────────────────────────────────
 
-type DefinitionProvider struct{ idx *indexer.WorkspaceIndexer }
+type DefinitionProvider struct {
+	idx   *indexer.WorkspaceIndexer
+	cache *semanticDocumentCache
+}
 
 func (p *DefinitionProvider) Provide(uri, text string, pos lsp.Position) []lsp.Location {
+	word := identifierAt(text, pos)
+
+	// Member accesses (`$obj->member`, `Class::member`) must resolve against
+	// the receiver's type, not by matching the bare member name against every
+	// symbol in the workspace. Skipping this check let `$this->cache->set(...)`
+	// resolve to unrelated classes literally named `Set` anywhere in the
+	// index (including vendor/), instead of CacheInterface::set().
+	if p.cache != nil && word != "" {
+		snapshot := p.cache.snapshot(uri, text)
+		analysisCtx := p.cache.analysisContext(p.idx)
+		if hoverTarget, ok := analyse.InferHoverTargetAtPosition(snapshot.nodes, int(pos.Line)+1, int(pos.Character)+1, unqualifiedName(word), analysisCtx); ok && hoverTarget.ReceiverClass != "" {
+			switch hoverTarget.Kind {
+			case analyse.HoverTargetMethod:
+				if sym := resolveMethodSymbol(p.idx, hoverTarget.ReceiverClass, unqualifiedName(word)); sym != nil {
+					return []lsp.Location{symToLocation(sym)}
+				}
+				return nil
+			case analyse.HoverTargetProperty:
+				if sym := resolvePropertySymbol(p.idx, hoverTarget.ReceiverClass, unqualifiedName(word)); sym != nil {
+					return []lsp.Location{symToLocation(sym)}
+				}
+				return nil
+			}
+		}
+	}
+
 	if locs := resolveTypeDefinitionLocations(p.idx, text, pos); len(locs) > 0 {
 		return locs
 	}
 
-	word := identifierAt(text, pos)
 	if word == "" {
 		return nil
 	}
@@ -129,10 +157,13 @@ func (p *DefinitionProvider) Provide(uri, text string, pos lsp.Position) []lsp.L
 
 // ─── Declaration ──────────────────────────────────────────────────────────────
 
-type DeclarationProvider struct{ idx *indexer.WorkspaceIndexer }
+type DeclarationProvider struct {
+	idx   *indexer.WorkspaceIndexer
+	cache *semanticDocumentCache
+}
 
 func (p *DeclarationProvider) Provide(uri, text string, pos lsp.Position) []lsp.Location {
-	return (&DefinitionProvider{idx: p.idx}).Provide(uri, text, pos)
+	return (&DefinitionProvider{idx: p.idx, cache: p.cache}).Provide(uri, text, pos)
 }
 
 // ─── TypeDefinition ───────────────────────────────────────────────────────────
