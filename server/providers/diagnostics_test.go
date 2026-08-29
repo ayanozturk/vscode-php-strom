@@ -84,6 +84,7 @@ func TestDiagnosticsProvider_DisablesConfiguredAnalysisCodes(t *testing.T) {
 	for _, code := range []string{
 		"PHPStan.Level0.Symbols",
 		"PHPStan.Level0.Variables",
+		"PHPStan.Level1.Variables",
 		"A.RETURN.TYPE",
 		"A.PROP.TYPE",
 		"A.ARG.TYPE",
@@ -102,14 +103,23 @@ function run(): void {
 }
 `
 	enabled := (&DiagnosticsProvider{}).Analyse("file:///test.php", source)
-	if !hasDiagnosticCode(enabled, "PHPStan.Level0.Variables") {
+	if !hasAnyDiagnosticCode(enabled, "PHPStan.Level0.Variables", "PHPStan.Level1.Variables") {
 		t.Fatalf("expected undefined-variable diagnostic before disabling it, got %#v", enabled)
 	}
 
 	disabled := (&DiagnosticsProvider{cfg: Config{DisableUndefinedVariables: true}}).Analyse("file:///test.php", source)
-	if hasDiagnosticCode(disabled, "PHPStan.Level0.Variables") {
+	if hasAnyDiagnosticCode(disabled, "PHPStan.Level0.Variables", "PHPStan.Level1.Variables") {
 		t.Fatalf("expected undefined-variable diagnostic to be disabled, got %#v", disabled)
 	}
+}
+
+func hasAnyDiagnosticCode(diagnostics []lsp.Diagnostic, codes ...string) bool {
+	for _, code := range codes {
+		if hasDiagnosticCode(diagnostics, code) {
+			return true
+		}
+	}
+	return false
 }
 
 func hasDiagnosticCode(diagnostics []lsp.Diagnostic, code string) bool {

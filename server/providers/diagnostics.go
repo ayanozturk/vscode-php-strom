@@ -744,6 +744,7 @@ func (c Config) disabledAnalysisIssueCodes() map[string]bool {
 	}
 	if c.DisableUndefinedVariables {
 		disabled["PHPStan.Level0.Variables"] = true
+		disabled["PHPStan.Level1.Variables"] = true
 	}
 	if c.DisableTypeErrors {
 		for _, code := range []string{"A.RETURN.TYPE", "A.PROP.TYPE", "A.ARG.TYPE", "A.ARG.COUNT"} {
