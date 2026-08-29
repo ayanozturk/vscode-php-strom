@@ -267,6 +267,7 @@ func (h *Handler) HandleNotification(method string, raw json.RawMessage) {
 		_, wasOpen := h.documents.Get(p.TextDocument.URI)
 		h.documents.Close(p.TextDocument.URI)
 		h.cancelDocumentAnalysis(p.TextDocument.URI)
+		h.prov.Diagnostics.Forget(p.TextDocument.URI)
 		if wasOpen {
 			if text, err := h.readDocumentTextFromDisk(p.TextDocument.URI); err == nil {
 				h.idx.IndexDocument(p.TextDocument.URI, text)
@@ -682,7 +683,7 @@ func (h *Handler) runWorkspaceDiagnosticsLocked(scan *workspaceDiagnosticsScanSt
 					}
 					continue
 				}
-				diags := diagnosticsProvider.Analyse(uri, text)
+				diags := diagnosticsProvider.AnalyseTransient(uri, text)
 				if diags == nil {
 					diags = []lsp.Diagnostic{}
 				}
@@ -728,7 +729,7 @@ func (h *Handler) runWorkspaceDiagnosticsLocked(scan *workspaceDiagnosticsScanSt
 }
 
 func (h *Handler) publishWorkspaceDocumentDiagnostics(uri, text string) bool {
-	diags := h.prov.Diagnostics.Analyse(uri, text)
+	diags := h.prov.Diagnostics.AnalyseTransient(uri, text)
 	if diags == nil {
 		diags = []lsp.Diagnostic{}
 	}
@@ -737,7 +738,7 @@ func (h *Handler) publishWorkspaceDocumentDiagnostics(uri, text string) bool {
 }
 
 func (h *Handler) publishWorkspaceDocumentDiagnosticsForScan(uri, text string, scan *workspaceDiagnosticsScanState) bool {
-	diags := h.prov.Diagnostics.Analyse(uri, text)
+	diags := h.prov.Diagnostics.AnalyseTransient(uri, text)
 	if diags == nil {
 		diags = []lsp.Diagnostic{}
 	}

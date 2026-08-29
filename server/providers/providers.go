@@ -35,7 +35,7 @@ func (p *HoverProvider) Provide(uri, text string, pos lsp.Position) *lsp.Hover {
 	ident := identifierAt(text, pos)
 	if ident != "" {
 		snapshot := p.cache.snapshot(uri, text)
-		analysisCtx := p.cache.analysisContext(p.idx)
+		analysisCtx := p.cache.analysisContextForFile(p.idx, uri, uriToFilename(uri), text, snapshot.nodes)
 		hoverTarget, hasHoverTarget = analyse.InferHoverTargetAtPosition(snapshot.nodes, int(pos.Line)+1, int(pos.Character)+1, unqualifiedName(ident), analysisCtx)
 		if hasHoverTarget {
 			inferredType = hoverTarget.Type
@@ -113,7 +113,7 @@ func (p *DefinitionProvider) Provide(uri, text string, pos lsp.Position) []lsp.L
 	// index (including vendor/), instead of CacheInterface::set().
 	if p.cache != nil && word != "" {
 		snapshot := p.cache.snapshot(uri, text)
-		analysisCtx := p.cache.analysisContext(p.idx)
+		analysisCtx := p.cache.analysisContextForFile(p.idx, uri, uriToFilename(uri), text, snapshot.nodes)
 		if hoverTarget, ok := analyse.InferHoverTargetAtPosition(snapshot.nodes, int(pos.Line)+1, int(pos.Character)+1, unqualifiedName(word), analysisCtx); ok && hoverTarget.ReceiverClass != "" {
 			switch hoverTarget.Kind {
 			case analyse.HoverTargetMethod:

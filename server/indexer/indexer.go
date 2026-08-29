@@ -33,6 +33,7 @@ type WorkspaceIndexer struct {
 	project          *analyse.ProjectIndex
 	projectNodes     map[string][]ast.Node
 	projectHashes    map[string]uint64
+	projectRevision  uint64
 	folders          []WorkspaceFolder
 	workspaceURIs    []string
 	gitignores       []workspaceGitignore
@@ -352,19 +353,29 @@ func (wi *WorkspaceIndexer) ProjectIndex() *analyse.ProjectIndex {
 // cached project index; otherwise it overlays the current file without mutating
 // workspace state.
 func (wi *WorkspaceIndexer) ProjectIndexForFile(filename, text string, nodes []ast.Node) *analyse.ProjectIndex {
+	project, _ := wi.ProjectIndexSnapshotForFile(filename, text, nodes)
+	return project
+}
+
+// ProjectIndexSnapshotForFile returns an immutable project-index view and the
+// workspace revision it was derived from. The revision changes whenever the
+// workspace project graph is rebuilt, allowing semantic consumers to retain a
+// snapshot only while its cross-file symbols remain current.
+func (wi *WorkspaceIndexer) ProjectIndexSnapshotForFile(filename, text string, nodes []ast.Node) (*analyse.ProjectIndex, uint64) {
 	hash := sourceHash(text)
 	wi.mu.RLock()
+	revision := wi.projectRevision
 	if lastHash, seen := wi.projectHashes[filename]; seen && lastHash == hash {
 		project := wi.project
 		wi.mu.RUnlock()
-		return project
+		return project, revision
 	}
 	parsed := make(map[string][]ast.Node, len(wi.projectNodes)+1)
 	maps.Copy(parsed, wi.projectNodes)
 	wi.mu.RUnlock()
 
 	parsed[filename] = nodes
-	return analyse.BuildProjectIndex(parsed)
+	return analyse.BuildProjectIndex(parsed), revision
 }
 
 func (wi *WorkspaceIndexer) SetStubs(stubsPath string, stubs []string, phpVersion string) {
@@ -428,6 +439,7 @@ func (wi *WorkspaceIndexer) rebuildProjectIndexLocked() {
 	parsed := make(map[string][]ast.Node, len(wi.projectNodes))
 	maps.Copy(parsed, wi.projectNodes)
 	wi.project = analyse.BuildProjectIndex(parsed)
+	wi.projectRevision++
 }
 
 func projectIndexKey(uri string) string {

@@ -17,13 +17,23 @@ type semanticSnapshot struct {
 	errors []string
 }
 
+type semanticAnalysisSnapshot struct {
+	text            string
+	projectRevision uint64
+	snapshot        *analyse.SemanticSnapshot
+}
+
 type semanticDocumentCache struct {
-	mu    sync.RWMutex
-	byURI map[string]semanticSnapshot
+	mu       sync.RWMutex
+	byURI    map[string]semanticSnapshot
+	analysis map[string]semanticAnalysisSnapshot
 }
 
 func newSemanticDocumentCache() *semanticDocumentCache {
-	return &semanticDocumentCache{byURI: make(map[string]semanticSnapshot)}
+	return &semanticDocumentCache{
+		byURI:    make(map[string]semanticSnapshot),
+		analysis: make(map[string]semanticAnalysisSnapshot),
+	}
 }
 
 func (c *semanticDocumentCache) snapshot(uri, text string) semanticSnapshot {
@@ -43,30 +53,73 @@ func (c *semanticDocumentCache) snapshot(uri, text string) semanticSnapshot {
 
 	c.mu.Lock()
 	c.byURI[uri] = snapshot
+	delete(c.analysis, uri)
 	c.mu.Unlock()
 	return snapshot
 }
 
-func (c *semanticDocumentCache) analysisContext(idx *indexer.WorkspaceIndexer) *analyse.AnalysisContext {
-	ctx := &analyse.AnalysisContext{}
-	if idx != nil {
-		if project := idx.ProjectIndex(); project != nil {
-			ctx.Resolver = projectFallbackResolver{project: project, fallback: workspaceSymbolResolver{idx: idx}}
-		} else {
-			ctx.Resolver = workspaceSymbolResolver{idx: idx}
-		}
+func (c *semanticDocumentCache) forget(uri string) {
+	if c == nil {
+		return
 	}
-	return ctx
+	c.mu.Lock()
+	delete(c.byURI, uri)
+	delete(c.analysis, uri)
+	c.mu.Unlock()
 }
 
-func (c *semanticDocumentCache) analysisContextForFile(idx *indexer.WorkspaceIndexer, filename, text string, nodes []ast.Node) *analyse.AnalysisContext {
-	ctx := &analyse.AnalysisContext{}
+func (c *semanticDocumentCache) analysisContextForFile(idx *indexer.WorkspaceIndexer, cacheKey, filename, text string, nodes []ast.Node) *analyse.AnalysisContext {
+	var project *analyse.ProjectIndex
+	var revision uint64
 	if idx != nil {
-		if project := idx.ProjectIndexForFile(filename, text, nodes); project != nil {
-			ctx.Resolver = projectFallbackResolver{project: project, fallback: workspaceSymbolResolver{idx: idx}}
-		} else {
-			ctx.Resolver = workspaceSymbolResolver{idx: idx}
+		project, revision = idx.ProjectIndexSnapshotForFile(filename, text, nodes)
+	}
+
+	if c != nil && cacheKey != "" {
+		c.mu.RLock()
+		cached, ok := c.analysis[cacheKey]
+		c.mu.RUnlock()
+		if ok && cached.text == text && cached.projectRevision == revision && cached.snapshot != nil {
+			return analysisContextFromSnapshot(cached.snapshot, project, idx)
 		}
+	}
+
+	parsed := map[string][]ast.Node{filename: nodes}
+	var semantic *analyse.SemanticSnapshot
+	var err error
+	if project != nil {
+		semantic, err = analyse.NewSemanticSnapshotWithIndex(project, parsed, nil, []string{filename})
+	} else {
+		semantic, err = analyse.NewSemanticSnapshot(parsed, nil)
+	}
+	if err != nil {
+		return analysisContextFromSnapshot(nil, project, idx)
+	}
+
+	if c != nil && cacheKey != "" {
+		c.mu.Lock()
+		c.analysis[cacheKey] = semanticAnalysisSnapshot{
+			text:            text,
+			projectRevision: revision,
+			snapshot:        semantic,
+		}
+		c.mu.Unlock()
+	}
+	return analysisContextFromSnapshot(semantic, project, idx)
+}
+
+func analysisContextFromSnapshot(snapshot *analyse.SemanticSnapshot, project *analyse.ProjectIndex, idx *indexer.WorkspaceIndexer) *analyse.AnalysisContext {
+	ctx := &analyse.AnalysisContext{}
+	if snapshot != nil {
+		ctx = snapshot.NewAnalysisContext()
+	}
+	if idx == nil {
+		return ctx
+	}
+	if project != nil {
+		ctx.Resolver = projectFallbackResolver{project: project, fallback: workspaceSymbolResolver{idx: idx}}
+	} else {
+		ctx.Resolver = workspaceSymbolResolver{idx: idx}
 	}
 	return ctx
 }

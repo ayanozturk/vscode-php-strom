@@ -667,6 +667,14 @@ type DiagnosticsProvider struct {
 	cache *semanticDocumentCache
 }
 
+// Forget releases parsed and semantic state retained for a document that is no
+// longer open. The cache is shared with hover and definition providers.
+func (p *DiagnosticsProvider) Forget(uri string) {
+	if p != nil {
+		p.cache.forget(uri)
+	}
+}
+
 func (p *DiagnosticsProvider) IgnoresAll(uri string) bool {
 	return p.cfg.DiagnosticsExclusions.IgnoresAll(uriToFilename(uri))
 }
@@ -677,7 +685,20 @@ func (p *DiagnosticsProvider) Analyse(uri, text string) []lsp.Diagnostic {
 		return []lsp.Diagnostic{}
 	}
 	snapshot := p.cache.snapshot(uri, text)
-	return p.cfg.DiagnosticsExclusions.Filter(filename, p.analyseParsed(filename, text, snapshot.nodes, snapshot.errors))
+	return p.cfg.DiagnosticsExclusions.Filter(filename, p.analyseParsed(uri, filename, text, snapshot.nodes, snapshot.errors))
+}
+
+// AnalyseTransient analyses a closed/background document without retaining its
+// AST or semantic snapshot in the interactive document cache. Workspace scans
+// may cover thousands of files, while the cache is intended for repeated
+// diagnostics and semantic queries against open documents.
+func (p *DiagnosticsProvider) AnalyseTransient(uri, text string) []lsp.Diagnostic {
+	filename := uriToFilename(uri)
+	if p.cfg.DiagnosticsExclusions.IgnoresAll(filename) {
+		return []lsp.Diagnostic{}
+	}
+	snapshot := parseSemanticSnapshot(text)
+	return p.cfg.DiagnosticsExclusions.Filter(filename, p.analyseParsed("", filename, text, snapshot.nodes, snapshot.errors))
 }
 
 func (p *DiagnosticsProvider) AnalyseParsed(uri, text string, nodes []ast.Node, parseErrors []string) []lsp.Diagnostic {
@@ -685,15 +706,15 @@ func (p *DiagnosticsProvider) AnalyseParsed(uri, text string, nodes []ast.Node, 
 	if p.cfg.DiagnosticsExclusions.IgnoresAll(filename) {
 		return []lsp.Diagnostic{}
 	}
-	return p.cfg.DiagnosticsExclusions.Filter(filename, p.analyseParsed(filename, text, nodes, parseErrors))
+	return p.cfg.DiagnosticsExclusions.Filter(filename, p.analyseParsed(uri, filename, text, nodes, parseErrors))
 }
 
-func (p *DiagnosticsProvider) analyseParsed(filename, text string, nodes []ast.Node, parseErrors []string) []lsp.Diagnostic {
+func (p *DiagnosticsProvider) analyseParsed(cacheKey, filename, text string, nodes []ast.Node, parseErrors []string) []lsp.Diagnostic {
 	var diags []lsp.Diagnostic
 	suppressions := collectInlineDiagnosticSuppressions(text)
 
 	// Run analysis rules (assignment-in-condition, empty statements, etc.)
-	analysisCtx := p.cache.analysisContextForFile(p.idx, filename, text, nodes)
+	analysisCtx := p.cache.analysisContextForFile(p.idx, cacheKey, filename, text, nodes)
 	analysisCtx.PHPVersion = p.cfg.PHPVersion
 	analysisCtx.DisabledIssueCodes = p.cfg.disabledAnalysisIssueCodes()
 	for _, issue := range analyse.FilterIssues(runAnalysisRulesForSource(filename, text, nodes, analysisCtx), p.cfg.DiagnosticsOverrides) {

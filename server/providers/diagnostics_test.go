@@ -1,6 +1,7 @@
 package providers
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -110,6 +111,51 @@ function run(): void {
 	disabled := (&DiagnosticsProvider{cfg: Config{DisableUndefinedVariables: true}}).Analyse("file:///test.php", source)
 	if hasAnyDiagnosticCode(disabled, "PHPStan.Level0.Variables", "PHPStan.Level1.Variables") {
 		t.Fatalf("expected undefined-variable diagnostic to be disabled, got %#v", disabled)
+	}
+}
+
+func TestDiagnosticsProvider_AnalyseTransientDoesNotRetainSemanticCache(t *testing.T) {
+	const uri = "file:///workspace/Transient.php"
+	const source = `<?php
+function run(): void
+{
+    if ($value = getValue()) {
+        echo $value;
+    }
+}
+`
+
+	// Compare only the representative analysis diagnostic so style-rule
+	// ordering or unrelated style changes cannot obscure the cache contract.
+	relevant := func(diagnostics []lsp.Diagnostic) []lsp.Diagnostic {
+		filtered := make([]lsp.Diagnostic, 0, len(diagnostics))
+		for _, diagnostic := range diagnostics {
+			if code, ok := diagnostic.Code.(string); ok && code == "Generic.CodeAnalysis.AssignmentInCondition" {
+				filtered = append(filtered, diagnostic)
+			}
+		}
+		return filtered
+	}
+
+	expected := (&DiagnosticsProvider{cache: newSemanticDocumentCache()}).Analyse(uri, source)
+	cache := newSemanticDocumentCache()
+	actual := (&DiagnosticsProvider{cache: cache}).AnalyseTransient(uri, source)
+	expectedRelevant := relevant(expected)
+	actualRelevant := relevant(actual)
+	if len(expectedRelevant) == 0 {
+		t.Fatalf("expected Analyse to produce the representative analysis diagnostic, got %#v", expected)
+	}
+	if !reflect.DeepEqual(actualRelevant, expectedRelevant) {
+		t.Fatalf("expected AnalyseTransient analysis diagnostics to match Analyse, got %#v versus %#v", actualRelevant, expectedRelevant)
+	}
+
+	cache.mu.RLock()
+	defer cache.mu.RUnlock()
+	if len(cache.byURI) != 0 {
+		t.Fatalf("expected AnalyseTransient not to retain parsed document snapshots, retained %d", len(cache.byURI))
+	}
+	if len(cache.analysis) != 0 {
+		t.Fatalf("expected AnalyseTransient not to retain semantic snapshots, retained %d", len(cache.analysis))
 	}
 }
 
