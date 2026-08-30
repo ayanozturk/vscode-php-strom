@@ -34,6 +34,8 @@ type WorkspaceIndexer struct {
 	projectNodes     map[string][]ast.Node
 	projectHashes    map[string]uint64
 	semanticRevision uint64
+	semanticBase     uint64
+	semanticChanges  []semanticChangeEvent
 	folders          []WorkspaceFolder
 	workspaceURIs    []string
 	gitignores       []workspaceGitignore
@@ -48,6 +50,16 @@ type WorkspaceIndexer struct {
 	indexedLines     atomic.Int64
 	indexedBytes     atomic.Int64
 }
+
+type semanticChangeEvent struct {
+	revision        uint64
+	dependencyNames []string
+}
+
+const (
+	maxSemanticChangeEvents          = 64
+	maxSemanticChangeDependencyNames = 256
+)
 
 const perFileParseTimeout = 20 * time.Second
 
@@ -364,7 +376,7 @@ func (wi *WorkspaceIndexer) ProjectIndexForFile(filename, text string, nodes []a
 func (wi *WorkspaceIndexer) ProjectIndexSnapshotForFile(filename, text string, nodes []ast.Node) (*analyse.ProjectIndex, uint64) {
 	hash := sourceHash(text)
 	wi.mu.RLock()
-	revision := wi.semanticRevision
+	revision := wi.documentSemanticRevisionLocked(text)
 	if lastHash, seen := wi.projectHashes[filename]; seen && lastHash == hash {
 		project := wi.project
 		wi.mu.RUnlock()
@@ -441,17 +453,82 @@ func (wi *WorkspaceIndexer) rebuildProjectIndexLocked() {
 	parsed := make(map[string][]ast.Node, len(wi.projectNodes))
 	maps.Copy(parsed, wi.projectNodes)
 	wi.project = analyse.BuildProjectIndex(parsed)
-	wi.semanticRevision++
+	wi.recordSemanticChangesLocked(analyse.ProjectIndexChanges{Complete: false})
 }
 
 func (wi *WorkspaceIndexer) rebuildProjectIndexFilesLocked(changedFiles ...string) {
 	parsed := make(map[string][]ast.Node, len(wi.projectNodes))
 	maps.Copy(parsed, wi.projectNodes)
-	project, semanticChanged := analyse.BuildProjectIndexIncremental(wi.project, parsed, changedFiles)
+	project, changes := analyse.BuildProjectIndexIncrementalWithChanges(wi.project, parsed, changedFiles)
 	wi.project = project
-	if semanticChanged {
-		wi.semanticRevision++
+	if changes.SemanticChanged() {
+		wi.recordSemanticChangesLocked(changes)
 	}
+}
+
+func (wi *WorkspaceIndexer) recordSemanticChangesLocked(changes analyse.ProjectIndexChanges) {
+	wi.semanticRevision++
+	if !changes.Complete || len(changes.DependencyNames) == 0 || len(changes.DependencyNames) > maxSemanticChangeDependencyNames {
+		wi.semanticBase = wi.semanticRevision
+		wi.semanticChanges = nil
+		return
+	}
+	names := make([]string, 0, len(changes.DependencyNames))
+	for _, name := range changes.DependencyNames {
+		names = append(names, strings.ToLower(strings.TrimPrefix(name, `\`)))
+	}
+	wi.semanticChanges = append(wi.semanticChanges, semanticChangeEvent{
+		revision:        wi.semanticRevision,
+		dependencyNames: names,
+	})
+	if len(wi.semanticChanges) > maxSemanticChangeEvents {
+		wi.semanticBase = wi.semanticRevision
+		wi.semanticChanges = nil
+	}
+}
+
+func (wi *WorkspaceIndexer) documentSemanticRevisionLocked(text string) uint64 {
+	revision := wi.semanticBase
+	for _, change := range wi.semanticChanges {
+		if semanticChangeAffectsText(text, change.dependencyNames) {
+			revision = change.revision
+		}
+	}
+	return revision
+}
+
+func semanticChangeAffectsText(text string, dependencyNames []string) bool {
+	text = strings.ToLower(text)
+	for _, name := range dependencyNames {
+		if containsPHPIdentifier(text, name) {
+			return true
+		}
+	}
+	return false
+}
+
+func containsPHPIdentifier(text, identifier string) bool {
+	if identifier == "" {
+		return false
+	}
+	for start := 0; start < len(text); {
+		index := strings.Index(text[start:], identifier)
+		if index < 0 {
+			return false
+		}
+		index += start
+		end := index + len(identifier)
+		if (index == 0 || !isPHPIdentifierByte(text[index-1])) &&
+			(end == len(text) || !isPHPIdentifierByte(text[end])) {
+			return true
+		}
+		start = index + 1
+	}
+	return false
+}
+
+func isPHPIdentifierByte(value byte) bool {
+	return value == '_' || value >= 0x80 || value >= 'a' && value <= 'z' || value >= '0' && value <= '9'
 }
 
 func projectIndexKey(uri string) string {

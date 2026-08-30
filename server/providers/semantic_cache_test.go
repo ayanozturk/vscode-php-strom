@@ -72,7 +72,7 @@ func TestSemanticDocumentCacheRebuildsAfterAnotherFileExportsChange(t *testing.T
 	const (
 		uri      = "file:///workspace/Example.php"
 		filename = "/workspace/Example.php"
-		text     = "<?php\nfunction run(): void { echo 'ready'; }\n"
+		text     = "<?php\nfunction run(Dependency $dependency): void { $dependency->changed(); }\n"
 		otherURI = "file:///workspace/Dependency.php"
 	)
 
@@ -87,6 +87,97 @@ func TestSemanticDocumentCacheRebuildsAfterAnotherFileExportsChange(t *testing.T
 
 	if firstSnapshot, secondSnapshot := semanticSnapshotFromContext(t, first), semanticSnapshotFromContext(t, second); firstSnapshot == secondSnapshot {
 		t.Fatal("expected another indexed-file change to rebuild the semantic snapshot")
+	}
+}
+
+func TestSemanticDocumentCacheReusesSnapshotAfterUnreferencedExportChange(t *testing.T) {
+	const (
+		uri      = "file:///workspace/Example.php"
+		filename = "/workspace/Example.php"
+		text     = "<?php\nfunction run(): void { echo 'ready'; }\n"
+		otherURI = "file:///workspace/Dependency.php"
+	)
+
+	idx := indexer.New(indexer.Config{})
+	idx.IndexDocument(otherURI, "<?php\nclass Dependency {}\n")
+	parsed := indexer.ParseSource(uri, text)
+	cache := newSemanticDocumentCache()
+	first := cache.analysisContextForFile(idx, uri, filename, text, parsed.Nodes)
+
+	idx.IndexDocument(otherURI, "<?php\nclass Dependency { public function changed(): void {} }\n")
+	second := cache.analysisContextForFile(idx, uri, filename, text, parsed.Nodes)
+
+	if firstSnapshot, secondSnapshot := semanticSnapshotFromContext(t, first), semanticSnapshotFromContext(t, second); firstSnapshot != secondSnapshot {
+		t.Fatal("expected unreferenced export change to retain cached semantic snapshot")
+	}
+}
+
+func TestSemanticDocumentCacheRebuildsForTransitiveInheritanceChange(t *testing.T) {
+	const (
+		uri      = "file:///workspace/Grandchild.php"
+		filename = "/workspace/Grandchild.php"
+		text     = "<?php\nclass Grandchild extends Child {}\n"
+		baseURI  = "file:///workspace/Base.php"
+		childURI = "file:///workspace/Child.php"
+	)
+
+	idx := indexer.New(indexer.Config{})
+	idx.IndexDocument(baseURI, "<?php\nclass Base { public function render(): string {} }\n")
+	idx.IndexDocument(childURI, "<?php\nclass Child extends Base {}\n")
+	idx.IndexDocument(uri, text)
+	parsed := indexer.ParseSource(uri, text)
+	cache := newSemanticDocumentCache()
+	first := cache.analysisContextForFile(idx, uri, filename, text, parsed.Nodes)
+
+	idx.IndexDocument(baseURI, "<?php\nclass Base { public function render(): int {} }\n")
+	second := cache.analysisContextForFile(idx, uri, filename, text, parsed.Nodes)
+
+	if firstSnapshot, secondSnapshot := semanticSnapshotFromContext(t, first), semanticSnapshotFromContext(t, second); firstSnapshot == secondSnapshot {
+		t.Fatal("expected base export change to invalidate transitive descendant snapshot")
+	}
+}
+
+func TestSemanticDocumentCacheRebuildsForFunctionAndConstantChanges(t *testing.T) {
+	tests := []struct {
+		name     string
+		consumer string
+		before   string
+		after    string
+	}{
+		{
+			name:     "function signature",
+			consumer: "<?php\nfunction run(): void { helper(1); }\n",
+			before:   "<?php\nfunction helper(int $value): void {}\n",
+			after:    "<?php\nfunction helper(string $value): void {}\n",
+		},
+		{
+			name:     "global constant removal",
+			consumer: "<?php\nfunction run(): void { echo FEATURE_FLAG; }\n",
+			before:   "<?php\nconst FEATURE_FLAG = true;\n",
+			after:    "<?php\n",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			const (
+				uri         = "file:///workspace/Consumer.php"
+				filename    = "/workspace/Consumer.php"
+				definitions = "file:///workspace/Definitions.php"
+			)
+			idx := indexer.New(indexer.Config{})
+			idx.IndexDocument(definitions, test.before)
+			parsed := indexer.ParseSource(uri, test.consumer)
+			cache := newSemanticDocumentCache()
+			first := cache.analysisContextForFile(idx, uri, filename, test.consumer, parsed.Nodes)
+
+			idx.IndexDocument(definitions, test.after)
+			second := cache.analysisContextForFile(idx, uri, filename, test.consumer, parsed.Nodes)
+
+			if firstSnapshot, secondSnapshot := semanticSnapshotFromContext(t, first), semanticSnapshotFromContext(t, second); firstSnapshot == secondSnapshot {
+				t.Fatal("expected referenced export change to invalidate semantic snapshot")
+			}
+		})
 	}
 }
 
