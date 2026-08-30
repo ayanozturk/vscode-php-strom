@@ -68,7 +68,7 @@ func TestSemanticDocumentCacheReusesAnalysisSnapshotForUnchangedRevision(t *test
 	}
 }
 
-func TestSemanticDocumentCacheRebuildsAfterAnotherIndexedFileChanges(t *testing.T) {
+func TestSemanticDocumentCacheRebuildsAfterAnotherFileExportsChange(t *testing.T) {
 	const (
 		uri      = "file:///workspace/Example.php"
 		filename = "/workspace/Example.php"
@@ -87,6 +87,28 @@ func TestSemanticDocumentCacheRebuildsAfterAnotherIndexedFileChanges(t *testing.
 
 	if firstSnapshot, secondSnapshot := semanticSnapshotFromContext(t, first), semanticSnapshotFromContext(t, second); firstSnapshot == secondSnapshot {
 		t.Fatal("expected another indexed-file change to rebuild the semantic snapshot")
+	}
+}
+
+func TestSemanticDocumentCacheReusesSnapshotAfterAnotherFilesBodyOnlyChange(t *testing.T) {
+	const (
+		uri      = "file:///workspace/Example.php"
+		filename = "/workspace/Example.php"
+		text     = "<?php\nfunction run(): void { echo 'ready'; }\n"
+		otherURI = "file:///workspace/Dependency.php"
+	)
+
+	idx := indexer.New(indexer.Config{})
+	idx.IndexDocument(otherURI, "<?php\nclass Dependency { public function work(): void { echo 'before'; } }\n")
+	parsed := indexer.ParseSource(uri, text)
+	cache := newSemanticDocumentCache()
+	first := cache.analysisContextForFile(idx, uri, filename, text, parsed.Nodes)
+
+	idx.IndexDocument(otherURI, "<?php\nclass Dependency { public function work(): void { echo 'after'; } }\n")
+	second := cache.analysisContextForFile(idx, uri, filename, text, parsed.Nodes)
+
+	if firstSnapshot, secondSnapshot := semanticSnapshotFromContext(t, first), semanticSnapshotFromContext(t, second); firstSnapshot != secondSnapshot {
+		t.Fatal("expected another file's body-only edit to reuse the semantic snapshot")
 	}
 }
 

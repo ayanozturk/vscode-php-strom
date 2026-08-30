@@ -31,7 +31,7 @@ func (wi *WorkspaceIndexer) loadConfiguredStubs() {
 		wi.projectNodes[key] = parsed.Nodes
 		wi.projectHashes[key] = sourceHash(parsed.Text)
 		wi.stubURIs = append(wi.stubURIs, parsed.URI)
-		wi.rebuildProjectIndexLocked()
+		wi.rebuildProjectIndexFilesLocked(key)
 		wi.mu.Unlock()
 	}
 }

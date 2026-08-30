@@ -18,9 +18,9 @@ type semanticSnapshot struct {
 }
 
 type semanticAnalysisSnapshot struct {
-	text            string
-	projectRevision uint64
-	snapshot        *analyse.SemanticSnapshot
+	text             string
+	semanticRevision uint64
+	snapshot         *analyse.SemanticSnapshot
 }
 
 type semanticDocumentCache struct {
@@ -79,7 +79,7 @@ func (c *semanticDocumentCache) analysisContextForFile(idx *indexer.WorkspaceInd
 		c.mu.RLock()
 		cached, ok := c.analysis[cacheKey]
 		c.mu.RUnlock()
-		if ok && cached.text == text && cached.projectRevision == revision && cached.snapshot != nil {
+		if ok && cached.text == text && cached.semanticRevision == revision && cached.snapshot != nil {
 			return analysisContextFromSnapshot(cached.snapshot, project, idx)
 		}
 	}
@@ -99,9 +99,9 @@ func (c *semanticDocumentCache) analysisContextForFile(idx *indexer.WorkspaceInd
 	if c != nil && cacheKey != "" {
 		c.mu.Lock()
 		c.analysis[cacheKey] = semanticAnalysisSnapshot{
-			text:            text,
-			projectRevision: revision,
-			snapshot:        semantic,
+			text:             text,
+			semanticRevision: revision,
+			snapshot:         semantic,
 		}
 		c.mu.Unlock()
 	}

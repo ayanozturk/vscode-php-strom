@@ -33,7 +33,7 @@ type WorkspaceIndexer struct {
 	project          *analyse.ProjectIndex
 	projectNodes     map[string][]ast.Node
 	projectHashes    map[string]uint64
-	projectRevision  uint64
+	semanticRevision uint64
 	folders          []WorkspaceFolder
 	workspaceURIs    []string
 	gitignores       []workspaceGitignore
@@ -358,13 +358,13 @@ func (wi *WorkspaceIndexer) ProjectIndexForFile(filename, text string, nodes []a
 }
 
 // ProjectIndexSnapshotForFile returns an immutable project-index view and the
-// workspace revision it was derived from. The revision changes whenever the
-// workspace project graph is rebuilt, allowing semantic consumers to retain a
-// snapshot only while its cross-file symbols remain current.
+// exported-semantic revision it was derived from. Body-only and declaration-
+// position edits publish a new project view without advancing the revision;
+// semantic consumers can retain facts until cross-file symbol meaning changes.
 func (wi *WorkspaceIndexer) ProjectIndexSnapshotForFile(filename, text string, nodes []ast.Node) (*analyse.ProjectIndex, uint64) {
 	hash := sourceHash(text)
 	wi.mu.RLock()
-	revision := wi.projectRevision
+	revision := wi.semanticRevision
 	if lastHash, seen := wi.projectHashes[filename]; seen && lastHash == hash {
 		project := wi.project
 		wi.mu.RUnlock()
@@ -372,10 +372,12 @@ func (wi *WorkspaceIndexer) ProjectIndexSnapshotForFile(filename, text string, n
 	}
 	parsed := make(map[string][]ast.Node, len(wi.projectNodes)+1)
 	maps.Copy(parsed, wi.projectNodes)
+	baseProject := wi.project
 	wi.mu.RUnlock()
 
 	parsed[filename] = nodes
-	return analyse.BuildProjectIndex(parsed), revision
+	project, _ := analyse.BuildProjectIndexIncremental(baseProject, parsed, []string{filename})
+	return project, revision
 }
 
 func (wi *WorkspaceIndexer) SetStubs(stubsPath string, stubs []string, phpVersion string) {
@@ -401,7 +403,7 @@ func (wi *WorkspaceIndexer) putProjectNodes(uri string, nodes []ast.Node, hash u
 	key := projectIndexKey(uri)
 	wi.projectNodes[key] = nodes
 	wi.projectHashes[key] = hash
-	wi.rebuildProjectIndexLocked()
+	wi.rebuildProjectIndexFilesLocked(key)
 	wi.mu.Unlock()
 }
 
@@ -410,7 +412,7 @@ func (wi *WorkspaceIndexer) removeProjectNodes(uri string) {
 	key := projectIndexKey(uri)
 	delete(wi.projectNodes, key)
 	delete(wi.projectHashes, key)
-	wi.rebuildProjectIndexLocked()
+	wi.rebuildProjectIndexFilesLocked(key)
 	wi.mu.Unlock()
 }
 
@@ -439,7 +441,17 @@ func (wi *WorkspaceIndexer) rebuildProjectIndexLocked() {
 	parsed := make(map[string][]ast.Node, len(wi.projectNodes))
 	maps.Copy(parsed, wi.projectNodes)
 	wi.project = analyse.BuildProjectIndex(parsed)
-	wi.projectRevision++
+	wi.semanticRevision++
+}
+
+func (wi *WorkspaceIndexer) rebuildProjectIndexFilesLocked(changedFiles ...string) {
+	parsed := make(map[string][]ast.Node, len(wi.projectNodes))
+	maps.Copy(parsed, wi.projectNodes)
+	project, semanticChanged := analyse.BuildProjectIndexIncremental(wi.project, parsed, changedFiles)
+	wi.project = project
+	if semanticChanged {
+		wi.semanticRevision++
+	}
 }
 
 func projectIndexKey(uri string) string {

@@ -2,7 +2,7 @@ package indexer
 
 import "testing"
 
-func TestProjectIndexSnapshotRevisionChangesOnlyWhenProjectRebuilds(t *testing.T) {
+func TestProjectIndexSnapshotRevisionChangesOnlyWhenExportedSemanticsChange(t *testing.T) {
 	const (
 		uri      = "file:///workspace/Example.php"
 		filename = "/workspace/Example.php"
@@ -41,5 +41,26 @@ func TestProjectIndexSnapshotRevisionChangesOnlyWhenProjectRebuilds(t *testing.T
 	}
 	if fourthProject != thirdProject {
 		t.Fatal("expected unchanged reads after rebuild to reuse the project index")
+	}
+
+	wi.IndexDocument(otherURI, "<?php\nclass Dependency { public function run(): void { echo 'changed'; } }\n")
+	bodyProject, bodyRevision := wi.ProjectIndexSnapshotForFile(filename, text, parsed.Nodes)
+	if bodyRevision <= fourthRevision {
+		t.Fatalf("expected adding an exported method to advance revision beyond %d, got %d", fourthRevision, bodyRevision)
+	}
+
+	wi.IndexDocument(otherURI, "<?php\nclass Dependency { public function run(): void { echo 'updated body'; } }\n")
+	updatedBodyProject, updatedBodyRevision := wi.ProjectIndexSnapshotForFile(filename, text, parsed.Nodes)
+	if updatedBodyRevision != bodyRevision {
+		t.Fatalf("expected body-only edit to retain semantic revision %d, got %d", bodyRevision, updatedBodyRevision)
+	}
+	if updatedBodyProject == bodyProject {
+		t.Fatal("expected body-only edit to publish a new immutable project index")
+	}
+
+	wi.IndexDocument(otherURI, "<?php\nclass Dependency { public function run(int $value): void { echo $value; } }\n")
+	_, signatureRevision := wi.ProjectIndexSnapshotForFile(filename, text, parsed.Nodes)
+	if signatureRevision <= updatedBodyRevision {
+		t.Fatalf("expected exported signature edit to advance revision beyond %d, got %d", updatedBodyRevision, signatureRevision)
 	}
 }
