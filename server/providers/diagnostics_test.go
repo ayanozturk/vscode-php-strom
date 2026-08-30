@@ -114,6 +114,31 @@ function run(): void {
 	}
 }
 
+func TestDiagnosticsProviderPreservesPHPStanLevelBoundaries(t *testing.T) {
+	source := `<?php
+class VisibilityExample {
+    protected function hidden(): void {}
+    public static function allowed(): void {}
+}
+(new VisibilityExample())->hidden();
+(new VisibilityExample())->allowed();
+throw new DateTime();
+`
+	diagnostics := (&DiagnosticsProvider{}).Analyse("file:///levels.php", source)
+
+	if !hasDiagnosticCode(diagnostics, "PHPStan.Level2.MethodVisibility") {
+		t.Fatalf("expected protected visibility at level two, got %#v", diagnostics)
+	}
+	if !hasDiagnosticCode(diagnostics, "PHPStan.Level3.ThrowType") {
+		t.Fatalf("expected non-throwable object at level three, got %#v", diagnostics)
+	}
+	for _, diagnostic := range diagnostics {
+		if diagnostic.Code == "PHPStan.Level0.Invocation" && strings.Contains(diagnostic.Message, "static method") {
+			t.Fatalf("instance syntax for a static method should remain clean, got %#v", diagnostics)
+		}
+	}
+}
+
 func TestDiagnosticsProvider_AnalyseTransientDoesNotRetainSemanticCache(t *testing.T) {
 	const uri = "file:///workspace/Transient.php"
 	const source = `<?php
