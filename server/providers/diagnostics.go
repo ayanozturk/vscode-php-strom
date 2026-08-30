@@ -763,6 +763,7 @@ func (c Config) disabledAnalysisIssueCodes() map[string]bool {
 	disabled := make(map[string]bool)
 	if c.DisableUndefinedSymbols {
 		disabled["PHPStan.Level0.Symbols"] = true
+		disabled["PHPStan.Level2.MethodExistence"] = true
 	}
 	if c.DisableUndefinedVariables {
 		disabled["PHPStan.Level0.Variables"] = true

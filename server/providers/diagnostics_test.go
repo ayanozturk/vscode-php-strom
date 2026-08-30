@@ -84,6 +84,7 @@ func TestDiagnosticsProvider_DisablesConfiguredAnalysisCodes(t *testing.T) {
 	disabled := cfg.disabledAnalysisIssueCodes()
 	for _, code := range []string{
 		"PHPStan.Level0.Symbols",
+		"PHPStan.Level2.MethodExistence",
 		"PHPStan.Level0.Variables",
 		"PHPStan.Level1.Variables",
 		"A.RETURN.TYPE",
@@ -94,6 +95,25 @@ func TestDiagnosticsProvider_DisablesConfiguredAnalysisCodes(t *testing.T) {
 		if !disabled[code] {
 			t.Fatalf("expected diagnostic code %s to be disabled, got %#v", code, disabled)
 		}
+	}
+}
+
+func TestDiagnosticsProvider_SuppressesUndefinedMethodsWithUndefinedSymbols(t *testing.T) {
+	source := `<?php
+class Service {}
+
+function run(Service $service): void {
+    $service->missing();
+}
+`
+	enabled := (&DiagnosticsProvider{}).Analyse("file:///test.php", source)
+	if !hasDiagnosticCode(enabled, "PHPStan.Level2.MethodExistence") {
+		t.Fatalf("expected undefined-method diagnostic before disabling undefined symbols, got %#v", enabled)
+	}
+
+	disabled := (&DiagnosticsProvider{cfg: Config{DisableUndefinedSymbols: true}}).Analyse("file:///test.php", source)
+	if hasDiagnosticCode(disabled, "PHPStan.Level2.MethodExistence") {
+		t.Fatalf("expected undefined-method diagnostic to be disabled with undefined symbols, got %#v", disabled)
 	}
 }
 
