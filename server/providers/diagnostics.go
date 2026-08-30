@@ -712,6 +712,7 @@ func (p *DiagnosticsProvider) AnalyseParsed(uri, text string, nodes []ast.Node, 
 func (p *DiagnosticsProvider) analyseParsed(cacheKey, filename, text string, nodes []ast.Node, parseErrors []string) []lsp.Diagnostic {
 	var diags []lsp.Diagnostic
 	suppressions := collectInlineDiagnosticSuppressions(text)
+	positions := newSourcePositionMapper(text)
 
 	// Run analysis rules (assignment-in-condition, empty statements, etc.)
 	analysisCtx := p.cache.analysisContextForFile(p.idx, cacheKey, filename, text, nodes)
@@ -720,7 +721,7 @@ func (p *DiagnosticsProvider) analyseParsed(cacheKey, filename, text string, nod
 	for _, issue := range analyse.FilterIssues(runAnalysisRulesForSource(filename, text, nodes, analysisCtx), p.cfg.DiagnosticsOverrides) {
 		sev := lsp.DiagSeverityWarning
 		diags = append(diags, lsp.Diagnostic{
-			Range:    lineColToRange(issue.Line, issue.Column),
+			Range:    positions.spanRange(issue.Line, issue.Column, issue.EndLine, issue.EndColumn),
 			Severity: &sev,
 			Code:     issue.Code,
 			Source:   "phpstrom",
@@ -747,7 +748,7 @@ func (p *DiagnosticsProvider) analyseParsed(cacheKey, filename, text string, nod
 	for _, errMsg := range parseErrors {
 		sev := lsp.DiagSeverityError
 		diags = append(diags, lsp.Diagnostic{
-			Range:    parseErrorRange(errMsg),
+			Range:    parseErrorRange(positions, errMsg),
 			Severity: &sev,
 			Code:     parserDiagnosticCode,
 			Source:   "phpstrom",
@@ -778,25 +779,25 @@ func (c Config) disabledAnalysisIssueCodes() map[string]bool {
 	return disabled
 }
 
-func parseErrorRange(message string) lsp.Range {
+func parseErrorRange(positions sourcePositionMapper, message string) lsp.Range {
 	lineText, remainder, ok := strings.Cut(strings.TrimPrefix(message, "line "), ":")
 	if !ok || !strings.HasPrefix(message, "line ") {
-		return lineColToRange(0, 0)
+		return positions.pointRange(0, 0)
 	}
 	columnText, _, ok := strings.Cut(remainder, ":")
 	if !ok {
-		return lineColToRange(0, 0)
+		return positions.pointRange(0, 0)
 	}
 	line, lineErr := strconv.Atoi(lineText)
 	column, columnErr := strconv.Atoi(columnText)
 	if lineErr != nil || columnErr != nil {
-		return lineColToRange(0, 0)
+		return positions.pointRange(0, 0)
 	}
-	return lineColToRange(line, column)
+	return positions.pointRange(line, column)
 }
 
-// lineColToRange converts a 1-based line/column from go-phpcs to an LSP Range.
-// The range covers only the start position; the editor highlights the word.
+// lineColToRange retains the legacy point contract for style diagnostics whose
+// coordinate sources are not yet uniformly structured parser rune positions.
 func lineColToRange(line, col int) lsp.Range {
 	if line < 1 {
 		line = 1

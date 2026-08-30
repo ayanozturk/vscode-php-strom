@@ -1112,15 +1112,46 @@ func TestLineColToRange_ZeroValues(t *testing.T) {
 }
 
 func TestParseErrorRange(t *testing.T) {
-	r := parseErrorRange("line 5:10: unexpected token")
+	source := "zero zero\none one\ntwo two\nthree three\nfour four five"
+	r := parseErrorRange(newSourcePositionMapper(source), "line 5:10: unexpected token")
 	if r.Start.Line != 4 || r.Start.Character != 9 {
 		t.Errorf("expected line=4 char=9, got line=%d char=%d", r.Start.Line, r.Start.Character)
 	}
 }
 
 func TestParseErrorRange_UnstructuredMessage(t *testing.T) {
-	r := parseErrorRange("parser panic recovered")
+	r := parseErrorRange(newSourcePositionMapper("<?php\n"), "parser panic recovered")
 	if r.Start.Line != 0 || r.Start.Character != 0 {
 		t.Errorf("expected fallback 0,0 got %d,%d", r.Start.Line, r.Start.Character)
 	}
+}
+
+func TestParseErrorRange_MapsUTF16Column(t *testing.T) {
+	r := parseErrorRange(newSourcePositionMapper("<?php\nx🙂"), "line 2:3: unexpected token")
+	if r.Start != (lsp.Position{Line: 1, Character: 3}) || r.End != r.Start {
+		t.Fatalf("expected parser error at UTF-16 position (1,3), got %+v", r)
+	}
+}
+
+func TestDiagnosticsProvider_MapsStructuredAnalysisSpanAfterEmoji(t *testing.T) {
+	source := "<?php\n\"🙂\"; missing_call();\n"
+	diagnostics := (&DiagnosticsProvider{}).Analyse("file:///structured-span.php", source)
+
+	for _, diagnostic := range diagnostics {
+		if diagnostic.Code != "PHPStan.Level0.Symbols" {
+			continue
+		}
+		want := lsp.Range{
+			Start: lsp.Position{Line: 1, Character: 6},
+			End:   lsp.Position{Line: 1, Character: 20},
+		}
+		if diagnostic.Range != want {
+			t.Fatalf("expected undefined function span %+v, got %+v", want, diagnostic.Range)
+		}
+		if diagnostic.Range.Start == diagnostic.Range.End {
+			t.Fatal("expected structured analysis issue to retain a non-point range")
+		}
+		return
+	}
+	t.Fatalf("expected PHPStan.Level0.Symbols diagnostic, got %#v", diagnostics)
 }
