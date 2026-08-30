@@ -246,6 +246,39 @@ func TestSemanticDocumentCacheForgetReleasesDocumentState(t *testing.T) {
 	}
 }
 
+func TestSemanticDocumentCacheTraceReportsParseAndSemanticHitsAndMisses(t *testing.T) {
+	const (
+		uri      = "file:///workspace/Trace.php"
+		filename = "/workspace/Trace.php"
+		text     = "<?php\nfunction run(): void { echo 'ready'; }\n"
+	)
+
+	cache := newSemanticDocumentCache()
+	before := cache.traceSnapshot()
+	cache.snapshot(uri, text)
+	cache.snapshot(uri, text)
+	cache.snapshot(uri, text+"\n")
+	afterParse := cache.traceSnapshot()
+	if afterParse.ParseMisses != before.ParseMisses+2 {
+		t.Fatalf("expected two parse misses, before=%#v after=%#v", before, afterParse)
+	}
+	if afterParse.ParseHits != before.ParseHits+1 {
+		t.Fatalf("expected one parse hit, before=%#v after=%#v", before, afterParse)
+	}
+
+	idx := indexer.New(indexer.Config{})
+	parsed := indexer.ParseSource(uri, text)
+	cache.analysisContextForFile(idx, uri, filename, text, parsed.Nodes)
+	cache.analysisContextForFile(idx, uri, filename, text, parsed.Nodes)
+	afterSemantic := cache.traceSnapshot()
+	if afterSemantic.SemanticMisses != afterParse.SemanticMisses+1 {
+		t.Fatalf("expected one semantic cache miss, before=%#v after=%#v", afterParse, afterSemantic)
+	}
+	if afterSemantic.SemanticHits != afterParse.SemanticHits+1 {
+		t.Fatalf("expected one semantic cache hit, before=%#v after=%#v", afterParse, afterSemantic)
+	}
+}
+
 func semanticSnapshotFromContext(t *testing.T, ctx *analyse.AnalysisContext) *analyse.SemanticSnapshot {
 	t.Helper()
 	if ctx == nil {

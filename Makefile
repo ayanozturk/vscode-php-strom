@@ -1,4 +1,4 @@
-.PHONY: all deps prepare-go-work build build-server build-server-local build-server-dev build-ext install package publish release clean test test-server test-server-dev
+.PHONY: all deps prepare-go-work build build-server build-server-local build-server-dev build-ext install package publish release clean test test-server test-server-dev test-editor-latency
 
 BINARY_NAME := phpstrom
 BIN_DIR     := bin
@@ -139,6 +139,11 @@ test-server:
 test-server-dev: prepare-go-work
 	@echo "==> Running Go tests against $(LOCAL_PHP_PARSER_DIR)..."
 	cd $(SERVER_DIR) && GOWORK="$(GO_WORK_FILE)" $(GO) test ./...
+
+## test-editor-latency: run the process-cold and incremental synthetic editor trace gate
+test-editor-latency:
+	@echo "==> Running editor latency trace gate..."
+	cd $(SERVER_DIR) && GOWORK=off $(GO) run ./cmd/benchmark-editor
 
 ## test-ext: run TypeScript/VS Code extension tests
 test-ext:

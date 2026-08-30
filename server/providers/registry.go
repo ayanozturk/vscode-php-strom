@@ -58,6 +58,15 @@ type Registry struct {
 	InlineValues   *InlineValuesProvider
 }
 
+// SemanticCacheTrace returns cumulative cache accounting shared by diagnostics,
+// hover, definition, and declaration providers.
+func (r *Registry) SemanticCacheTrace() SemanticCacheTraceSnapshot {
+	if r == nil || r.Diagnostics == nil {
+		return SemanticCacheTraceSnapshot{}
+	}
+	return r.Diagnostics.cache.traceSnapshot()
+}
+
 // NewRegistry creates a fully-initialised provider registry.
 func NewRegistry(idx *indexer.WorkspaceIndexer, cfg Config) *Registry {
 	r := &Registry{idx: idx, cfg: cfg}

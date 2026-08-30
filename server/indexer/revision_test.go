@@ -140,3 +140,73 @@ func TestSemanticChangeAffectsPHPIdentifiersCaseInsensitively(t *testing.T) {
 		t.Fatal("did not expect partial identifier substring to match")
 	}
 }
+
+func TestSemanticTraceAccountsIncrementalUpdatesAndDependencyMatches(t *testing.T) {
+	const (
+		consumerURI    = "file:///workspace/Consumer.php"
+		consumerFile   = "/workspace/Consumer.php"
+		consumerText   = "<?php\nfunction run(Dependency $dependency): void { $dependency->render(); }\n"
+		dependencyURI  = "file:///workspace/Dependency.php"
+		dependencyBody = "<?php\nclass Dependency { public function render(): string { return 'before'; } }\n"
+	)
+
+	wi := New(Config{})
+	wi.IndexDocument(consumerURI, consumerText)
+	wi.IndexDocument(dependencyURI, dependencyBody)
+	parsed := ParseSource(consumerURI, consumerText)
+
+	matchedBefore := wi.SemanticTrace()
+	wi.ProjectIndexSnapshotForFile(consumerFile, consumerText, parsed.Nodes)
+	matchedAfter := wi.SemanticTrace()
+	if matchedAfter.RevisionChecks <= matchedBefore.RevisionChecks {
+		t.Fatalf("expected a semantic revision check, before=%#v after=%#v", matchedBefore, matchedAfter)
+	}
+	if matchedAfter.DependencyMatches <= matchedBefore.DependencyMatches {
+		t.Fatalf("expected the consumer to match the dependency change, before=%#v after=%#v", matchedBefore, matchedAfter)
+	}
+
+	bodyBefore := wi.SemanticTrace()
+	wi.IndexDocument(dependencyURI, "<?php\nclass Dependency { public function render(): string { return 'after'; } }\n")
+	bodyAfter := wi.SemanticTrace()
+	if bodyAfter.BodyOnlyUpdates <= bodyBefore.BodyOnlyUpdates {
+		t.Fatalf("expected a body-only incremental update, before=%#v after=%#v", bodyBefore, bodyAfter)
+	}
+	if bodyAfter.FullFallbacks != bodyBefore.FullFallbacks {
+		t.Fatalf("did not expect body-only update to fall back to a full build, before=%#v after=%#v", bodyBefore, bodyAfter)
+	}
+
+	exportedBefore := wi.SemanticTrace()
+	wi.IndexDocument(dependencyURI, "<?php\nclass Dependency { public function render(int $mode): string { return (string) $mode; } }\n")
+	exportedAfter := wi.SemanticTrace()
+	if exportedAfter.ExportedChanges <= exportedBefore.ExportedChanges {
+		t.Fatalf("expected an exported semantic change, before=%#v after=%#v", exportedBefore, exportedAfter)
+	}
+	if exportedAfter.IncrementalBuilds <= exportedBefore.IncrementalBuilds {
+		t.Fatalf("expected exported update to use the incremental path, before=%#v after=%#v", exportedBefore, exportedAfter)
+	}
+
+	matchedBefore = wi.SemanticTrace()
+	wi.ProjectIndexSnapshotForFile(consumerFile, consumerText, parsed.Nodes)
+	matchedAfter = wi.SemanticTrace()
+	if matchedAfter.DependencyMatches <= matchedBefore.DependencyMatches {
+		t.Fatalf("expected the consumer to match the exported dependency update, before=%#v after=%#v", matchedBefore, matchedAfter)
+	}
+}
+
+func TestSemanticTraceAccountsFullFallbackAndGlobalCompaction(t *testing.T) {
+	wi := New(Config{})
+	before := wi.SemanticTrace()
+
+	wi.IndexDocument("file:///workspace/Initial.php", "<?php\nclass Initial {}\n")
+
+	after := wi.SemanticTrace()
+	if after.FullBuilds <= before.FullBuilds {
+		t.Fatalf("expected the untracked initial project to require a full build, before=%#v after=%#v", before, after)
+	}
+	if after.FullFallbacks <= before.FullFallbacks {
+		t.Fatalf("expected the untracked initial project to record a full fallback, before=%#v after=%#v", before, after)
+	}
+	if after.GlobalCompactions <= before.GlobalCompactions {
+		t.Fatalf("expected the incomplete initial change metadata to compact globally, before=%#v after=%#v", before, after)
+	}
+}

@@ -49,11 +49,37 @@ type WorkspaceIndexer struct {
 	indexedCount     atomic.Int64
 	indexedLines     atomic.Int64
 	indexedBytes     atomic.Int64
+	trace            semanticTraceCounters
 }
 
 type semanticChangeEvent struct {
 	revision        uint64
 	dependencyNames []string
+}
+
+type semanticTraceCounters struct {
+	fullBuilds        atomic.Uint64
+	incrementalBuilds atomic.Uint64
+	fullFallbacks     atomic.Uint64
+	bodyOnlyUpdates   atomic.Uint64
+	exportedChanges   atomic.Uint64
+	globalCompactions atomic.Uint64
+	revisionChecks    atomic.Uint64
+	dependencyMatches atomic.Uint64
+}
+
+// SemanticTraceSnapshot is cumulative accounting for project-index updates and
+// document-specific semantic revision checks. Counters are safe to read while
+// indexing and analysis continue.
+type SemanticTraceSnapshot struct {
+	FullBuilds        uint64 `json:"fullBuilds"`
+	IncrementalBuilds uint64 `json:"incrementalBuilds"`
+	FullFallbacks     uint64 `json:"fullFallbacks"`
+	BodyOnlyUpdates   uint64 `json:"bodyOnlyUpdates"`
+	ExportedChanges   uint64 `json:"exportedChanges"`
+	GlobalCompactions uint64 `json:"globalCompactions"`
+	RevisionChecks    uint64 `json:"revisionChecks"`
+	DependencyMatches uint64 `json:"dependencyMatches"`
 }
 
 const (
@@ -360,6 +386,21 @@ func (wi *WorkspaceIndexer) ProjectIndex() *analyse.ProjectIndex {
 	return wi.project
 }
 
+// SemanticTrace returns a consistent cumulative snapshot of semantic index
+// accounting without retaining project or document data.
+func (wi *WorkspaceIndexer) SemanticTrace() SemanticTraceSnapshot {
+	return SemanticTraceSnapshot{
+		FullBuilds:        wi.trace.fullBuilds.Load(),
+		IncrementalBuilds: wi.trace.incrementalBuilds.Load(),
+		FullFallbacks:     wi.trace.fullFallbacks.Load(),
+		BodyOnlyUpdates:   wi.trace.bodyOnlyUpdates.Load(),
+		ExportedChanges:   wi.trace.exportedChanges.Load(),
+		GlobalCompactions: wi.trace.globalCompactions.Load(),
+		RevisionChecks:    wi.trace.revisionChecks.Load(),
+		DependencyMatches: wi.trace.dependencyMatches.Load(),
+	}
+}
+
 // ProjectIndexForFile returns a project index suitable for analysing the given
 // source. If the workspace index already has the same content, it reuses the
 // cached project index; otherwise it overlays the current file without mutating
@@ -453,6 +494,7 @@ func (wi *WorkspaceIndexer) rebuildProjectIndexLocked() {
 	parsed := make(map[string][]ast.Node, len(wi.projectNodes))
 	maps.Copy(parsed, wi.projectNodes)
 	wi.project = analyse.BuildProjectIndex(parsed)
+	wi.trace.fullBuilds.Add(1)
 	wi.recordSemanticChangesLocked(analyse.ProjectIndexChanges{Complete: false})
 }
 
@@ -461,14 +503,24 @@ func (wi *WorkspaceIndexer) rebuildProjectIndexFilesLocked(changedFiles ...strin
 	maps.Copy(parsed, wi.projectNodes)
 	project, changes := analyse.BuildProjectIndexIncrementalWithChanges(wi.project, parsed, changedFiles)
 	wi.project = project
+	if changes.FullRebuild {
+		wi.trace.fullBuilds.Add(1)
+		wi.trace.fullFallbacks.Add(1)
+	} else {
+		wi.trace.incrementalBuilds.Add(1)
+	}
 	if changes.SemanticChanged() {
+		wi.trace.exportedChanges.Add(1)
 		wi.recordSemanticChangesLocked(changes)
+	} else {
+		wi.trace.bodyOnlyUpdates.Add(1)
 	}
 }
 
 func (wi *WorkspaceIndexer) recordSemanticChangesLocked(changes analyse.ProjectIndexChanges) {
 	wi.semanticRevision++
 	if !changes.Complete || len(changes.DependencyNames) == 0 || len(changes.DependencyNames) > maxSemanticChangeDependencyNames {
+		wi.trace.globalCompactions.Add(1)
 		wi.semanticBase = wi.semanticRevision
 		wi.semanticChanges = nil
 		return
@@ -482,17 +534,24 @@ func (wi *WorkspaceIndexer) recordSemanticChangesLocked(changes analyse.ProjectI
 		dependencyNames: names,
 	})
 	if len(wi.semanticChanges) > maxSemanticChangeEvents {
+		wi.trace.globalCompactions.Add(1)
 		wi.semanticBase = wi.semanticRevision
 		wi.semanticChanges = nil
 	}
 }
 
 func (wi *WorkspaceIndexer) documentSemanticRevisionLocked(text string) uint64 {
+	wi.trace.revisionChecks.Add(1)
 	revision := wi.semanticBase
+	matched := false
 	for _, change := range wi.semanticChanges {
 		if semanticChangeAffectsText(text, change.dependencyNames) {
 			revision = change.revision
+			matched = true
 		}
+	}
+	if matched {
+		wi.trace.dependencyMatches.Add(1)
 	}
 	return revision
 }

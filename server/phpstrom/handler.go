@@ -39,16 +39,50 @@ type Handler struct {
 	publishedDiagnosticsMu sync.Mutex
 	publishedDiagnostics   map[string]struct{}
 	documentAnalysisMu     sync.Mutex
-	documentAnalysisTimers map[string]*time.Timer
+	documentAnalysisTimers map[string]*scheduledDocumentWork
 	documentAnalysisSem    chan struct{}
 	initialIndexing        atomic.Bool
 	initialIndexDone       chan struct{}
 	initialIndexDoneOnce   sync.Once
+	trace                  *editorTraceRecorder
 }
 
 const workspaceDiagnosticsLimit = 50_000
 const onTypeAnalysisDelay = 150 * time.Millisecond
 const maxDocumentAnalysisWorkers = 2
+const maxEditorTraceEvents = 1024
+
+type scheduledDocumentWork struct {
+	timer       *time.Timer
+	version     int
+	scheduledAt time.Time
+}
+
+// EditorTraceEvent records one bounded editor-path timing or lifecycle outcome.
+// Durations use microseconds so JSON reports remain portable and explicit.
+type EditorTraceEvent struct {
+	Sequence       uint64 `json:"sequence"`
+	Operation      string `json:"operation"`
+	Outcome        string `json:"outcome"`
+	URI            string `json:"uri,omitempty"`
+	Version        int    `json:"version,omitempty"`
+	DurationMicros int64  `json:"durationMicros"`
+	QueueMicros    int64  `json:"queueMicros,omitempty"`
+}
+
+// EditorTraceSnapshot combines bounded handler events with cumulative indexer
+// and semantic-cache accounting.
+type EditorTraceSnapshot struct {
+	Events  []EditorTraceEvent                   `json:"events"`
+	Indexer indexer.SemanticTraceSnapshot        `json:"indexer"`
+	Cache   providers.SemanticCacheTraceSnapshot `json:"cache"`
+}
+
+type editorTraceRecorder struct {
+	mu       sync.Mutex
+	sequence uint64
+	events   []EditorTraceEvent
+}
 
 type saveAnalysisFinishedParams struct {
 	URI       string `json:"uri"`
@@ -82,9 +116,10 @@ func NewHandler(srv *Server) *Handler {
 		idx:                    idx,
 		prov:                   prov,
 		publishedDiagnostics:   make(map[string]struct{}),
-		documentAnalysisTimers: make(map[string]*time.Timer),
+		documentAnalysisTimers: make(map[string]*scheduledDocumentWork),
 		documentAnalysisSem:    make(chan struct{}, maxDocumentAnalysisWorkers),
 		initialIndexDone:       make(chan struct{}),
+		trace:                  &editorTraceRecorder{},
 	}
 
 	idx.OnIndexingStart(func() { srv.Notify("phpstrom/indexingStarted", nil) })
@@ -121,6 +156,43 @@ func linesPerSecond(summary indexer.IndexingSummary) float64 {
 		return 0
 	}
 	return float64(summary.LinesScanned) / seconds
+}
+
+func (r *editorTraceRecorder) record(event EditorTraceEvent) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	r.sequence++
+	event.Sequence = r.sequence
+	if len(r.events) == maxEditorTraceEvents {
+		copy(r.events, r.events[1:])
+		r.events[len(r.events)-1] = event
+	} else {
+		r.events = append(r.events, event)
+	}
+	r.mu.Unlock()
+}
+
+func (r *editorTraceRecorder) snapshot() []EditorTraceEvent {
+	if r == nil {
+		return nil
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]EditorTraceEvent(nil), r.events...)
+}
+
+// EditorTrace returns bounded event timings plus cumulative semantic accounting.
+func (h *Handler) EditorTrace() EditorTraceSnapshot {
+	h.runtimeMu.RLock()
+	registry := h.prov
+	h.runtimeMu.RUnlock()
+	return EditorTraceSnapshot{
+		Events:  h.trace.snapshot(),
+		Indexer: h.idx.SemanticTrace(),
+		Cache:   registry.SemanticCacheTrace(),
+	}
 }
 
 // HandleRequest processes a request with an ID and returns a result.
@@ -242,6 +314,7 @@ func (h *Handler) HandleNotification(method string, raw json.RawMessage) {
 			return
 		}
 		if doc, ok := h.documents.Get(p.TextDocument.URI); ok {
+			started := time.Now()
 			h.cancelDocumentAnalysis(p.TextDocument.URI)
 			if text, err := h.readDocumentTextFromDisk(p.TextDocument.URI); err == nil {
 				if updated, ok := h.documents.SetText(p.TextDocument.URI, text); ok {
@@ -256,6 +329,14 @@ func (h *Handler) HandleNotification(method string, raw json.RawMessage) {
 			h.srv.Notify("phpstrom/saveAnalysisFinished", saveAnalysisFinishedParams{
 				URI:       doc.URI,
 				Published: published,
+			})
+			outcome := "stale_dropped"
+			if published {
+				outcome = "published"
+			}
+			h.trace.record(EditorTraceEvent{
+				Operation: "save_analysis", Outcome: outcome, URI: doc.URI, Version: doc.Version,
+				DurationMicros: time.Since(started).Microseconds(),
 			})
 		}
 
@@ -422,6 +503,7 @@ func (h *Handler) initialize(raw json.RawMessage) (any, *lsp.ResponseError) {
 }
 
 func (h *Handler) publishDiagnostics(uri, text string, version int) bool {
+	started := time.Now()
 	h.runtimeMu.RLock()
 	diagnosticsProvider := h.prov.Diagnostics
 	h.runtimeMu.RUnlock()
@@ -431,10 +513,24 @@ func (h *Handler) publishDiagnostics(uri, text string, version int) bool {
 	}
 	current, ok := h.documents.Snapshot(uri)
 	if !ok || current.Version != version || current.Text != text {
+		h.trace.record(EditorTraceEvent{
+			Operation: "diagnostics_publication", Outcome: "stale_dropped", URI: uri, Version: version,
+			DurationMicros: time.Since(started).Microseconds(),
+		})
 		return false
 	}
 	h.notifyDiagnostics(uri, diags)
+	h.trace.record(EditorTraceEvent{
+		Operation: "diagnostics_publication", Outcome: "published", URI: uri, Version: version,
+		DurationMicros: time.Since(started).Microseconds(),
+	})
 	return true
+}
+
+// PublishDocumentDiagnostics runs the guarded diagnostics publication path.
+// Results are emitted only when both the document version and text still match.
+func (h *Handler) PublishDocumentDiagnostics(uri, text string, version int) bool {
+	return h.publishDiagnostics(uri, text, version)
 }
 
 func (h *Handler) scheduleDocumentAnalysis(uri string, version int, delay time.Duration) {
@@ -447,13 +543,19 @@ func (h *Handler) scheduleDocumentIndex(uri string, version int, delay time.Dura
 
 func (h *Handler) scheduleDocumentWork(uri string, version int, delay time.Duration, publishDiagnostics bool) {
 	h.documentAnalysisMu.Lock()
-	if timer := h.documentAnalysisTimers[uri]; timer != nil {
-		timer.Stop()
+	if scheduled := h.documentAnalysisTimers[uri]; scheduled != nil {
+		if scheduled.timer.Stop() {
+			h.trace.record(EditorTraceEvent{
+				Operation: "document_cancellation", Outcome: "superseded_before_start", URI: uri, Version: scheduled.version,
+				DurationMicros: time.Since(scheduled.scheduledAt).Microseconds(),
+			})
+		}
 	}
+	scheduledAt := time.Now()
 	var timer *time.Timer
 	timer = time.AfterFunc(delay, func() {
 		h.documentAnalysisMu.Lock()
-		if h.documentAnalysisTimers[uri] == timer {
+		if scheduled := h.documentAnalysisTimers[uri]; scheduled != nil && scheduled.timer == timer {
 			delete(h.documentAnalysisTimers, uri)
 		}
 		h.documentAnalysisMu.Unlock()
@@ -464,16 +566,35 @@ func (h *Handler) scheduleDocumentWork(uri string, version int, delay time.Durat
 
 		doc, ok := h.documents.Snapshot(uri)
 		if !ok || doc.Version != version {
+			h.trace.record(EditorTraceEvent{
+				Operation: "document_analysis", Outcome: "stale_before_start", URI: uri, Version: version,
+				QueueMicros: time.Since(scheduledAt).Microseconds(),
+			})
 			return
 		}
+		started := time.Now()
+		outcome := "indexed"
 		h.runDocumentAnalysis(func() {
 			h.idx.IndexDocument(doc.URI, doc.Text)
 			if publishDiagnostics {
-				h.publishDiagnostics(doc.URI, doc.Text, doc.Version)
+				if h.publishDiagnostics(doc.URI, doc.Text, doc.Version) {
+					outcome = "published"
+				} else {
+					outcome = "stale_dropped"
+				}
 			}
 		})
+		h.trace.record(EditorTraceEvent{
+			Operation: "document_analysis", Outcome: outcome, URI: uri, Version: version,
+			DurationMicros: time.Since(started).Microseconds(), QueueMicros: started.Sub(scheduledAt).Microseconds(),
+		})
+		h.documentAnalysisMu.Lock()
+		if scheduled := h.documentAnalysisTimers[uri]; scheduled != nil && scheduled.timer == timer {
+			delete(h.documentAnalysisTimers, uri)
+		}
+		h.documentAnalysisMu.Unlock()
 	})
-	h.documentAnalysisTimers[uri] = timer
+	h.documentAnalysisTimers[uri] = &scheduledDocumentWork{timer: timer, version: version, scheduledAt: scheduledAt}
 	h.documentAnalysisMu.Unlock()
 }
 
@@ -485,8 +606,13 @@ func (h *Handler) runDocumentAnalysis(fn func()) {
 
 func (h *Handler) cancelDocumentAnalysis(uri string) {
 	h.documentAnalysisMu.Lock()
-	if timer := h.documentAnalysisTimers[uri]; timer != nil {
-		timer.Stop()
+	if scheduled := h.documentAnalysisTimers[uri]; scheduled != nil {
+		if scheduled.timer.Stop() {
+			h.trace.record(EditorTraceEvent{
+				Operation: "document_cancellation", Outcome: "cancelled_before_start", URI: uri, Version: scheduled.version,
+				DurationMicros: time.Since(scheduled.scheduledAt).Microseconds(),
+			})
+		}
 		delete(h.documentAnalysisTimers, uri)
 	}
 	h.documentAnalysisMu.Unlock()
@@ -494,17 +620,26 @@ func (h *Handler) cancelDocumentAnalysis(uri string) {
 
 func (h *Handler) cancelAllDocumentAnalysis() {
 	h.documentAnalysisMu.Lock()
-	for uri, timer := range h.documentAnalysisTimers {
-		timer.Stop()
+	for uri, scheduled := range h.documentAnalysisTimers {
+		if scheduled.timer.Stop() {
+			h.trace.record(EditorTraceEvent{
+				Operation: "document_cancellation", Outcome: "shutdown_before_start", URI: uri, Version: scheduled.version,
+				DurationMicros: time.Since(scheduled.scheduledAt).Microseconds(),
+			})
+		}
 		delete(h.documentAnalysisTimers, uri)
 	}
 	h.documentAnalysisMu.Unlock()
 }
 
 func (h *Handler) indexWorkspace() {
+	started := time.Now()
 	h.workspaceIndexMu.Lock()
 	defer h.workspaceIndexMu.Unlock()
 	h.idx.IndexWorkspace()
+	h.trace.record(EditorTraceEvent{
+		Operation: "workspace_index", Outcome: "completed", DurationMicros: time.Since(started).Microseconds(),
+	})
 }
 
 func (h *Handler) requestWorkspaceDiagnostics(indexWorkspace bool) {

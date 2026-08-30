@@ -44,6 +44,19 @@ Override the sibling path if needed:
 make build-server-dev LOCAL_PHP_PARSER_DIR=/path/to/go-php-parser
 ```
 
+Run the synthetic editor-path trace gate with:
+
+```sh
+make test-editor-latency
+```
+
+The gate launches fresh language-server processes for cold workspace indexing,
+then drives the real handler path through cached saves, body-only and dependency
+edits, debounce cancellation, stale-result rejection, and a collision-triggered
+full index fallback. It emits a machine-readable JSON report with end-to-end
+latencies and cache/index accounting. The fixture is synthetic; results are an
+absolute regression signal, not a claim about latency in a particular project.
+
 ## Configuration
 
 Important settings include:

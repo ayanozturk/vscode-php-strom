@@ -2,6 +2,7 @@ package providers
 
 import (
 	"sync"
+	"sync/atomic"
 
 	"github.com/ayanozturk/go-php-parser/analyse"
 	"github.com/ayanozturk/go-php-parser/ast"
@@ -27,6 +28,23 @@ type semanticDocumentCache struct {
 	mu       sync.RWMutex
 	byURI    map[string]semanticSnapshot
 	analysis map[string]semanticAnalysisSnapshot
+	trace    semanticCacheTraceCounters
+}
+
+type semanticCacheTraceCounters struct {
+	parseHits      atomic.Uint64
+	parseMisses    atomic.Uint64
+	semanticHits   atomic.Uint64
+	semanticMisses atomic.Uint64
+}
+
+// SemanticCacheTraceSnapshot is cumulative cache accounting for interactive
+// document parsing and semantic snapshot construction.
+type SemanticCacheTraceSnapshot struct {
+	ParseHits      uint64 `json:"parseHits"`
+	ParseMisses    uint64 `json:"parseMisses"`
+	SemanticHits   uint64 `json:"semanticHits"`
+	SemanticMisses uint64 `json:"semanticMisses"`
 }
 
 func newSemanticDocumentCache() *semanticDocumentCache {
@@ -45,8 +63,10 @@ func (c *semanticDocumentCache) snapshot(uri, text string) semanticSnapshot {
 	snapshot, ok := c.byURI[uri]
 	c.mu.RUnlock()
 	if ok && snapshot.text == text {
+		c.trace.parseHits.Add(1)
 		return snapshot
 	}
+	c.trace.parseMisses.Add(1)
 
 	snapshot = parseSemanticSnapshot(text)
 	snapshot.text = text
@@ -80,8 +100,10 @@ func (c *semanticDocumentCache) analysisContextForFile(idx *indexer.WorkspaceInd
 		cached, ok := c.analysis[cacheKey]
 		c.mu.RUnlock()
 		if ok && cached.text == text && cached.semanticRevision == revision && cached.snapshot != nil {
+			c.trace.semanticHits.Add(1)
 			return analysisContextFromSnapshot(cached.snapshot, project, idx)
 		}
+		c.trace.semanticMisses.Add(1)
 	}
 
 	parsed := map[string][]ast.Node{filename: nodes}
@@ -106,6 +128,18 @@ func (c *semanticDocumentCache) analysisContextForFile(idx *indexer.WorkspaceInd
 		c.mu.Unlock()
 	}
 	return analysisContextFromSnapshot(semantic, project, idx)
+}
+
+func (c *semanticDocumentCache) traceSnapshot() SemanticCacheTraceSnapshot {
+	if c == nil {
+		return SemanticCacheTraceSnapshot{}
+	}
+	return SemanticCacheTraceSnapshot{
+		ParseHits:      c.trace.parseHits.Load(),
+		ParseMisses:    c.trace.parseMisses.Load(),
+		SemanticHits:   c.trace.semanticHits.Load(),
+		SemanticMisses: c.trace.semanticMisses.Load(),
+	}
 }
 
 func analysisContextFromSnapshot(snapshot *analyse.SemanticSnapshot, project *analyse.ProjectIndex, idx *indexer.WorkspaceIndexer) *analyse.AnalysisContext {

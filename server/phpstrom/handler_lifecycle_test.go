@@ -97,6 +97,55 @@ func TestWorkspaceScanDoesNotPublishEmptyDiagnosticsForCleanFiles(t *testing.T) 
 	}
 }
 
+func TestEditorTraceIsBoundedAndReturnsAnIndependentCopy(t *testing.T) {
+	h := NewHandler(&Server{out: io.Discard})
+	for range maxEditorTraceEvents + 3 {
+		h.trace.record(EditorTraceEvent{Operation: "synthetic", Outcome: "completed"})
+	}
+
+	trace := h.EditorTrace()
+	if len(trace.Events) != maxEditorTraceEvents {
+		t.Fatalf("expected trace to retain at most %d events, got %d", maxEditorTraceEvents, len(trace.Events))
+	}
+	trace.Events[0].Operation = "mutated"
+	again := h.EditorTrace()
+	if again.Events[0].Operation == "mutated" {
+		t.Fatal("expected EditorTrace to return an independent event slice")
+	}
+}
+
+func TestEditorTraceRecordsScheduledDocumentCancellation(t *testing.T) {
+	h := NewHandler(&Server{out: io.Discard})
+	uri := "file:///workspace/Scheduled.php"
+	h.scheduleDocumentIndex(uri, 7, time.Hour)
+	h.cancelDocumentAnalysis(uri)
+
+	for _, event := range h.EditorTrace().Events {
+		if event.Operation == "document_cancellation" && event.Outcome == "cancelled_before_start" && event.URI == uri && event.Version == 7 {
+			return
+		}
+	}
+	t.Fatalf("expected cancellation trace event, got %#v", h.EditorTrace().Events)
+}
+
+func TestEditorTraceRecordsStaleDiagnosticsPublication(t *testing.T) {
+	h := NewHandler(&Server{out: io.Discard})
+	uri := "file:///workspace/StaleTrace.php"
+	oldText := "<?php\nclass OldTrace {}\n"
+	h.documents.Open(lsp.TextDocumentItem{URI: uri, LanguageID: "php", Version: 1, Text: oldText})
+	h.documents.Change(uri, 2, []lsp.TextDocumentContentChangeEvent{{Range: nil, Text: "<?php\nclass NewTrace {}\n"}})
+
+	if published := h.publishDiagnostics(uri, oldText, 1); published {
+		t.Fatal("expected stale diagnostics publication to be dropped")
+	}
+	for _, event := range h.EditorTrace().Events {
+		if event.Operation == "diagnostics_publication" && event.Outcome == "stale_dropped" && event.URI == uri && event.Version == 1 {
+			return
+		}
+	}
+	t.Fatalf("expected stale diagnostics trace event, got %#v", h.EditorTrace().Events)
+}
+
 func waitForCondition(t *testing.T, condition func() bool) {
 	t.Helper()
 	deadline := time.Now().Add(time.Second)
