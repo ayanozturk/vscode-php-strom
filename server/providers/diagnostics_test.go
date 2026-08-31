@@ -168,6 +168,66 @@ makeService()->missing();
 	}
 }
 
+func TestDiagnosticsProvider_ReportsCallableClosureAndClassStringMethods(t *testing.T) {
+	source := `<?php
+class CallableService {}
+class KnownCallableService { public function execute(): void {} }
+class ClosureService {}
+class KnownClosureService { public function execute(): void {} }
+class DynamicService {}
+class KnownDynamicService { public function execute(): void {} }
+
+/** @param callable(): CallableService $factory */
+function callableReceiver(callable $factory): void {
+    $factory()->missing();
+}
+
+function closureReceiver(): void {
+    $factory = static function (): ClosureService { return new ClosureService(); };
+    $factory()->missing();
+    $known = static function (): KnownClosureService { return new KnownClosureService(); };
+    $known()->execute();
+}
+
+/** @param class-string<DynamicService> $class */
+function dynamicReceiver(string $class): void {
+    $value = new $class();
+    $value->missing();
+}
+
+/** @param class-string<KnownDynamicService> $class */
+function knownDynamicReceiver(string $class): void {
+    $value = new $class();
+    $value->execute();
+}
+`
+	diagnostics := (&DiagnosticsProvider{}).Analyse("file:///callable-receivers.php", source)
+	if countDiagnosticCode(diagnostics, "PHPStan.Level0.Symbols") != 0 {
+		t.Fatalf("expected known receiver classes to avoid level-zero symbol diagnostics, got %#v", diagnostics)
+	}
+	if countDiagnosticCode(diagnostics, "PHPStan.Level2.MethodExistence") != 3 {
+		t.Fatalf("expected three unknown-method diagnostics, got %#v", diagnostics)
+	}
+	for _, expected := range []string{
+		"CallableService::missing()",
+		"ClosureService::missing()",
+		"DynamicService::missing()",
+	} {
+		if countDiagnosticMessage(diagnostics, "PHPStan.Level2.MethodExistence", expected) != 1 {
+			t.Fatalf("expected one diagnostic containing %q, got %#v", expected, diagnostics)
+		}
+	}
+	for _, unexpected := range []string{
+		"KnownCallableService::execute()",
+		"KnownClosureService::execute()",
+		"KnownDynamicService::execute()",
+	} {
+		if countDiagnosticMessage(diagnostics, "PHPStan.Level2.MethodExistence", unexpected) != 0 {
+			t.Fatalf("expected known method %q to remain clean, got %#v", unexpected, diagnostics)
+		}
+	}
+}
+
 func TestDiagnosticsProvider_ReportsDNFAndNullableUnknownMethods(t *testing.T) {
 	source := `<?php
 interface DnfMissingLeft {}
