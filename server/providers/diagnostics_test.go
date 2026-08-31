@@ -454,6 +454,80 @@ function run(array $factories, array $list, string $name, int $i): void {
 	}
 }
 
+func TestDiagnosticsProvider_ReportsRemainingExpressionReceivers(t *testing.T) {
+	source := `<?php
+class GlobalConstShapeService {}
+class ForeignConstShapeService {}
+class MatchIndexLeft {}
+class MatchIndexRight { public function execute(): void {} }
+class PropertyShapeService {}
+class KnownPropertyShapeService { public function execute(): void {} }
+class ReturnedShapeService {}
+class ListObjectService {}
+
+const KEY = 'service';
+
+class Other {
+    public const KEY = 'service';
+}
+
+class Holder {
+    /** @var array{service: callable(): PropertyShapeService, known: callable(): KnownPropertyShapeService} */
+    public array $factories;
+    /**
+     * @return array{service: callable(): ReturnedShapeService}
+     */
+    public function factories(): array {
+        return ['service' => static fn (): ReturnedShapeService => new ReturnedShapeService()];
+    }
+}
+
+/**
+ * @param array{service: callable(): GlobalConstShapeService} $global
+ * @param array{service: callable(): ForeignConstShapeService} $foreign
+ * @param array{service: callable(): MatchIndexLeft, known: callable(): MatchIndexRight} $matched
+ * @param list{ListObjectService} $objects
+ */
+function run(array $global, array $foreign, array $matched, Holder $holder, array $objects, bool $flag): void {
+    $global[KEY]()->missing();
+    $foreign[Other::KEY]()->missing();
+    $matched[match ($flag) { true => 'service', false => 'known' }]()->missing();
+    $matched[match ($flag) { true => 'service', false => 'known' }]()->execute();
+    $holder->factories["service"]()->missing();
+    $holder->factories["known"]()->execute();
+    $holder->factories()["service"]()->missing();
+    $objects[0]->missing();
+}
+`
+	diagnostics := (&DiagnosticsProvider{}).Analyse("file:///expression-receivers.php", source)
+	if countDiagnosticCode(diagnostics, "PHPStan.Level0.Symbols") != 0 {
+		t.Fatalf("expected known receiver classes to avoid level-zero symbol diagnostics, got %#v", diagnostics)
+	}
+	if countDiagnosticCode(diagnostics, "PHPStan.Level2.MethodExistence") != 6 {
+		t.Fatalf("expected six unknown-method diagnostics, got %#v", diagnostics)
+	}
+	for _, expected := range []string{
+		"GlobalConstShapeService::missing()",
+		"ForeignConstShapeService::missing()",
+		"MatchIndexLeft|MatchIndexRight::missing()",
+		"PropertyShapeService::missing()",
+		"ReturnedShapeService::missing()",
+		"ListObjectService::missing()",
+	} {
+		if countDiagnosticMessage(diagnostics, "PHPStan.Level2.MethodExistence", expected) != 1 {
+			t.Fatalf("expected one diagnostic containing %q, got %#v", expected, diagnostics)
+		}
+	}
+	for _, unexpected := range []string{
+		"MatchIndexRight::execute()",
+		"KnownPropertyShapeService::execute()",
+	} {
+		if countDiagnosticMessage(diagnostics, "PHPStan.Level2.MethodExistence", unexpected) != 0 {
+			t.Fatalf("expected known method %q to remain clean, got %#v", unexpected, diagnostics)
+		}
+	}
+}
+
 func TestDiagnosticsProvider_ReportsNonObjectMethodReceivers(t *testing.T) {
 	source := `<?php
 class UnionStringService {}
