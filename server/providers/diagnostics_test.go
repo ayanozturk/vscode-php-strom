@@ -103,6 +103,7 @@ func TestDiagnosticsProvider_DisablesConfiguredAnalysisCodes(t *testing.T) {
 		"A.PROP.TYPE",
 		"A.ARG.TYPE",
 		"A.ARG.COUNT",
+		"PHPStan.Level2.MethodNonObject",
 		"PHPStan.Level0.ClassModel",
 		"PHPStan.Level0.Invocation",
 		"PHPStan.Level0.Language",
@@ -392,6 +393,57 @@ function run(array $nested, array $list, CloneService $clone, ?CoalesceService $
 	}
 	if countDiagnosticMessage(diagnostics, "PHPStan.Level2.MethodExistence", "KnownNestedShapeService::execute()") != 0 {
 		t.Fatalf("expected known nested shape method to remain clean, got %#v", diagnostics)
+	}
+}
+
+func TestDiagnosticsProvider_ReportsNonObjectMethodReceivers(t *testing.T) {
+	source := `<?php
+class UnionStringService {}
+class KnownUnionStringService { public function execute(): void {} }
+class UnionIntService {}
+
+function run(
+    int $int,
+    array $array,
+    callable $callable,
+    iterable $iterable,
+    object $object,
+    UnionStringService|string $union,
+    KnownUnionStringService|string $known,
+    int|UnionIntService $intUnion
+): void {
+    $int->missing();
+    $array->missing();
+    $callable->missing();
+    $iterable->missing();
+    $object->missing();
+    $union->missing();
+    $known->execute();
+    $intUnion->missing();
+}
+`
+	diagnostics := (&DiagnosticsProvider{}).Analyse("file:///non-object-receivers.php", source)
+	if countDiagnosticCode(diagnostics, "PHPStan.Level0.Symbols") != 0 {
+		t.Fatalf("expected known receiver classes to avoid level-zero symbol diagnostics, got %#v", diagnostics)
+	}
+	if countDiagnosticCode(diagnostics, "PHPStan.Level2.MethodNonObject") != 6 {
+		t.Fatalf("expected six non-object method diagnostics, got %#v", diagnostics)
+	}
+	for _, expected := range []string{
+		"on int.",
+		"on array.",
+		"on callable.",
+		"on iterable.",
+	} {
+		if countDiagnosticMessage(diagnostics, "PHPStan.Level2.MethodNonObject", expected) != 1 {
+			t.Fatalf("expected one diagnostic containing %q, got %#v", expected, diagnostics)
+		}
+	}
+	if countDiagnosticMessage(diagnostics, "PHPStan.Level2.MethodNonObject", "on object.") != 0 {
+		t.Fatalf("expected object receivers to remain clean, got %#v", diagnostics)
+	}
+	if countDiagnosticMessage(diagnostics, "PHPStan.Level2.MethodNonObject", "execute() on") != 0 {
+		t.Fatalf("expected known class-or-string methods to remain clean, got %#v", diagnostics)
 	}
 }
 
