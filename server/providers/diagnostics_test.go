@@ -117,6 +117,57 @@ function run(Service $service): void {
 	}
 }
 
+func TestDiagnosticsProvider_ReportsSupportedUnknownMethodReceivers(t *testing.T) {
+	source := `<?php
+class FunctionService {}
+class FirstBranch {}
+class SecondBranch {}
+class MissingLeft {}
+class MissingRight {}
+interface HasAvailableMethod { public function available(): void; }
+interface NoAvailableMethod {}
+
+function makeService(): FunctionService { return new FunctionService(); }
+
+function run(bool $flag, MissingLeft|MissingRight $missing, HasAvailableMethod|NoAvailableMethod $union, HasAvailableMethod&NoAvailableMethod $intersection): void {
+    $missing->absent();
+    $union->available();
+    $intersection->available();
+    ($flag ? new FirstBranch() : new SecondBranch())->missing();
+}
+
+makeService()->missing();
+`
+	diagnostics := (&DiagnosticsProvider{}).Analyse("file:///receivers.php", source)
+
+	var methodDiagnostics []lsp.Diagnostic
+	for _, diagnostic := range diagnostics {
+		if diagnostic.Code == "PHPStan.Level2.MethodExistence" {
+			methodDiagnostics = append(methodDiagnostics, diagnostic)
+		}
+	}
+	if len(methodDiagnostics) != 3 {
+		t.Fatalf("expected three supported unknown-method diagnostics, got %d: %#v", len(methodDiagnostics), methodDiagnostics)
+	}
+
+	for _, expected := range []string{
+		"FunctionService::missing()",
+		"FirstBranch|SecondBranch::missing()",
+		"MissingLeft|MissingRight::absent()",
+	} {
+		found := false
+		for _, diagnostic := range methodDiagnostics {
+			if strings.Contains(diagnostic.Message, expected) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("expected unknown-method diagnostic containing %q, got %#v", expected, methodDiagnostics)
+		}
+	}
+}
+
 func TestDiagnosticsProvider_SuppressesDisabledUndefinedVariables(t *testing.T) {
 	source := `<?php
 function run(): void {
