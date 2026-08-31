@@ -396,6 +396,64 @@ function run(array $nested, array $list, CloneService $clone, ?CoalesceService $
 	}
 }
 
+func TestDiagnosticsProvider_ReportsDynamicArrayShapeIndexes(t *testing.T) {
+	source := `<?php
+class AssignedIndexService {}
+class KnownAssignedIndexService { public function execute(): void {} }
+class StringIndexLeft {}
+class StringIndexRight { public function execute(): void {} }
+class IntListLeft {}
+class IntListRight {}
+class ConstIndexService {}
+class Holder {
+    public const KEY = 'service';
+    /** @param array{service: callable(): ConstIndexService} $factories */
+    public function run(array $factories): void {
+        $factories[self::KEY]()->missing();
+    }
+}
+
+/**
+ * @param array{service: callable(): AssignedIndexService, known: callable(): KnownAssignedIndexService, left: callable(): StringIndexLeft, right: callable(): StringIndexRight} $factories
+ * @param list{callable(): IntListLeft, callable(): IntListRight} $list
+ */
+function run(array $factories, array $list, string $name, int $i): void {
+    $key = "service";
+    $factories[$key]()->missing();
+    $known = "known";
+    $factories[$known]()->execute();
+    $factories["serv" . "ice"]()->missing();
+    $factories[$name]()->execute();
+    $list[$i]()->missing();
+}
+`
+	diagnostics := (&DiagnosticsProvider{}).Analyse("file:///dynamic-indexes.php", source)
+	if countDiagnosticCode(diagnostics, "PHPStan.Level0.Symbols") != 0 {
+		t.Fatalf("expected known receiver classes to avoid level-zero symbol diagnostics, got %#v", diagnostics)
+	}
+	if countDiagnosticCode(diagnostics, "PHPStan.Level2.MethodExistence") != 4 {
+		t.Fatalf("expected four unknown-method diagnostics, got %#v", diagnostics)
+	}
+	got := map[string]int{}
+	for _, diagnostic := range diagnostics {
+		if diagnostic.Code == "PHPStan.Level2.MethodExistence" {
+			got[diagnostic.Message]++
+		}
+	}
+	if got["Call to an undefined method AssignedIndexService::missing()."] != 2 {
+		t.Fatalf("expected assigned and concatenated AssignedIndexService diagnostics, got %#v", diagnostics)
+	}
+	if got["Call to an undefined method ConstIndexService::missing()."] != 1 {
+		t.Fatalf("expected class-constant array-shape diagnostic, got %#v", diagnostics)
+	}
+	if got["Call to an undefined method IntListLeft|IntListRight::missing()."] != 1 {
+		t.Fatalf("expected unknown int list-index diagnostic, got %#v", diagnostics)
+	}
+	if countDiagnosticMessage(diagnostics, "PHPStan.Level2.MethodExistence", "KnownAssignedIndexService::execute()") != 0 {
+		t.Fatalf("expected known assigned and string-index methods to remain clean, got %#v", diagnostics)
+	}
+}
+
 func TestDiagnosticsProvider_ReportsNonObjectMethodReceivers(t *testing.T) {
 	source := `<?php
 class UnionStringService {}
