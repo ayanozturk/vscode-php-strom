@@ -69,339 +69,607 @@
         ]
       }
     ],
-    "configuration": {
-      "title": "PHP Strom",
-      "properties": {
-        "phpstrom.enable": {
-          "type": "boolean",
-          "default": true,
-          "description": "Enable/disable the PHP Strom."
-        },
-        "phpstrom.environment.phpVersion": {
-          "type": "string",
-          "default": "auto",
-          "enum": [
-            "auto",
-            "8.2",
-            "8.3",
-            "8.4",
-            "8.5"
-          ],
-          "description": "The PHP version to use for analysis and stubs. Use auto to detect from composer.json."
-        },
-        "phpstrom.environment.phpVersionOverride": {
-          "type": "string",
-          "default": "",
-          "enum": [
-            "",
-            "8.2",
-            "8.3",
-            "8.4",
-            "8.5"
-          ],
-          "description": "Force a PHP version for analysis and stubs, overriding composer.json detection and phpVersion."
-        },
-        "phpstrom.environment.includePaths": {
-          "type": "array",
-          "items": {
-            "type": "string"
+    "configuration": [
+      {
+        "title": "General",
+        "properties": {
+          "phpstrom.enable": {
+            "type": "boolean",
+            "default": true,
+            "order": 1,
+            "scope": "window",
+            "markdownDescription": "Enable PHP Strom language features for PHP files."
           },
-          "default": [],
-          "description": "Additional paths to include for symbol indexing (e.g. global vendor directories)."
-        },
-        "phpstrom.environment.documentRoot": {
-          "type": "string",
-          "default": "",
-          "description": "Document root path used for resolving include/require document links."
-        },
-        "phpstrom.files.associations": {
-          "type": "array",
-          "items": {
-            "type": "string"
+          "phpstrom.trace.server": {
+            "type": "string",
+            "default": "off",
+            "order": 2,
+            "scope": "window",
+            "enum": [
+              "off",
+              "messages",
+              "verbose"
+            ],
+            "enumDescriptions": [
+              "No LSP tracing",
+              "Log request and notification names",
+              "Log full LSP messages"
+            ],
+            "markdownDescription": "Trace communication with the PHP Strom language server. Use this only when debugging the extension."
+          }
+        }
+      },
+      {
+        "title": "Environment",
+        "properties": {
+          "phpstrom.environment.phpVersion": {
+            "type": "string",
+            "default": "auto",
+            "order": 1,
+            "scope": "resource",
+            "enum": [
+              "auto",
+              "8.2",
+              "8.3",
+              "8.4",
+              "8.5"
+            ],
+            "enumDescriptions": [
+              "Detect from composer.json, then fall back to 8.3",
+              "PHP 8.2",
+              "PHP 8.3",
+              "PHP 8.4",
+              "PHP 8.5"
+            ],
+            "markdownDescription": "PHP version used for analysis and stubs. `auto` reads `composer.json` (`config.platform.php` or `require.php`)."
           },
-          "default": [
-            "**/*.php",
-            "**/*.phtml",
-            "**/*.phar"
-          ],
-          "description": "Glob patterns identifying PHP files to index."
-        },
-        "phpstrom.files.exclude": {
-          "type": "array",
-          "items": {
-            "type": "string"
+          "phpstrom.environment.phpVersionOverride": {
+            "type": "string",
+            "default": "",
+            "order": 2,
+            "scope": "resource",
+            "enum": [
+              "",
+              "8.2",
+              "8.3",
+              "8.4",
+              "8.5"
+            ],
+            "enumDescriptions": [
+              "Do not override; use phpVersion / composer.json",
+              "Force PHP 8.2",
+              "Force PHP 8.3",
+              "Force PHP 8.4",
+              "Force PHP 8.5"
+            ],
+            "markdownDescription": "Force a PHP version, ignoring `phpstrom.environment.phpVersion` and composer.json. Leave empty unless you need to override detection."
           },
-          "default": [
-            "**/.git/**",
-            "**/node_modules/**",
-            "**/vendor/**/{Tests,tests}/**"
-          ],
-          "description": "Glob patterns for files and folders to exclude from indexing."
-        },
-        "phpstrom.files.maxSize": {
-          "type": "number",
-          "default": 1000000,
-          "description": "Maximum file size (bytes) to index and analyse."
-        },
-        "phpstrom.stubs": {
-          "type": "array",
-          "items": {
-            "type": "string"
+          "phpstrom.environment.includePaths": {
+            "type": "array",
+            "order": 3,
+            "scope": "resource",
+            "items": {
+              "type": "string"
+            },
+            "default": [],
+            "markdownDescription": "Additional directories to index (for example a global Composer vendor path)."
           },
-          "default": [
-            "apache",
-            "bcmath",
-            "bz2",
-            "calendar",
-            "com_dotnet",
-            "Core",
-            "ctype",
-            "curl",
-            "date",
-            "dba",
-            "dom",
-            "enchant",
-            "exif",
-            "FFI",
-            "fileinfo",
-            "filter",
-            "fpm",
-            "ftp",
-            "gd",
-            "gettext",
-            "gmp",
-            "hash",
-            "iconv",
-            "imap",
-            "intl",
-            "json",
-            "ldap",
-            "libxml",
-            "mbstring",
-            "meta",
-            "mysqli",
-            "mysqlnd",
-            "oci8",
-            "odbc",
-            "openssl",
-            "pcntl",
-            "pcre",
-            "PDO",
-            "pdo_ibm",
-            "pdo_mysql",
-            "pdo_pgsql",
-            "pdo_sqlite",
-            "pgsql",
-            "Phar",
-            "posix",
-            "pspell",
-            "random",
-            "readline",
-            "Reflection",
-            "session",
-            "shmop",
-            "SimpleXML",
-            "snmp",
-            "soap",
-            "sockets",
-            "sodium",
-            "SPL",
-            "sqlite3",
-            "standard",
-            "superglobals",
-            "sysvmsg",
-            "sysvsem",
-            "sysvshm",
-            "tidy",
-            "tokenizer",
-            "xml",
-            "xmlreader",
-            "xmlrpc",
-            "xmlwriter",
-            "xsl",
-            "Zend OPcache",
-            "zip",
-            "zlib"
-          ],
-          "description": "Built-in PHP stubs to include for symbol resolution."
-        },
-        "phpstrom.completion.insertUseDeclaration": {
-          "type": "boolean",
-          "default": true,
-          "description": "Automatically add use declarations when completing fully-qualified symbols."
-        },
-        "phpstrom.completion.fullyQualifyGlobalSymbols": {
-          "type": "boolean",
-          "default": false,
-          "description": "Use fully-qualified names for global symbols instead of importing them."
-        },
-        "phpstrom.completion.triggerParameterHints": {
-          "type": "boolean",
-          "default": true,
-          "description": "Trigger signature help automatically after completing a function or method call."
-        },
-        "phpstrom.completion.maxItems": {
-          "type": "number",
-          "default": 100,
-          "description": "Maximum number of completion items to return per request."
-        },
-        "phpstrom.diagnostics.enable": {
-          "type": "boolean",
-          "default": true,
-          "description": "Enable diagnostics."
-        },
-        "phpstrom.diagnostics.run": {
-          "type": "string",
-          "default": "onType",
-          "enum": [
-            "onType",
-            "onSave"
-          ],
-          "description": "Run diagnostics while typing and on save, or only on save."
-        },
-        "phpstrom.diagnostics.workspaceScanOnStart": {
-          "type": "boolean",
-          "default": false,
-          "description": "Scan every workspace PHP file for diagnostics when the server starts. When disabled, PHP Strom still indexes symbols and analyses opened/saved files; use PHP Strom: Refresh Problems Scan to run a full project scan manually."
-        },
-        "phpstrom.diagnostics.undefinedSymbols": {
-          "type": "boolean",
-          "default": true,
-          "description": "Report undefined classes, functions, and constants."
-        },
-        "phpstrom.diagnostics.undefinedVariables": {
-          "type": "boolean",
-          "default": true,
-          "description": "Report undefined variables."
-        },
-        "phpstrom.diagnostics.typeErrors": {
-          "type": "boolean",
-          "default": true,
-          "description": "Report type errors."
-        },
-        "phpstrom.diagnostics.exclude": {
-          "type": "object",
-          "default": {},
-          "description": "Map of file glob patterns to arrays of diagnostic codes to suppress. Matching files in the workspace .gitignore are also ignored for diagnostics by default."
-        },
-        "phpstrom.diagnostics.overrides": {
-          "type": "object",
-          "default": {},
-          "additionalProperties": {
+          "phpstrom.environment.documentRoot": {
+            "type": "string",
+            "default": "",
+            "order": 4,
+            "scope": "resource",
+            "markdownDescription": "Document root used when resolving `include` / `require` document links. Leave empty to use the workspace folder."
+          }
+        }
+      },
+      {
+        "title": "Files",
+        "properties": {
+          "phpstrom.files.associations": {
+            "type": "array",
+            "order": 1,
+            "scope": "resource",
+            "items": {
+              "type": "string"
+            },
+            "uniqueItems": true,
+            "default": [
+              "**/*.php",
+              "**/*.phtml",
+              "**/*.phar"
+            ],
+            "markdownDescription": "Glob patterns for PHP files to index."
+          },
+          "phpstrom.files.exclude": {
+            "type": "array",
+            "order": 2,
+            "scope": "resource",
+            "items": {
+              "type": "string"
+            },
+            "uniqueItems": true,
+            "default": [
+              "**/.git/**",
+              "**/node_modules/**",
+              "**/vendor/**/{Tests,tests}/**"
+            ],
+            "markdownDescription": "Glob patterns excluded from indexing. Workspace `files.exclude` patterns are also applied."
+          },
+          "phpstrom.files.maxSize": {
+            "type": "number",
+            "default": 1000000,
+            "order": 3,
+            "scope": "resource",
+            "minimum": 1024,
+            "markdownDescription": "Maximum file size in bytes to index and analyse. Larger files are skipped."
+          },
+          "phpstrom.stubs": {
+            "type": "array",
+            "order": 4,
+            "scope": "window",
+            "items": {
+              "type": "string"
+            },
+            "uniqueItems": true,
+            "default": [
+              "apache",
+              "bcmath",
+              "bz2",
+              "calendar",
+              "com_dotnet",
+              "Core",
+              "ctype",
+              "curl",
+              "date",
+              "dba",
+              "dom",
+              "enchant",
+              "exif",
+              "FFI",
+              "fileinfo",
+              "filter",
+              "fpm",
+              "ftp",
+              "gd",
+              "gettext",
+              "gmp",
+              "hash",
+              "iconv",
+              "imap",
+              "intl",
+              "json",
+              "ldap",
+              "libxml",
+              "mbstring",
+              "meta",
+              "mysqli",
+              "mysqlnd",
+              "oci8",
+              "odbc",
+              "openssl",
+              "pcntl",
+              "pcre",
+              "PDO",
+              "pdo_ibm",
+              "pdo_mysql",
+              "pdo_pgsql",
+              "pdo_sqlite",
+              "pgsql",
+              "Phar",
+              "posix",
+              "pspell",
+              "random",
+              "readline",
+              "Reflection",
+              "session",
+              "shmop",
+              "SimpleXML",
+              "snmp",
+              "soap",
+              "sockets",
+              "sodium",
+              "SPL",
+              "sqlite3",
+              "standard",
+              "superglobals",
+              "sysvmsg",
+              "sysvsem",
+              "sysvshm",
+              "tidy",
+              "tokenizer",
+              "xml",
+              "xmlreader",
+              "xmlrpc",
+              "xmlwriter",
+              "xsl",
+              "Zend OPcache",
+              "zip",
+              "zlib"
+            ],
+            "markdownDescription": "Built-in PHP extension stubs to include for symbol resolution. Keep the bundled core set unless you know a stub is unused."
+          }
+        }
+      },
+      {
+        "title": "Diagnostics",
+        "properties": {
+          "phpstrom.diagnostics.enable": {
+            "type": "boolean",
+            "default": true,
+            "order": 1,
+            "scope": "resource",
+            "markdownDescription": "Publish diagnostics (problems) for PHP files."
+          },
+          "phpstrom.diagnostics.run": {
+            "type": "string",
+            "default": "onType",
+            "order": 2,
+            "scope": "resource",
+            "enum": [
+              "onType",
+              "onSave"
+            ],
+            "enumDescriptions": [
+              "Analyse while typing and on save",
+              "Analyse only when a file is saved"
+            ],
+            "markdownDescription": "When to run diagnostics for open files."
+          },
+          "phpstrom.diagnostics.workspaceScanOnStart": {
+            "type": "boolean",
+            "default": false,
+            "order": 3,
+            "scope": "resource",
+            "markdownDescription": "Scan every workspace PHP file for diagnostics when the server starts. When off, PHP Strom still indexes symbols and analyses opened or saved files. Use **PHP Strom: Refresh Problems Scan** for a full project scan."
+          },
+          "phpstrom.diagnostics.exclude": {
             "type": "object",
-            "properties": {
-              "classes": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                },
-                "default": []
+            "default": {},
+            "order": 4,
+            "scope": "resource",
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "type": "string"
               }
-            }
+            },
+            "markdownDescription": "Map of glob patterns to diagnostic codes to suppress. An empty code list ignores all diagnostics for matching files. Matching `.gitignore` paths are also ignored by default."
           },
-          "description": "Rule-specific diagnostic overrides. Example: { \"PSR1.Classes.ClassDeclaration.PascalCase\": { \"classes\": [\"/^Legacy_/\", \"SpecialClass\"] } }."
-        },
-        "phpstrom.format.braceStyle": {
-          "type": "string",
-          "default": "per",
-          "enum": [
-            "per",
-            "allman",
-            "k&r"
-          ],
-          "description": "Brace style for code formatting."
-        },
-        "phpstrom.format.insertSpaces": {
-          "type": "boolean",
-          "default": true,
-          "description": "Use spaces for indentation."
-        },
-        "phpstrom.format.tabSize": {
-          "type": "number",
-          "default": 4,
-          "description": "Number of spaces per indent level."
-        },
-        "phpstrom.phpdoc.useFullyQualifiedNames": {
-          "type": "boolean",
-          "default": false,
-          "description": "Use fully-qualified type names in generated PHPDoc."
-        },
-        "phpstrom.phpdoc.returnVoid": {
-          "type": "boolean",
-          "default": true,
-          "description": "Add @return void to generated PHPDoc for void functions."
-        },
-        "phpstrom.phpdoc.textFormat": {
-          "type": "string",
-          "default": "snippet",
-          "enum": [
-            "snippet",
-            "text"
-          ],
-          "description": "Format for PHPDoc text in generated doc blocks."
-        },
-        "phpstrom.codeLens.references.enable": {
-          "type": "boolean",
-          "default": false,
-          "description": "Show reference counts above declarations."
-        },
-        "phpstrom.codeLens.implementations.enable": {
-          "type": "boolean",
-          "default": false,
-          "description": "Show implementation counts above interface/abstract declarations."
-        },
-        "phpstrom.codeLens.overrides.enable": {
-          "type": "boolean",
-          "default": false,
-          "description": "Show override counts above method declarations."
-        },
-        "phpstrom.codeLens.parent.enable": {
-          "type": "boolean",
-          "default": false,
-          "description": "Show parent method link above overriding methods."
-        },
-        "phpstrom.codeLens.usages.enable": {
-          "type": "boolean",
-          "default": false,
-          "description": "Show trait usage counts above trait declarations."
-        },
-        "phpstrom.inlayHints.parameterNames.enable": {
-          "type": "boolean",
-          "default": true,
-          "description": "Show inferred parameter names as inlay hints."
-        },
-        "phpstrom.inlayHints.parameterTypes.enable": {
-          "type": "boolean",
-          "default": true,
-          "description": "Show inferred closure parameter types as inlay hints."
-        },
-        "phpstrom.inlayHints.returnTypes.enable": {
-          "type": "boolean",
-          "default": true,
-          "description": "Show inferred return types as inlay hints."
-        },
-        "phpstrom.compatibility.preferPsalmPhpstanPrefixedAnnotations": {
-          "type": "boolean",
-          "default": false,
-          "description": "Prefer @psalm- and @phpstan- prefixed PHPDoc annotations over un-prefixed ones."
-        },
-        "phpstrom.telemetry.enable": {
-          "type": "boolean",
-          "default": false,
-          "description": "Enable anonymous telemetry for improving the extension."
-        },
-        "phpstrom.trace.server": {
-          "type": "string",
-          "default": "off",
-          "enum": [
-            "off",
-            "messages",
-            "verbose"
-          ],
-          "description": "Trace LSP communication for debugging."
+          "phpstrom.diagnostics.overrides": {
+            "type": "object",
+            "default": {},
+            "order": 5,
+            "scope": "resource",
+            "additionalProperties": {
+              "type": "object",
+              "properties": {
+                "classes": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "default": []
+                }
+              }
+            },
+            "markdownDescription": "Rule-specific overrides. Example: `{ \"PSR1.Classes.ClassDeclaration.PascalCase\": { \"classes\": [\"/^Legacy_/\", \"SpecialClass\"] } }`."
+          },
+          "phpstrom.diagnostics.undefinedSymbols": {
+            "type": "boolean",
+            "default": true,
+            "markdownDescription": "Deprecated. Use `#phpstrom.diagnostics.analysis.undefinedSymbols#`.",
+            "deprecationMessage": "Use phpstrom.diagnostics.analysis.undefinedSymbols instead."
+          },
+          "phpstrom.diagnostics.undefinedVariables": {
+            "type": "boolean",
+            "default": true,
+            "markdownDescription": "Deprecated. Use `#phpstrom.diagnostics.analysis.undefinedVariables#`.",
+            "deprecationMessage": "Use phpstrom.diagnostics.analysis.undefinedVariables instead."
+          },
+          "phpstrom.diagnostics.typeErrors": {
+            "type": "boolean",
+            "default": true,
+            "markdownDescription": "Deprecated. Use `#phpstrom.diagnostics.analysis.typeErrors#`.",
+            "deprecationMessage": "Use phpstrom.diagnostics.analysis.typeErrors instead."
+          }
+        }
+      },
+      {
+        "title": "Analysis",
+        "properties": {
+          "phpstrom.diagnostics.analysis.syntaxErrors": {
+            "type": "boolean",
+            "default": true,
+            "markdownDescription": "Report parser / syntax errors.",
+            "order": 1,
+            "scope": "resource"
+          },
+          "phpstrom.diagnostics.analysis.undefinedSymbols": {
+            "type": "boolean",
+            "default": true,
+            "markdownDescription": "Report unknown classes, functions, constants, and methods.",
+            "order": 2,
+            "scope": "resource"
+          },
+          "phpstrom.diagnostics.analysis.undefinedVariables": {
+            "type": "boolean",
+            "default": true,
+            "markdownDescription": "Report variables used before they are assigned.",
+            "order": 3,
+            "scope": "resource"
+          },
+          "phpstrom.diagnostics.analysis.classModel": {
+            "type": "boolean",
+            "default": true,
+            "markdownDescription": "Report invalid class structure: duplicates, illegal inheritance, and similar class-model errors.",
+            "order": 4,
+            "scope": "resource"
+          },
+          "phpstrom.diagnostics.analysis.invalidCalls": {
+            "type": "boolean",
+            "default": true,
+            "markdownDescription": "Report invalid function and method invocations, including named-argument mistakes.",
+            "order": 5,
+            "scope": "resource"
+          },
+          "phpstrom.diagnostics.analysis.language": {
+            "type": "boolean",
+            "default": true,
+            "markdownDescription": "Report language-level mistakes such as duplicate array keys and invalid goto labels.",
+            "order": 6,
+            "scope": "resource"
+          },
+          "phpstrom.diagnostics.analysis.typeErrors": {
+            "type": "boolean",
+            "default": true,
+            "markdownDescription": "Report return, property, argument type, and argument-count mismatches.",
+            "order": 7,
+            "scope": "resource"
+          },
+          "phpstrom.diagnostics.analysis.methodVisibility": {
+            "type": "boolean",
+            "default": true,
+            "markdownDescription": "Report calls to private or protected methods that are not visible from the call site.",
+            "order": 8,
+            "scope": "resource"
+          },
+          "phpstrom.diagnostics.analysis.throwTypes": {
+            "type": "boolean",
+            "default": true,
+            "markdownDescription": "Report thrown values that are not compatible with `@throws` / throw types.",
+            "order": 9,
+            "scope": "resource"
+          },
+          "phpstrom.diagnostics.analysis.deprecated": {
+            "type": "boolean",
+            "default": true,
+            "markdownDescription": "Report usage of symbols marked `@deprecated`.",
+            "order": 10,
+            "scope": "resource"
+          },
+          "phpstrom.diagnostics.analysis.unreachableCode": {
+            "type": "boolean",
+            "default": true,
+            "markdownDescription": "Report code that cannot be reached after `return`, `throw`, or `exit`.",
+            "order": 11,
+            "scope": "resource"
+          },
+          "phpstrom.diagnostics.analysis.emptyStatements": {
+            "type": "boolean",
+            "default": true,
+            "markdownDescription": "Report empty statements (stray semicolons).",
+            "order": 12,
+            "scope": "resource"
+          },
+          "phpstrom.diagnostics.analysis.assignmentInCondition": {
+            "type": "boolean",
+            "default": true,
+            "markdownDescription": "Report assignments used as conditions (`if ($x = foo())`).",
+            "order": 13,
+            "scope": "resource"
+          },
+          "phpstrom.diagnostics.analysis.sideEffects": {
+            "type": "boolean",
+            "default": false,
+            "markdownDescription": "Report files that both declare symbols and execute side effects (PSR-1). Off by default because many application entrypoints and providers do both.",
+            "order": 14,
+            "scope": "resource"
+          },
+          "phpstrom.diagnostics.analysis.style": {
+            "type": "boolean",
+            "default": false,
+            "markdownDescription": "Report coding-style issues (PSR-1 / PSR-12). Off by default; use PHP_CodeSniffer or PHP CS Fixer if you want style as a separate workflow.",
+            "order": 15,
+            "scope": "resource"
+          }
+        }
+      },
+      {
+        "title": "Completion",
+        "properties": {
+          "phpstrom.completion.insertUseDeclaration": {
+            "type": "boolean",
+            "default": true,
+            "order": 1,
+            "scope": "resource",
+            "markdownDescription": "Automatically insert a `use` declaration when completing a fully-qualified symbol."
+          },
+          "phpstrom.completion.fullyQualifyGlobalSymbols": {
+            "type": "boolean",
+            "default": false,
+            "order": 2,
+            "scope": "resource",
+            "markdownDescription": "Insert fully-qualified names for global symbols instead of importing them."
+          },
+          "phpstrom.completion.triggerParameterHints": {
+            "type": "boolean",
+            "default": true,
+            "order": 3,
+            "scope": "resource",
+            "markdownDescription": "Trigger signature help after completing a function or method call."
+          },
+          "phpstrom.completion.maxItems": {
+            "type": "number",
+            "default": 100,
+            "order": 4,
+            "scope": "resource",
+            "minimum": 10,
+            "maximum": 1000,
+            "markdownDescription": "Maximum number of completion items to return per request."
+          }
+        }
+      },
+      {
+        "title": "Formatting",
+        "properties": {
+          "phpstrom.format.braceStyle": {
+            "type": "string",
+            "default": "per",
+            "order": 1,
+            "scope": "resource",
+            "enum": [
+              "per",
+              "allman",
+              "k&r"
+            ],
+            "enumDescriptions": [
+              "PER Coding Style (PSR-12 successor)",
+              "Allman: opening brace on its own line",
+              "K&R: opening brace on the same line"
+            ],
+            "markdownDescription": "Brace style used by **Format Document**."
+          },
+          "phpstrom.format.insertSpaces": {
+            "type": "boolean",
+            "default": true,
+            "order": 2,
+            "scope": "resource",
+            "markdownDescription": "Use spaces for indentation when formatting PHP. Matches typical PHP style guides."
+          },
+          "phpstrom.format.tabSize": {
+            "type": "number",
+            "default": 4,
+            "order": 3,
+            "scope": "resource",
+            "minimum": 1,
+            "maximum": 8,
+            "markdownDescription": "Number of spaces per indent level when formatting PHP."
+          }
+        }
+      },
+      {
+        "title": "PHPDoc",
+        "properties": {
+          "phpstrom.phpdoc.useFullyQualifiedNames": {
+            "type": "boolean",
+            "default": false,
+            "order": 1,
+            "scope": "resource",
+            "markdownDescription": "Use fully-qualified type names in generated PHPDoc."
+          },
+          "phpstrom.phpdoc.returnVoid": {
+            "type": "boolean",
+            "default": true,
+            "order": 2,
+            "scope": "resource",
+            "markdownDescription": "Add `@return void` to generated PHPDoc for void functions."
+          },
+          "phpstrom.phpdoc.textFormat": {
+            "type": "string",
+            "default": "snippet",
+            "order": 3,
+            "scope": "resource",
+            "enum": [
+              "snippet",
+              "text"
+            ],
+            "enumDescriptions": [
+              "Insert as a snippet with tab stops",
+              "Insert as plain text"
+            ],
+            "markdownDescription": "How generated PHPDoc is inserted."
+          }
+        }
+      },
+      {
+        "title": "Code Lens",
+        "properties": {
+          "phpstrom.codeLens.references.enable": {
+            "type": "boolean",
+            "default": false,
+            "markdownDescription": "Show reference counts above declarations. Off by default because it can be expensive on large projects.",
+            "order": 1,
+            "scope": "resource"
+          },
+          "phpstrom.codeLens.implementations.enable": {
+            "type": "boolean",
+            "default": false,
+            "markdownDescription": "Show implementation counts above interfaces and abstract members.",
+            "order": 2,
+            "scope": "resource"
+          },
+          "phpstrom.codeLens.overrides.enable": {
+            "type": "boolean",
+            "default": false,
+            "markdownDescription": "Show override counts above methods.",
+            "order": 3,
+            "scope": "resource"
+          },
+          "phpstrom.codeLens.parent.enable": {
+            "type": "boolean",
+            "default": false,
+            "markdownDescription": "Show a parent-method link above overriding methods.",
+            "order": 4,
+            "scope": "resource"
+          },
+          "phpstrom.codeLens.usages.enable": {
+            "type": "boolean",
+            "default": false,
+            "markdownDescription": "Show trait usage counts above trait declarations.",
+            "order": 5,
+            "scope": "resource"
+          }
+        }
+      },
+      {
+        "title": "Inlay Hints",
+        "properties": {
+          "phpstrom.inlayHints.parameterNames.enable": {
+            "type": "boolean",
+            "default": true,
+            "markdownDescription": "Show parameter names as inlay hints at call sites.",
+            "order": 1,
+            "scope": "resource"
+          },
+          "phpstrom.inlayHints.parameterTypes.enable": {
+            "type": "boolean",
+            "default": false,
+            "markdownDescription": "Show inferred closure parameter types as inlay hints. Off by default to keep the editor quieter.",
+            "order": 2,
+            "scope": "resource"
+          },
+          "phpstrom.inlayHints.returnTypes.enable": {
+            "type": "boolean",
+            "default": false,
+            "markdownDescription": "Show inferred return types as inlay hints. Off by default to keep the editor quieter.",
+            "order": 3,
+            "scope": "resource"
+          }
+        }
+      },
+      {
+        "title": "Compatibility",
+        "properties": {
+          "phpstrom.compatibility.preferPsalmPhpstanPrefixedAnnotations": {
+            "type": "boolean",
+            "default": false,
+            "scope": "resource",
+            "markdownDescription": "Prefer `@psalm-` and `@phpstan-` prefixed PHPDoc annotations over unprefixed tags when both are present."
+          }
         }
       }
-    },
+    ],
     "commands": [
       {
         "command": "phpstrom.restartServer",

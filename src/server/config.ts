@@ -4,16 +4,31 @@ export interface DiagnosticsOverride {
   classes?: string[];
 }
 
+export interface DiagnosticsAnalysisConfig {
+  syntaxErrors: boolean;
+  undefinedSymbols: boolean;
+  undefinedVariables: boolean;
+  classModel: boolean;
+  invalidCalls: boolean;
+  language: boolean;
+  typeErrors: boolean;
+  methodVisibility: boolean;
+  throwTypes: boolean;
+  deprecated: boolean;
+  unreachableCode: boolean;
+  emptyStatements: boolean;
+  assignmentInCondition: boolean;
+  sideEffects: boolean;
+  style: boolean;
+}
+
 export interface DiagnosticsConfig {
   enable: boolean;
   run: 'onType' | 'onSave';
   undefinedSymbols: boolean;
   undefinedVariables: boolean;
   typeErrors: boolean;
-  strictTypes: boolean;
-  relaxedTypeCheck: boolean;
-  noMixedTypeCheck: boolean;
-  typeCheckDocumentedTypes: boolean;
+  analysis: DiagnosticsAnalysisConfig;
   exclude: Record<string, string[]>;
   overrides: Record<string, DiagnosticsOverride>;
 }
@@ -115,10 +130,23 @@ export class ServerConfig implements ServerConfig {
       undefinedSymbols: true,
       undefinedVariables: true,
       typeErrors: true,
-      strictTypes: false,
-      relaxedTypeCheck: true,
-      noMixedTypeCheck: true,
-      typeCheckDocumentedTypes: false,
+      analysis: {
+        syntaxErrors: true,
+        undefinedSymbols: true,
+        undefinedVariables: true,
+        classModel: true,
+        invalidCalls: true,
+        language: true,
+        typeErrors: true,
+        methodVisibility: true,
+        throwTypes: true,
+        deprecated: true,
+        unreachableCode: true,
+        emptyStatements: true,
+        assignmentInCondition: true,
+        sideEffects: false,
+        style: false,
+      },
       exclude: {
         // Exclude template/mixed-content files from diagnostics
         '**/*.phtml': ['*'],
@@ -157,8 +185,8 @@ export class ServerConfig implements ServerConfig {
     };
     this.inlayHints = {
       parameterNames: true,
-      parameterTypes: true,
-      returnTypes: true,
+      parameterTypes: false,
+      returnTypes: false,
     };
     this.preferPsalmPhpstanPrefixedAnnotations = false;
   }

@@ -21,7 +21,7 @@ PHP Strom includes support for:
 - Go to definition, declaration, type definition, and implementations
 - Find references and document highlights
 - Workspace symbols and document symbols
-- Diagnostics for undefined symbols, undefined variables, and type issues
+- Diagnostics for undefined symbols, types, and other analysis families (each toggleable in Settings)
 - Formatting with configurable brace style and indentation
 - Code actions, code lens, inlay hints, and folding
 - Document links and type hierarchy

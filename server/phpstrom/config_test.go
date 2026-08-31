@@ -80,12 +80,12 @@ func TestUpdateLoadsDiagnosticToggles(t *testing.T) {
 		},
 	})
 
-	if cfg.Diagnostics.UndefinedSymbols || cfg.Diagnostics.UndefinedVariables || cfg.Diagnostics.TypeErrors {
-		t.Fatalf("expected nested diagnostic toggles to be disabled, got %#v", cfg.Diagnostics)
+	if cfg.Diagnostics.Analysis.UndefinedSymbols || cfg.Diagnostics.Analysis.UndefinedVariables || cfg.Diagnostics.Analysis.TypeErrors {
+		t.Fatalf("expected nested diagnostic toggles to be disabled, got %#v", cfg.Diagnostics.Analysis)
 	}
 	providerCfg := cfg.toProviderConfig(nil)
-	if !providerCfg.DisableUndefinedSymbols || !providerCfg.DisableUndefinedVariables || !providerCfg.DisableTypeErrors {
-		t.Fatalf("expected disabled toggles to reach providers, got %#v", providerCfg)
+	if !providerCfg.DisabledAnalysis.UndefinedSymbols || !providerCfg.DisabledAnalysis.UndefinedVariables || !providerCfg.DisabledAnalysis.TypeErrors {
+		t.Fatalf("expected disabled toggles to reach providers, got %#v", providerCfg.DisabledAnalysis)
 	}
 
 	cfg.Update(map[string]interface{}{
@@ -93,8 +93,45 @@ func TestUpdateLoadsDiagnosticToggles(t *testing.T) {
 		"diagnostics.undefinedVariables": true,
 		"diagnostics.typeErrors":         true,
 	})
-	if !cfg.Diagnostics.UndefinedSymbols || !cfg.Diagnostics.UndefinedVariables || !cfg.Diagnostics.TypeErrors {
-		t.Fatalf("expected flattened diagnostic toggles to be enabled, got %#v", cfg.Diagnostics)
+	if !cfg.Diagnostics.Analysis.UndefinedSymbols || !cfg.Diagnostics.Analysis.UndefinedVariables || !cfg.Diagnostics.Analysis.TypeErrors {
+		t.Fatalf("expected flattened diagnostic toggles to be enabled, got %#v", cfg.Diagnostics.Analysis)
+	}
+}
+
+func TestDefaultAnalysisTogglesDisableStyleAndSideEffects(t *testing.T) {
+	cfg := DefaultConfig()
+	if cfg.Diagnostics.Analysis.Style || cfg.Diagnostics.Analysis.SideEffects {
+		t.Fatalf("expected style and side-effects analysis to be off by default, got %#v", cfg.Diagnostics.Analysis)
+	}
+	if !cfg.Diagnostics.Analysis.UndefinedSymbols || !cfg.Diagnostics.Analysis.TypeErrors || !cfg.Diagnostics.Analysis.SyntaxErrors {
+		t.Fatalf("expected core correctness analysis to be on by default, got %#v", cfg.Diagnostics.Analysis)
+	}
+	if !cfg.toProviderConfig(nil).DisabledAnalysis.Style {
+		t.Fatal("expected default config to disable style diagnostics in providers")
+	}
+}
+
+func TestUpdateLoadsAnalysisToggles(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Update(map[string]interface{}{
+		"diagnostics": map[string]interface{}{
+			"analysis": map[string]interface{}{
+				"style":        true,
+				"sideEffects":  true,
+				"classModel":   false,
+				"syntaxErrors": false,
+			},
+		},
+	})
+	if !cfg.Diagnostics.Analysis.Style || !cfg.Diagnostics.Analysis.SideEffects {
+		t.Fatalf("expected analysis style/side-effects to be enabled, got %#v", cfg.Diagnostics.Analysis)
+	}
+	if cfg.Diagnostics.Analysis.ClassModel || cfg.Diagnostics.Analysis.SyntaxErrors {
+		t.Fatalf("expected class model and syntax errors to be disabled, got %#v", cfg.Diagnostics.Analysis)
+	}
+	disabled := cfg.toProviderConfig(nil).DisabledAnalysis
+	if disabled.Style || disabled.SideEffects || !disabled.ClassModel || !disabled.SyntaxErrors {
+		t.Fatalf("unexpected provider disables: %#v", disabled)
 	}
 }
 

@@ -77,9 +77,21 @@ class Foo {
 
 func TestDiagnosticsProvider_DisablesConfiguredAnalysisCodes(t *testing.T) {
 	cfg := Config{
-		DisableUndefinedSymbols:   true,
-		DisableUndefinedVariables: true,
-		DisableTypeErrors:         true,
+		DisabledAnalysis: DisabledAnalysis{
+			UndefinedSymbols:      true,
+			UndefinedVariables:    true,
+			ClassModel:            true,
+			InvalidCalls:          true,
+			Language:              true,
+			TypeErrors:            true,
+			MethodVisibility:      true,
+			ThrowTypes:            true,
+			Deprecated:            true,
+			UnreachableCode:       true,
+			EmptyStatements:       true,
+			AssignmentInCondition: true,
+			SideEffects:           true,
+		},
 	}
 	disabled := cfg.disabledAnalysisIssueCodes()
 	for _, code := range []string{
@@ -91,10 +103,36 @@ func TestDiagnosticsProvider_DisablesConfiguredAnalysisCodes(t *testing.T) {
 		"A.PROP.TYPE",
 		"A.ARG.TYPE",
 		"A.ARG.COUNT",
+		"PHPStan.Level0.ClassModel",
+		"PHPStan.Level0.Invocation",
+		"PHPStan.Level0.Language",
+		"PHPStan.Level2.MethodVisibility",
+		"PHPStan.Level3.ThrowType",
+		"A.DEPRECATED.CALL",
+		"Generic.CodeAnalysis.UnreachableCode",
+		"Generic.CodeAnalysis.EmptyStatement",
+		"Generic.CodeAnalysis.AssignmentInCondition",
+		"PSR1.Files.SideEffects",
 	} {
 		if !disabled[code] {
 			t.Fatalf("expected diagnostic code %s to be disabled, got %#v", code, disabled)
 		}
+	}
+}
+
+func TestDiagnosticsProvider_DisablesStyleWhenConfigured(t *testing.T) {
+	source := `<?php
+class bad_name {
+	function BAD_METHOD_NAME() {}
+}
+`
+	enabled := (&DiagnosticsProvider{}).Analyse("file:///test.php", source)
+	if !hasStyleDiagnostic(enabled) {
+		t.Fatalf("expected style diagnostics when style analysis is enabled, got %#v", enabled)
+	}
+	disabled := (&DiagnosticsProvider{cfg: Config{DisabledAnalysis: DisabledAnalysis{Style: true}}}).Analyse("file:///test.php", source)
+	if hasStyleDiagnostic(disabled) {
+		t.Fatalf("expected style diagnostics to be disabled, got %#v", disabled)
 	}
 }
 
@@ -111,7 +149,7 @@ function run(Service $service): void {
 		t.Fatalf("expected undefined-method diagnostic before disabling undefined symbols, got %#v", enabled)
 	}
 
-	disabled := (&DiagnosticsProvider{cfg: Config{DisableUndefinedSymbols: true}}).Analyse("file:///test.php", source)
+	disabled := (&DiagnosticsProvider{cfg: Config{DisabledAnalysis: DisabledAnalysis{UndefinedSymbols: true}}}).Analyse("file:///test.php", source)
 	if hasDiagnosticCode(disabled, "PHPStan.Level2.MethodExistence") {
 		t.Fatalf("expected undefined-method diagnostic to be disabled with undefined symbols, got %#v", disabled)
 	}
@@ -415,7 +453,7 @@ function run(): void {
 		t.Fatalf("expected undefined-variable diagnostic before disabling it, got %#v", enabled)
 	}
 
-	disabled := (&DiagnosticsProvider{cfg: Config{DisableUndefinedVariables: true}}).Analyse("file:///test.php", source)
+	disabled := (&DiagnosticsProvider{cfg: Config{DisabledAnalysis: DisabledAnalysis{UndefinedVariables: true}}}).Analyse("file:///test.php", source)
 	if hasAnyDiagnosticCode(disabled, "PHPStan.Level0.Variables", "PHPStan.Level1.Variables") {
 		t.Fatalf("expected undefined-variable diagnostic to be disabled, got %#v", disabled)
 	}
@@ -489,6 +527,16 @@ function run(): void
 	if len(cache.analysis) != 0 {
 		t.Fatalf("expected AnalyseTransient not to retain semantic snapshots, retained %d", len(cache.analysis))
 	}
+}
+
+func hasStyleDiagnostic(diagnostics []lsp.Diagnostic) bool {
+	for _, diagnostic := range diagnostics {
+		code, _ := diagnostic.Code.(string)
+		if strings.HasPrefix(code, "PSR") || strings.HasPrefix(code, "Generic.Functions") || strings.HasPrefix(code, "Generic.Arrays") {
+			return true
+		}
+	}
+	return false
 }
 
 func hasAnyDiagnosticCode(diagnostics []lsp.Diagnostic, codes ...string) bool {

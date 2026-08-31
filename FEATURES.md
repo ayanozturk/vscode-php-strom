@@ -271,22 +271,20 @@ Symbols reported:
 - Variables used before assignment
 - Variable scope boundary violations
 
-#### Type errors (configurable strictness)
+#### Type errors
 
-| Setting | Default | Effect |
-|---|---|---|
-| `diagnostics.typeErrors` | `true` | Enable type checking |
-| `diagnostics.relaxedTypeCheck` | `true` | Allow super-types for sub-type constraints |
-| `diagnostics.noMixedTypeCheck` | `true` | Suppress mixed→narrower errors |
-| `diagnostics.strictTypes` | `false` | Treat all files as strict_types=1 |
-| `diagnostics.typeCheckDocumentedTypes` | `false` | Include PHPDoc types in checks |
+Enabled by `phpstrom.diagnostics.analysis.typeErrors` (default on). Covers return, property, argument type, and argument-count mismatches.
+
+Each analysis family can be turned on or off from **Settings → PHP Strom → Analysis**.
 
 #### Other checks
 
+- Class model (duplicates, illegal inheritance)
+- Invalid calls and language-level mistakes
 - Deprecated symbol usage (based on `@deprecated` PHPDoc)
-- Duplicate class / function declarations
-- Missing return statement
 - Unreachable code after `throw` / `return` / `exit`
+- Empty statements and assignment-in-condition
+- Optional PSR-1 side-effects and PSR style (both off by default)
 
 #### Suppression
 
@@ -742,30 +740,53 @@ AI completions are opt-in, privacy-preserving (local models supported), and neve
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `phpstrom.enable` | boolean | `true` | Enable/disable the server |
-| `phpstrom.environment.phpVersion` | string | `"8.3"` | PHP version for analysis |
+| `phpstrom.enable` | boolean | `true` | Enable PHP Strom |
+| `phpstrom.environment.phpVersion` | string | `"auto"` | PHP version, or `auto` from composer.json |
+| `phpstrom.environment.phpVersionOverride` | string | `""` | Force a PHP version, ignoring detection |
 | `phpstrom.environment.includePaths` | string[] | `[]` | Extra paths to index |
 | `phpstrom.environment.documentRoot` | string | `""` | Document root for include/require links |
 | `phpstrom.files.associations` | string[] | `["**/*.php",…]` | Glob patterns for PHP files |
-| `phpstrom.files.exclude` | string[] | `["**/.git/**",…]` | Glob patterns to exclude |
+| `phpstrom.files.exclude` | string[] | `["**/.git/**",…]` | Glob patterns to exclude from indexing |
 | `phpstrom.files.maxSize` | number | `1000000` | Max file size to index (bytes) |
-| `phpstrom.stubs` | string[] | _(all core)_ | Built-in PHP stubs to include |
+| `phpstrom.stubs` | string[] | _(bundled core)_ | Built-in PHP stubs to include |
 | `phpstrom.completion.insertUseDeclaration` | boolean | `true` | Auto-insert `use` on completion |
 | `phpstrom.completion.fullyQualifyGlobalSymbols` | boolean | `false` | Use FQN instead of `use` for globals |
+| `phpstrom.completion.triggerParameterHints` | boolean | `true` | Trigger signature help after completing a call |
 | `phpstrom.completion.maxItems` | number | `100` | Max completion items per request |
 | `phpstrom.diagnostics.enable` | boolean | `true` | Enable diagnostics |
 | `phpstrom.diagnostics.run` | enum | `"onType"` | `"onType"` or `"onSave"` |
-| `phpstrom.diagnostics.undefinedSymbols` | boolean | `true` | Report undefined symbols |
-| `phpstrom.diagnostics.undefinedVariables` | boolean | `true` | Report undefined variables |
-| `phpstrom.diagnostics.typeErrors` | boolean | `true` | Report type mismatches |
+| `phpstrom.diagnostics.workspaceScanOnStart` | boolean | `false` | Full-project diagnostics scan on startup |
+| `phpstrom.diagnostics.analysis.syntaxErrors` | boolean | `true` | Parser / syntax errors |
+| `phpstrom.diagnostics.analysis.undefinedSymbols` | boolean | `true` | Unknown classes, functions, constants, methods |
+| `phpstrom.diagnostics.analysis.undefinedVariables` | boolean | `true` | Variables used before assignment |
+| `phpstrom.diagnostics.analysis.classModel` | boolean | `true` | Invalid class structure |
+| `phpstrom.diagnostics.analysis.invalidCalls` | boolean | `true` | Invalid invocations |
+| `phpstrom.diagnostics.analysis.language` | boolean | `true` | Language-level mistakes |
+| `phpstrom.diagnostics.analysis.typeErrors` | boolean | `true` | Type and argument-count mismatches |
+| `phpstrom.diagnostics.analysis.methodVisibility` | boolean | `true` | Invisible private/protected calls |
+| `phpstrom.diagnostics.analysis.throwTypes` | boolean | `true` | Incompatible thrown types |
+| `phpstrom.diagnostics.analysis.deprecated` | boolean | `true` | `@deprecated` usage |
+| `phpstrom.diagnostics.analysis.unreachableCode` | boolean | `true` | Dead code after return/throw/exit |
+| `phpstrom.diagnostics.analysis.emptyStatements` | boolean | `true` | Empty statements |
+| `phpstrom.diagnostics.analysis.assignmentInCondition` | boolean | `true` | Assignments used as conditions |
+| `phpstrom.diagnostics.analysis.sideEffects` | boolean | `false` | PSR-1 mixed declarations and side effects |
+| `phpstrom.diagnostics.analysis.style` | boolean | `false` | PSR-1 / PSR-12 style |
 | `phpstrom.diagnostics.exclude` | object | `{}` | Glob → code[] suppression map; workspace `.gitignore` entries are also ignored by default |
 | `phpstrom.diagnostics.overrides` | object | `{}` | Rule → selectors map, e.g. class-name regex overrides |
 | `phpstrom.format.braceStyle` | enum | `"per"` | `"per"`, `"allman"`, `"k&r"` |
+| `phpstrom.format.insertSpaces` | boolean | `true` | Use spaces when formatting |
+| `phpstrom.format.tabSize` | number | `4` | Indent width when formatting |
+| `phpstrom.phpdoc.useFullyQualifiedNames` | boolean | `false` | FQNs in generated PHPDoc |
 | `phpstrom.phpdoc.returnVoid` | boolean | `true` | Add `@return void` in generated docs |
+| `phpstrom.phpdoc.textFormat` | enum | `"snippet"` | `"snippet"` or `"text"` |
 | `phpstrom.codeLens.references.enable` | boolean | `false` | Show reference count lens |
 | `phpstrom.codeLens.implementations.enable` | boolean | `false` | Show implementation count lens |
+| `phpstrom.codeLens.overrides.enable` | boolean | `false` | Show override count lens |
+| `phpstrom.codeLens.parent.enable` | boolean | `false` | Show parent-method lens |
+| `phpstrom.codeLens.usages.enable` | boolean | `false` | Show trait usage lens |
 | `phpstrom.inlayHints.parameterNames.enable` | boolean | `true` | Show parameter name hints |
-| `phpstrom.inlayHints.returnTypes.enable` | boolean | `true` | Show inferred return type hints |
+| `phpstrom.inlayHints.parameterTypes.enable` | boolean | `false` | Show inferred closure parameter types |
+| `phpstrom.inlayHints.returnTypes.enable` | boolean | `false` | Show inferred return type hints |
 | `phpstrom.compatibility.preferPsalmPhpstanPrefixedAnnotations` | boolean | `false` | Prefer `@psalm-*` / `@phpstan-*` tags |
 | `phpstrom.trace.server` | enum | `"off"` | LSP trace level for debugging |
 

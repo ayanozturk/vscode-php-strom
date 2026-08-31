@@ -359,6 +359,7 @@ func TestWorkspaceDiagnosticsPublishesClosedFiles(t *testing.T) {
 	var out synchronizedBuffer
 	srv := &Server{out: &out}
 	h := NewHandler(srv)
+	enableStyleAnalysis(h)
 	h.idx.SetWorkspaceFolders([]indexer.WorkspaceFolder{{URI: "file://" + filepath.ToSlash(tmpDir), Name: "tmp"}})
 
 	h.indexAndPublishWorkspaceDiagnostics()
@@ -386,6 +387,7 @@ func TestDidCloseRevertsToDiskDiagnostics(t *testing.T) {
 	var out synchronizedBuffer
 	srv := &Server{out: &out}
 	h := NewHandler(srv)
+	enableStyleAnalysis(h)
 	h.documents.Open(lsp.TextDocumentItem{
 		URI:        uri,
 		LanguageID: "php",
@@ -528,6 +530,7 @@ func TestWorkspaceDiagnosticsStopsAtLimit(t *testing.T) {
 	var out synchronizedBuffer
 	srv := &Server{out: &out}
 	h := NewHandler(srv)
+	enableStyleAnalysis(h)
 	perFileDiagnostics := len(h.prov.Diagnostics.Analyse("file:///workspace/File0.php", "<?php\nclass Bad_Class_0 {}\n"))
 	if perFileDiagnostics == 0 {
 		t.Fatal("expected synthetic test file to emit diagnostics")

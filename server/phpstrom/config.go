@@ -29,15 +29,14 @@ type Config struct {
 		Enable               bool
 		Run                  string // "onType" | "onSave"
 		WorkspaceScanOnStart bool
-		UndefinedSymbols     bool
-		UndefinedVariables   bool
-		TypeErrors           bool
+		Analysis             AnalysisToggles
 		Exclude              map[string][]string
 		Overrides            overrides.RuleOverrides
 	}
 	Completion struct {
 		InsertUseDeclaration      bool
 		FullyQualifyGlobalSymbols bool
+		TriggerParameterHints     bool
 		MaxItems                  int
 	}
 	Format struct {
@@ -77,19 +76,16 @@ func DefaultConfig() *Config {
 	c.Diagnostics.Enable = true
 	c.Diagnostics.Run = "onType"
 	c.Diagnostics.WorkspaceScanOnStart = false
-	c.Diagnostics.UndefinedSymbols = true
-	c.Diagnostics.UndefinedVariables = true
-	c.Diagnostics.TypeErrors = true
+	c.Diagnostics.Analysis = DefaultAnalysisToggles()
 	c.Diagnostics.Exclude = map[string][]string{}
 	c.Diagnostics.Overrides = overrides.RuleOverrides{}
 	c.Completion.InsertUseDeclaration = true
+	c.Completion.TriggerParameterHints = true
 	c.Completion.MaxItems = 100
 	c.Format.BraceStyle = "per"
 	c.Format.InsertSpaces = true
 	c.Format.TabSize = 4
 	c.InlayHints.ParameterNames = true
-	c.InlayHints.ParameterTypes = true
-	c.InlayHints.ReturnTypes = true
 	return c
 }
 
@@ -117,24 +113,12 @@ func (c *Config) Update(settings map[string]interface{}) {
 		inner = settings
 	}
 	if diagnostics, ok := diagnosticsSection(inner); ok {
-		if v, ok := diagnostics["enable"].(bool); ok {
-			c.Diagnostics.Enable = v
-		}
+		applyBool(&c.Diagnostics.Enable, diagnostics["enable"])
 		if v, ok := diagnostics["run"].(string); ok {
 			c.Diagnostics.Run = v
 		}
-		if v, ok := diagnostics["workspaceScanOnStart"].(bool); ok {
-			c.Diagnostics.WorkspaceScanOnStart = v
-		}
-		if v, ok := diagnostics["undefinedSymbols"].(bool); ok {
-			c.Diagnostics.UndefinedSymbols = v
-		}
-		if v, ok := diagnostics["undefinedVariables"].(bool); ok {
-			c.Diagnostics.UndefinedVariables = v
-		}
-		if v, ok := diagnostics["typeErrors"].(bool); ok {
-			c.Diagnostics.TypeErrors = v
-		}
+		applyBool(&c.Diagnostics.WorkspaceScanOnStart, diagnostics["workspaceScanOnStart"])
+		applyAnalysisToggles(&c.Diagnostics.Analysis, diagnostics)
 		if overridesMap, ok := parseRuleOverrides(diagnostics["overrides"]); ok {
 			c.Diagnostics.Overrides = overridesMap
 		}
@@ -172,24 +156,54 @@ func (c *Config) Update(settings map[string]interface{}) {
 	if excludeMap, ok := parseDiagnosticsExclude(inner["diagnostics.exclude"]); ok {
 		c.Diagnostics.Exclude = excludeMap
 	}
-	if v, ok := inner["diagnostics.enable"].(bool); ok {
-		c.Diagnostics.Enable = v
-	}
+	applyBool(&c.Diagnostics.Enable, inner["diagnostics.enable"])
 	if v, ok := inner["diagnostics.run"].(string); ok {
 		c.Diagnostics.Run = v
 	}
-	if v, ok := inner["diagnostics.workspaceScanOnStart"].(bool); ok {
-		c.Diagnostics.WorkspaceScanOnStart = v
+	applyBool(&c.Diagnostics.WorkspaceScanOnStart, inner["diagnostics.workspaceScanOnStart"])
+	applyFlattenedAnalysisToggles(&c.Diagnostics.Analysis, inner)
+	if completion, ok := inner["completion"].(map[string]interface{}); ok {
+		applyBool(&c.Completion.InsertUseDeclaration, completion["insertUseDeclaration"])
+		applyBool(&c.Completion.FullyQualifyGlobalSymbols, completion["fullyQualifyGlobalSymbols"])
+		applyBool(&c.Completion.TriggerParameterHints, completion["triggerParameterHints"])
+		if maxItems, ok := toInt64(completion["maxItems"]); ok {
+			c.Completion.MaxItems = int(maxItems)
+		}
 	}
-	if v, ok := inner["diagnostics.undefinedSymbols"].(bool); ok {
-		c.Diagnostics.UndefinedSymbols = v
+	applyBool(&c.Completion.InsertUseDeclaration, inner["completion.insertUseDeclaration"])
+	applyBool(&c.Completion.FullyQualifyGlobalSymbols, inner["completion.fullyQualifyGlobalSymbols"])
+	applyBool(&c.Completion.TriggerParameterHints, inner["completion.triggerParameterHints"])
+	if maxItems, ok := toInt64(inner["completion.maxItems"]); ok {
+		c.Completion.MaxItems = int(maxItems)
 	}
-	if v, ok := inner["diagnostics.undefinedVariables"].(bool); ok {
-		c.Diagnostics.UndefinedVariables = v
+	if format, ok := inner["format"].(map[string]interface{}); ok {
+		if v, ok := format["braceStyle"].(string); ok {
+			c.Format.BraceStyle = v
+		}
+		applyBool(&c.Format.InsertSpaces, format["insertSpaces"])
+		if tabSize, ok := toInt64(format["tabSize"]); ok {
+			c.Format.TabSize = int(tabSize)
+		}
 	}
-	if v, ok := inner["diagnostics.typeErrors"].(bool); ok {
-		c.Diagnostics.TypeErrors = v
+	if v, ok := inner["format.braceStyle"].(string); ok {
+		c.Format.BraceStyle = v
 	}
+	applyBool(&c.Format.InsertSpaces, inner["format.insertSpaces"])
+	if tabSize, ok := toInt64(inner["format.tabSize"]); ok {
+		c.Format.TabSize = int(tabSize)
+	}
+	applyNestedEnable(&c.CodeLens.References, inner, "codeLens", "references")
+	applyNestedEnable(&c.CodeLens.Implementations, inner, "codeLens", "implementations")
+	applyNestedEnable(&c.CodeLens.Overrides, inner, "codeLens", "overrides")
+	applyNestedEnable(&c.CodeLens.Parent, inner, "codeLens", "parent")
+	applyNestedEnable(&c.CodeLens.Usages, inner, "codeLens", "usages")
+	applyNestedEnable(&c.InlayHints.ParameterNames, inner, "inlayHints", "parameterNames")
+	applyNestedEnable(&c.InlayHints.ParameterTypes, inner, "inlayHints", "parameterTypes")
+	applyNestedEnable(&c.InlayHints.ReturnTypes, inner, "inlayHints", "returnTypes")
+	if compatibility, ok := inner["compatibility"].(map[string]interface{}); ok {
+		applyBool(&c.Compatibility.PreferPsalmPhpstanPrefixedAnnotations, compatibility["preferPsalmPhpstanPrefixedAnnotations"])
+	}
+	applyBool(&c.Compatibility.PreferPsalmPhpstanPrefixedAnnotations, inner["compatibility.preferPsalmPhpstanPrefixedAnnotations"])
 }
 
 func applyEnvironmentConfig(dst *struct {
@@ -308,25 +322,23 @@ func (c *Config) toProviderConfig(folders []indexer.WorkspaceFolder) providers.C
 	}
 
 	return providers.Config{
-		PHPVersion:                c.Environment.EffectivePHPVersion,
-		InsertUseDeclaration:      c.Completion.InsertUseDeclaration,
-		MaxCompletionItems:        c.Completion.MaxItems,
-		DocumentRoot:              c.Environment.DocumentRoot,
-		BraceStyle:                c.Format.BraceStyle,
-		InsertSpaces:              c.Format.InsertSpaces,
-		TabSize:                   c.Format.TabSize,
-		CodeLensReferences:        c.CodeLens.References,
-		CodeLensImplementations:   c.CodeLens.Implementations,
-		CodeLensOverrides:         c.CodeLens.Overrides,
-		CodeLensParent:            c.CodeLens.Parent,
-		InlayHintsParamNames:      c.InlayHints.ParameterNames,
-		InlayHintsParamTypes:      c.InlayHints.ParameterTypes,
-		InlayHintsReturnTypes:     c.InlayHints.ReturnTypes,
-		DisableUndefinedSymbols:   !c.Diagnostics.UndefinedSymbols,
-		DisableUndefinedVariables: !c.Diagnostics.UndefinedVariables,
-		DisableTypeErrors:         !c.Diagnostics.TypeErrors,
-		DiagnosticsExclusions:     providers.BuildDiagnosticsPathExclusions(c.Diagnostics.Exclude, folders),
-		DiagnosticsOverrides:      matcher,
+		PHPVersion:              c.Environment.EffectivePHPVersion,
+		InsertUseDeclaration:    c.Completion.InsertUseDeclaration,
+		MaxCompletionItems:      c.Completion.MaxItems,
+		DocumentRoot:            c.Environment.DocumentRoot,
+		BraceStyle:              c.Format.BraceStyle,
+		InsertSpaces:            c.Format.InsertSpaces,
+		TabSize:                 c.Format.TabSize,
+		CodeLensReferences:      c.CodeLens.References,
+		CodeLensImplementations: c.CodeLens.Implementations,
+		CodeLensOverrides:       c.CodeLens.Overrides,
+		CodeLensParent:          c.CodeLens.Parent,
+		InlayHintsParamNames:    c.InlayHints.ParameterNames,
+		InlayHintsParamTypes:    c.InlayHints.ParameterTypes,
+		InlayHintsReturnTypes:   c.InlayHints.ReturnTypes,
+		DisabledAnalysis:        c.Diagnostics.Analysis.toProviderDisables(),
+		DiagnosticsExclusions:   providers.BuildDiagnosticsPathExclusions(c.Diagnostics.Exclude, folders),
+		DiagnosticsOverrides:    matcher,
 	}
 }
 

@@ -18,6 +18,9 @@ func TestInitializeAppliesDiagnosticsOverridesToProvider(t *testing.T) {
 		InitializationOptions: map[string]interface{}{
 			"settings": map[string]interface{}{
 				"diagnostics": map[string]interface{}{
+					"analysis": map[string]interface{}{
+						"style": true,
+					},
 					"overrides": map[string]interface{}{
 						"PSR1.Classes.ClassDeclaration.PascalCase": map[string]interface{}{
 							"classes": []interface{}{`/^RG_.*/`},
@@ -67,6 +70,8 @@ func TestInitializeIgnoresGitignoredDiagnosticsByDefault(t *testing.T) {
 	if _, respErr := h.initialize(raw); respErr != nil {
 		t.Fatalf("initialize returned error: %+v", respErr)
 	}
+
+	enableStyleAnalysis(h)
 
 	badText := "<?php\nclass Bad_Class {}\n"
 	ignoredURI := "file://" + filepath.ToSlash(filepath.Join(tmpDir, "ignored.php"))

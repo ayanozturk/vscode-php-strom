@@ -722,25 +722,21 @@ func (h *Handler) notifyWorkspaceDiagnosticsFinished(scan *workspaceDiagnosticsS
 
 func workspaceDiagnosticsFingerprint(cfg *Config) []byte {
 	value := struct {
-		Enable             bool
-		UndefinedSymbols   bool
-		UndefinedVariables bool
-		TypeErrors         bool
-		Exclude            map[string][]string
-		Overrides          overrides.RuleOverrides
-		PHPVersion         string
-		DocumentRoot       string
-		Stubs              []string
+		Enable       bool
+		Analysis     AnalysisToggles
+		Exclude      map[string][]string
+		Overrides    overrides.RuleOverrides
+		PHPVersion   string
+		DocumentRoot string
+		Stubs        []string
 	}{
-		Enable:             cfg.Diagnostics.Enable,
-		UndefinedSymbols:   cfg.Diagnostics.UndefinedSymbols,
-		UndefinedVariables: cfg.Diagnostics.UndefinedVariables,
-		TypeErrors:         cfg.Diagnostics.TypeErrors,
-		Exclude:            cfg.Diagnostics.Exclude,
-		Overrides:          cfg.Diagnostics.Overrides,
-		PHPVersion:         cfg.Environment.EffectivePHPVersion,
-		DocumentRoot:       cfg.Environment.DocumentRoot,
-		Stubs:              cfg.Stubs,
+		Enable:       cfg.Diagnostics.Enable,
+		Analysis:     cfg.Diagnostics.Analysis,
+		Exclude:      cfg.Diagnostics.Exclude,
+		Overrides:    cfg.Diagnostics.Overrides,
+		PHPVersion:   cfg.Environment.EffectivePHPVersion,
+		DocumentRoot: cfg.Environment.DocumentRoot,
+		Stubs:        cfg.Stubs,
 	}
 	encoded, _ := json.Marshal(value)
 	return encoded

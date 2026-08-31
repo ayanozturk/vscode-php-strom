@@ -729,51 +729,62 @@ func (p *DiagnosticsProvider) analyseParsed(cacheKey, filename, text string, nod
 		})
 	}
 
-	// Run style rules (PSR-1/PSR-12 etc.) — "all" runs every registered rule.
-	for _, issue := range style.FilterIssues(style.RunSelectedRules(filename, []byte(text), nodes, []string{"all"}), p.cfg.DiagnosticsOverrides) {
-		sev := lsp.DiagSeverityWarning
-		if issue.Type == style.Error {
-			sev = lsp.DiagSeverityError
+	if !p.cfg.DisabledAnalysis.Style {
+		for _, issue := range style.FilterIssues(style.RunSelectedRules(filename, []byte(text), nodes, []string{"all"}), p.cfg.DiagnosticsOverrides) {
+			sev := lsp.DiagSeverityWarning
+			if issue.Type == style.Error {
+				sev = lsp.DiagSeverityError
+			}
+			diags = append(diags, lsp.Diagnostic{
+				Range:    lineColToRange(issue.Line, issue.Column),
+				Severity: &sev,
+				Code:     issue.Code,
+				Source:   "phpstrom",
+				Message:  issue.Message,
+			})
 		}
-		diags = append(diags, lsp.Diagnostic{
-			Range:    lineColToRange(issue.Line, issue.Column),
-			Severity: &sev,
-			Code:     issue.Code,
-			Source:   "phpstrom",
-			Message:  issue.Message,
-		})
 	}
 
-	// Surface parse errors from go-phpcs as error diagnostics.
-	for _, errMsg := range parseErrors {
-		sev := lsp.DiagSeverityError
-		diags = append(diags, lsp.Diagnostic{
-			Range:    parseErrorRange(positions, errMsg),
-			Severity: &sev,
-			Code:     parserDiagnosticCode,
-			Source:   "phpstrom",
-			Message:  errMsg,
-		})
+	if !p.cfg.DisabledAnalysis.SyntaxErrors {
+		for _, errMsg := range parseErrors {
+			sev := lsp.DiagSeverityError
+			diags = append(diags, lsp.Diagnostic{
+				Range:    parseErrorRange(positions, errMsg),
+				Severity: &sev,
+				Code:     parserDiagnosticCode,
+				Source:   "phpstrom",
+				Message:  errMsg,
+			})
+		}
 	}
 
 	return suppressions.filter(diags)
 }
 
 func (c Config) disabledAnalysisIssueCodes() map[string]bool {
+	d := c.DisabledAnalysis
 	disabled := make(map[string]bool)
-	if c.DisableUndefinedSymbols {
-		disabled["PHPStan.Level0.Symbols"] = true
-		disabled["PHPStan.Level2.MethodExistence"] = true
-	}
-	if c.DisableUndefinedVariables {
-		disabled["PHPStan.Level0.Variables"] = true
-		disabled["PHPStan.Level1.Variables"] = true
-	}
-	if c.DisableTypeErrors {
-		for _, code := range []string{"A.RETURN.TYPE", "A.PROP.TYPE", "A.ARG.TYPE", "A.ARG.COUNT"} {
+	add := func(off bool, codes ...string) {
+		if !off {
+			return
+		}
+		for _, code := range codes {
 			disabled[code] = true
 		}
 	}
+	add(d.UndefinedSymbols, "PHPStan.Level0.Symbols", "PHPStan.Level2.MethodExistence")
+	add(d.UndefinedVariables, "PHPStan.Level0.Variables", "PHPStan.Level1.Variables")
+	add(d.ClassModel, "PHPStan.Level0.ClassModel")
+	add(d.InvalidCalls, "PHPStan.Level0.Invocation")
+	add(d.Language, "PHPStan.Level0.Language")
+	add(d.TypeErrors, "A.RETURN.TYPE", "A.PROP.TYPE", "A.ARG.TYPE", "A.ARG.COUNT")
+	add(d.MethodVisibility, "PHPStan.Level2.MethodVisibility")
+	add(d.ThrowTypes, "PHPStan.Level3.ThrowType")
+	add(d.Deprecated, "A.DEPRECATED.CALL")
+	add(d.UnreachableCode, "Generic.CodeAnalysis.UnreachableCode")
+	add(d.EmptyStatements, "Generic.CodeAnalysis.EmptyStatement")
+	add(d.AssignmentInCondition, "Generic.CodeAnalysis.AssignmentInCondition")
+	add(d.SideEffects, "PSR1.Files.SideEffects")
 	if len(disabled) == 0 {
 		return nil
 	}

@@ -8,25 +8,43 @@ import (
 
 // Config is the subset of server configuration needed by providers.
 type Config struct {
-	PHPVersion                string
-	InsertUseDeclaration      bool
-	MaxCompletionItems        int
-	DocumentRoot              string
-	BraceStyle                string
-	InsertSpaces              bool
-	TabSize                   int
-	CodeLensReferences        bool
-	CodeLensImplementations   bool
-	CodeLensOverrides         bool
-	CodeLensParent            bool
-	InlayHintsParamNames      bool
-	InlayHintsParamTypes      bool
-	InlayHintsReturnTypes     bool
-	DisableUndefinedSymbols   bool
-	DisableUndefinedVariables bool
-	DisableTypeErrors         bool
-	DiagnosticsExclusions     DiagnosticsPathExclusions
-	DiagnosticsOverrides      *overrides.Compiled
+	PHPVersion              string
+	InsertUseDeclaration    bool
+	MaxCompletionItems      int
+	DocumentRoot            string
+	BraceStyle              string
+	InsertSpaces            bool
+	TabSize                 int
+	CodeLensReferences      bool
+	CodeLensImplementations bool
+	CodeLensOverrides       bool
+	CodeLensParent          bool
+	InlayHintsParamNames    bool
+	InlayHintsParamTypes    bool
+	InlayHintsReturnTypes   bool
+	DisabledAnalysis        DisabledAnalysis
+	DiagnosticsExclusions   DiagnosticsPathExclusions
+	DiagnosticsOverrides    *overrides.Compiled
+}
+
+// DisabledAnalysis turns off individual diagnostic families. Zero value means
+// every family is enabled, matching provider tests that construct Config{}.
+type DisabledAnalysis struct {
+	SyntaxErrors          bool
+	UndefinedSymbols      bool
+	UndefinedVariables    bool
+	ClassModel            bool
+	InvalidCalls          bool
+	Language              bool
+	TypeErrors            bool
+	MethodVisibility      bool
+	ThrowTypes            bool
+	Deprecated            bool
+	UnreachableCode       bool
+	EmptyStatements       bool
+	AssignmentInCondition bool
+	SideEffects           bool
+	Style                 bool
 }
 
 // Registry holds all LSP feature providers and is the single point of access

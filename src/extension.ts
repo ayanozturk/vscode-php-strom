@@ -439,6 +439,9 @@ function getConfiguration(): Record<string, unknown> {
     config.get<string[]>('files.exclude', []),
     enabledWorkspaceExcludePatterns(),
   );
+  const undefinedSymbols = booleanSettingWithLegacy(config, 'diagnostics.analysis.undefinedSymbols', 'diagnostics.undefinedSymbols', true);
+  const undefinedVariables = booleanSettingWithLegacy(config, 'diagnostics.analysis.undefinedVariables', 'diagnostics.undefinedVariables', true);
+  const typeErrors = booleanSettingWithLegacy(config, 'diagnostics.analysis.typeErrors', 'diagnostics.typeErrors', true);
 
   return {
     enable: config.get<boolean>('enable', true),
@@ -458,13 +461,26 @@ function getConfiguration(): Record<string, unknown> {
       enable: config.get<boolean>('diagnostics.enable', true),
       run: config.get<string>('diagnostics.run', 'onType'),
       workspaceScanOnStart: config.get<boolean>('diagnostics.workspaceScanOnStart', false),
-      undefinedSymbols: config.get<boolean>('diagnostics.undefinedSymbols', true),
-      undefinedVariables: config.get<boolean>('diagnostics.undefinedVariables', true),
-      typeErrors: config.get<boolean>('diagnostics.typeErrors', true),
-      strictTypes: config.get<boolean>('diagnostics.strictTypes', false),
-      relaxedTypeCheck: config.get<boolean>('diagnostics.relaxedTypeCheck', true),
-      noMixedTypeCheck: config.get<boolean>('diagnostics.noMixedTypeCheck', true),
-      typeCheckDocumentedTypes: config.get<boolean>('diagnostics.typeCheckDocumentedTypes', false),
+      undefinedSymbols,
+      undefinedVariables,
+      typeErrors,
+      analysis: {
+        syntaxErrors: config.get<boolean>('diagnostics.analysis.syntaxErrors', true),
+        undefinedSymbols,
+        undefinedVariables,
+        classModel: config.get<boolean>('diagnostics.analysis.classModel', true),
+        invalidCalls: config.get<boolean>('diagnostics.analysis.invalidCalls', true),
+        language: config.get<boolean>('diagnostics.analysis.language', true),
+        typeErrors,
+        methodVisibility: config.get<boolean>('diagnostics.analysis.methodVisibility', true),
+        throwTypes: config.get<boolean>('diagnostics.analysis.throwTypes', true),
+        deprecated: config.get<boolean>('diagnostics.analysis.deprecated', true),
+        unreachableCode: config.get<boolean>('diagnostics.analysis.unreachableCode', true),
+        emptyStatements: config.get<boolean>('diagnostics.analysis.emptyStatements', true),
+        assignmentInCondition: config.get<boolean>('diagnostics.analysis.assignmentInCondition', true),
+        sideEffects: config.get<boolean>('diagnostics.analysis.sideEffects', false),
+        style: config.get<boolean>('diagnostics.analysis.style', false),
+      },
       exclude: config.get<Record<string, string[]>>('diagnostics.exclude', {}),
       overrides: config.get<Record<string, unknown>>('diagnostics.overrides', {}),
     },
@@ -506,10 +522,10 @@ function getConfiguration(): Record<string, unknown> {
         enable: config.get<boolean>('inlayHints.parameterNames.enable', true),
       },
       parameterTypes: {
-        enable: config.get<boolean>('inlayHints.parameterTypes.enable', true),
+        enable: config.get<boolean>('inlayHints.parameterTypes.enable', false),
       },
       returnTypes: {
-        enable: config.get<boolean>('inlayHints.returnTypes.enable', true),
+        enable: config.get<boolean>('inlayHints.returnTypes.enable', false),
       },
     },
     compatibility: {
@@ -518,13 +534,44 @@ function getConfiguration(): Record<string, unknown> {
         false,
       ),
     },
-    telemetry: {
-      enable: config.get<boolean>('telemetry.enable', false),
-    },
     trace: {
       server: config.get<string>('trace.server', 'off'),
     },
   };
+}
+
+function booleanSettingWithLegacy(
+  config: vscode.WorkspaceConfiguration,
+  key: string,
+  legacyKey: string,
+  fallback: boolean,
+): boolean {
+  const current = inspectBoolean(config, key);
+  if (current !== undefined) {
+    return current;
+  }
+  const legacy = inspectBoolean(config, legacyKey);
+  if (legacy !== undefined) {
+    return legacy;
+  }
+  return fallback;
+}
+
+function inspectBoolean(config: vscode.WorkspaceConfiguration, key: string): boolean | undefined {
+  const inspected = config.inspect<boolean>(key);
+  if (!inspected) {
+    return undefined;
+  }
+  if (inspected.workspaceFolderValue !== undefined) {
+    return inspected.workspaceFolderValue;
+  }
+  if (inspected.workspaceValue !== undefined) {
+    return inspected.workspaceValue;
+  }
+  if (inspected.globalValue !== undefined) {
+    return inspected.globalValue;
+  }
+  return undefined;
 }
 
 function enabledWorkspaceExcludePatterns(): string[] {
