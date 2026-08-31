@@ -308,6 +308,55 @@ function knownTemplateReceiver(string $class): void {
 	}
 }
 
+func TestDiagnosticsProvider_ReportsNestedShapeAndExpressionReceivers(t *testing.T) {
+	source := `<?php
+class NestedShapeService {}
+class KnownNestedShapeService { public function execute(): void {} }
+class ListCallableService {}
+class CloneService {}
+class CoalesceService {}
+class MatchLeft {}
+class MatchRight {}
+class NullsafeService {}
+
+/**
+ * @param array{inner: array{service: callable(): NestedShapeService, known: callable(): KnownNestedShapeService}} $nested
+ * @param list{callable(): ListCallableService} $list
+ */
+function run(array $nested, array $list, CloneService $clone, ?CoalesceService $coalesce, bool $flag, ?NullsafeService $nullsafe): void {
+    $nested["inner"]["service"]()->missing();
+    $nested["inner"]["known"]()->execute();
+    $list[0]()->missing();
+    (clone $clone)->missing();
+    ($coalesce ?? new CoalesceService())->missing();
+    (match ($flag) { true => new MatchLeft(), false => new MatchRight() })->missing();
+    $nullsafe?->missing();
+}
+`
+	diagnostics := (&DiagnosticsProvider{}).Analyse("file:///nested-receivers.php", source)
+	if countDiagnosticCode(diagnostics, "PHPStan.Level0.Symbols") != 0 {
+		t.Fatalf("expected known receiver classes to avoid level-zero symbol diagnostics, got %#v", diagnostics)
+	}
+	if countDiagnosticCode(diagnostics, "PHPStan.Level2.MethodExistence") != 6 {
+		t.Fatalf("expected six unknown-method diagnostics, got %#v", diagnostics)
+	}
+	for _, expected := range []string{
+		"NestedShapeService::missing()",
+		"ListCallableService::missing()",
+		"CloneService::missing()",
+		"CoalesceService::missing()",
+		"MatchLeft|MatchRight::missing()",
+		"NullsafeService::missing()",
+	} {
+		if countDiagnosticMessage(diagnostics, "PHPStan.Level2.MethodExistence", expected) != 1 {
+			t.Fatalf("expected one diagnostic containing %q, got %#v", expected, diagnostics)
+		}
+	}
+	if countDiagnosticMessage(diagnostics, "PHPStan.Level2.MethodExistence", "KnownNestedShapeService::execute()") != 0 {
+		t.Fatalf("expected known nested shape method to remain clean, got %#v", diagnostics)
+	}
+}
+
 func TestDiagnosticsProvider_ReportsDNFAndNullableUnknownMethods(t *testing.T) {
 	source := `<?php
 interface DnfMissingLeft {}
