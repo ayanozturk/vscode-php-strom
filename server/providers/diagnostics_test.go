@@ -105,6 +105,7 @@ func TestDiagnosticsProvider_DisablesConfiguredAnalysisCodes(t *testing.T) {
 		"A.ARG.TYPE",
 		"A.ARG.COUNT",
 		"PHPStan.Level2.MethodNonObject",
+		"PHPStan.Level8.MethodNonObject",
 		"PHPStan.Level0.ClassModel",
 		"PHPStan.Level0.Invocation",
 		"PHPStan.Level0.Language",
@@ -709,6 +710,9 @@ function run(
 	}
 	if countDiagnosticMessage(diagnostics, "PHPStan.Level7.MethodUnion", "(DnfAvailableTag&HasAvailableMethod)|DnfMissingRight::available()") != 1 {
 		t.Fatalf("expected one partial-DNF level-seven diagnostic, got %#v", diagnostics)
+	}
+	if countDiagnosticMessage(diagnostics, "PHPStan.Level8.MethodNonObject", "available() on NullableKnown|null.") != 1 {
+		t.Fatalf("expected one known nullable level-eight diagnostic, got %#v", diagnostics)
 	}
 }
 
