@@ -228,6 +228,86 @@ function knownDynamicReceiver(string $class): void {
 	}
 }
 
+func TestDiagnosticsProvider_ReportsDeclaredCallableAndArrayShapeMethods(t *testing.T) {
+	source := `<?php
+class PropertyCallableService {}
+class KnownPropertyCallableService { public function execute(): void {} }
+class MethodCallableService {}
+class KnownMethodCallableService { public function execute(): void {} }
+class ShapeCallableService {}
+class KnownShapeCallableService { public function execute(): void {} }
+class TemplateService {}
+class KnownTemplateService { public function execute(): void {} }
+
+class Holder {
+    /** @var callable(): PropertyCallableService */
+    public $factory;
+    /** @var callable(): KnownPropertyCallableService */
+    public $knownFactory;
+    /** @return callable(): MethodCallableService */
+    public function make(): callable { return static fn (): MethodCallableService => new MethodCallableService(); }
+    /** @return callable(): KnownMethodCallableService */
+    public function knownMake(): callable { return static fn (): KnownMethodCallableService => new KnownMethodCallableService(); }
+}
+
+/** @param array{service: callable(): ShapeCallableService, known: callable(): KnownShapeCallableService} $factories */
+function shapeReceiver(array $factories): void {
+    $factory = $factories["service"];
+    $factory()->missing();
+    $factories["known"]()->execute();
+}
+
+/**
+ * @template T of TemplateService
+ * @param class-string<T> $class
+ */
+function templateReceiver(Holder $holder, string $class): void {
+    ($holder->factory)()->missing();
+    $holder->make()()->missing();
+    ($holder->knownFactory)()->execute();
+    $holder->knownMake()()->execute();
+    $value = new $class();
+    $value->missing();
+}
+
+/**
+ * @template T of KnownTemplateService
+ * @param class-string<T> $class
+ */
+function knownTemplateReceiver(string $class): void {
+    $value = new $class();
+    $value->execute();
+}
+`
+	diagnostics := (&DiagnosticsProvider{}).Analyse("file:///declared-callables.php", source)
+	if countDiagnosticCode(diagnostics, "PHPStan.Level0.Symbols") != 0 {
+		t.Fatalf("expected known receiver classes to avoid level-zero symbol diagnostics, got %#v", diagnostics)
+	}
+	if countDiagnosticCode(diagnostics, "PHPStan.Level2.MethodExistence") != 4 {
+		t.Fatalf("expected four unknown-method diagnostics, got %#v", diagnostics)
+	}
+	for _, expected := range []string{
+		"PropertyCallableService::missing()",
+		"MethodCallableService::missing()",
+		"ShapeCallableService::missing()",
+		"TemplateService::missing()",
+	} {
+		if countDiagnosticMessage(diagnostics, "PHPStan.Level2.MethodExistence", expected) != 1 {
+			t.Fatalf("expected one diagnostic containing %q, got %#v", expected, diagnostics)
+		}
+	}
+	for _, unexpected := range []string{
+		"KnownPropertyCallableService::execute()",
+		"KnownMethodCallableService::execute()",
+		"KnownShapeCallableService::execute()",
+		"KnownTemplateService::execute()",
+	} {
+		if countDiagnosticMessage(diagnostics, "PHPStan.Level2.MethodExistence", unexpected) != 0 {
+			t.Fatalf("expected known method %q to remain clean, got %#v", unexpected, diagnostics)
+		}
+	}
+}
+
 func TestDiagnosticsProvider_ReportsDNFAndNullableUnknownMethods(t *testing.T) {
 	source := `<?php
 interface DnfMissingLeft {}
