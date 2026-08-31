@@ -2,6 +2,8 @@
 
 > A fully open-source, MIT-licensed, high-performance PHP Strom for VS Code and any LSP-capable editor.  
 > All features listed here are **free**. There is no premium tier.
+>
+> **Architecture status (2026-08-31):** production uses a Go language server in `server/` backed by [`go-php-parser`](https://github.com/ayanozturk/go-php-parser). The TypeScript `src/server` / tree-sitter diagram below is obsolete and must not be read as the shipped design. A full rewrite of this specification is a ranked maintenance item; analyser coverage work is documented in the parser's [full-static-analyser-target](https://github.com/ayanozturk/go-php-parser/blob/main/docs/full-static-analyser-target.md).
 
 ---
 
@@ -75,6 +77,23 @@
 
 ## 1. Architecture Overview
 
+Production (current):
+
+```
+VS Code / LSP client
+  └── src/extension.ts          (vscode-languageclient)
+        │
+        │ stdio
+        ▼
+  server/                       (Go language server)
+        ├── indexer/            (workspace discovery, incremental index)
+        ├── providers/          (diagnostics, hover, definition, …)
+        ├── phpstrom/           (LSP handlers, overlays, scheduling)
+        └── go-php-parser       (parse, project index, SemanticSnapshot, rules)
+```
+
+The TypeScript/tree-sitter layout that follows is **not** what ships. It is retained only until this file is rewritten.
+
 ```
 VS Code
   └── src/extension.ts          (LSP client — vscode-languageclient)
@@ -113,16 +132,17 @@ VS Code
               └── typeHierarchyProvider.ts
 ```
 
-**Key technology choices:**
+**Key technology choices (production):**
 
 | Concern | Choice | Rationale |
 |---|---|---|
-| Language | TypeScript | Matches VS Code ecosystem; strong typing |
-| Parser | [tree-sitter-php](https://github.com/tree-sitter/tree-sitter-php) | Fastest incremental parser, error-tolerant, WASM |
-| Stubs | [phpstorm-stubs](https://github.com/JetBrains/phpstorm-stubs) | Most complete built-in PHP symbol definitions |
-| HTML/CSS/JS formatting | [js-beautify](https://github.com/beautify-web/js-beautify) | Handles embedded languages in `.php` files |
-| File glob | [fast-glob](https://github.com/mrmlnc/fast-glob) | Sub-millisecond workspace file discovery |
-| Transport | IPC (dev), stdio (prod) | IPC avoids encoding overhead during development |
+| Language server | Go (`server/`) | Same engine as the standalone `analyze` CLI |
+| Parser / analyser | [go-php-parser](https://github.com/ayanozturk/go-php-parser) | PHP 8.x parse, project index, PHPStan-gated analysis |
+| Client | TypeScript (`src/extension.ts`) | VS Code Language Client only |
+| Stubs | Bundled PHP version stubs under `stubs/` | Built-in symbols without a live phpstorm-stubs clone |
+| Transport | stdio | Language client to Go server |
+
+Historical (not production): TypeScript language server, tree-sitter-php, phpstorm-stubs, js-beautify, fast-glob.
 
 ---
 
@@ -617,7 +637,7 @@ Psalm-prefixed (`@psalm-*`) and PHPStan-prefixed (`@phpstan-*`) variants are rec
 
 ### 5.1 Tree-sitter Parser Backend
 
-phpstrom uses [tree-sitter-php](https://github.com/tree-sitter/tree-sitter-php) as its parser backend:
+Not used in production. PHP Strom parses and analyses through `go-php-parser`. A tree-sitter backend is not planned while the Go engine is the analyser target. The bullets below are leftover specification text.
 
 - **Incremental parsing** — only re-parses changed ranges, not the entire file
 - **Error recovery** — continues building a useful AST even with syntax errors
