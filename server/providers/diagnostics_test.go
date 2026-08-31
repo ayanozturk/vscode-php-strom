@@ -573,6 +573,40 @@ enum UnitWithValue {
 	}
 }
 
+func TestDiagnosticsProvider_ReportsLeftoverLevel0EnumAndCasts(t *testing.T) {
+	source := `<?php
+$x = (void) 1;
+$y = (unset) 1;
+enum BadMethods: string {
+    case A = 'a';
+    public function __construct() {}
+}
+`
+	diagnostics := (&DiagnosticsProvider{}).Analyse("file:///level0-enum-casts.php", source)
+	if countDiagnosticCode(diagnostics, "PHPStan.Level0.Language") != 2 {
+		t.Fatalf("expected two invalid-cast diagnostics, got %#v", diagnostics)
+	}
+	if countDiagnosticCode(diagnostics, "PHPStan.Level0.ClassModel") != 1 {
+		t.Fatalf("expected one enum constructor diagnostic, got %#v", diagnostics)
+	}
+	for _, expected := range []string{
+		"Cannot cast to void.",
+		"Cannot cast to unset.",
+		"Enum BadMethods contains constructor.",
+	} {
+		found := false
+		for _, diagnostic := range diagnostics {
+			if strings.Contains(diagnostic.Message, expected) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("expected diagnostic containing %q, got %#v", expected, diagnostics)
+		}
+	}
+}
+
 func TestDiagnosticsProvider_ReportsNonObjectMethodReceivers(t *testing.T) {
 	source := `<?php
 class UnionStringService {}
