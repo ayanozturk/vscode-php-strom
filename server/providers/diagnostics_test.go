@@ -528,6 +528,51 @@ function run(array $global, array $foreign, array $matched, Holder $holder, arra
 	}
 }
 
+func TestDiagnosticsProvider_ReportsExpandedLevel0ClassModel(t *testing.T) {
+	source := `<?php
+class NotAnInterface {}
+class ImplementsClass implements NotAnInterface {}
+interface Contract {}
+class ExtendsInterface extends Contract {}
+class Demo {
+    public function work(): void {}
+}
+Demo::work();
+Demo::missing();
+enum UnitWithValue {
+    case A = 1;
+}
+`
+	diagnostics := (&DiagnosticsProvider{}).Analyse("file:///level0-class-model.php", source)
+	if countDiagnosticCode(diagnostics, "PHPStan.Level0.ClassModel") != 3 {
+		t.Fatalf("expected three class-model diagnostics, got %#v", diagnostics)
+	}
+	if countDiagnosticCode(diagnostics, "PHPStan.Level0.Invocation") != 1 {
+		t.Fatalf("expected one static-call-to-instance diagnostic, got %#v", diagnostics)
+	}
+	if countDiagnosticCode(diagnostics, "PHPStan.Level0.Symbols") != 1 {
+		t.Fatalf("expected one unknown static method diagnostic, got %#v", diagnostics)
+	}
+	for _, expected := range []string{
+		"implements class NotAnInterface",
+		"extends interface Contract",
+		"is not backed, but case A has value 1",
+		"Static call to instance method Demo::work()",
+		"undefined static method Demo::missing()",
+	} {
+		found := false
+		for _, diagnostic := range diagnostics {
+			if strings.Contains(diagnostic.Message, expected) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("expected diagnostic containing %q, got %#v", expected, diagnostics)
+		}
+	}
+}
+
 func TestDiagnosticsProvider_ReportsNonObjectMethodReceivers(t *testing.T) {
 	source := `<?php
 class UnionStringService {}
