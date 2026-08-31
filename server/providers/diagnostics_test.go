@@ -168,6 +168,53 @@ makeService()->missing();
 	}
 }
 
+func TestDiagnosticsProvider_ReportsDNFAndNullableUnknownMethods(t *testing.T) {
+	source := `<?php
+interface DnfMissingLeft {}
+interface DnfMissingTag {}
+class DnfMissingRight {}
+interface HasAvailableMethod { public function available(): void; }
+interface DnfAvailableTag {}
+class NullableMissing {}
+class NullableKnown { public function available(): void {} }
+
+function run(
+    (DnfMissingLeft&DnfMissingTag)|DnfMissingRight $allMissing,
+    (HasAvailableMethod&DnfAvailableTag)|DnfMissingRight $partiallyAvailable,
+    ?NullableMissing $nullableMissing,
+    NullableKnown|null $nullableKnown,
+    bool $flag
+): void {
+    $allMissing->missing();
+    $partiallyAvailable->available();
+    $nullableMissing->missing();
+    $nullableKnown->available();
+    ($flag ? new NullableMissing() : null)->missing();
+}
+`
+	diagnostics := (&DiagnosticsProvider{}).Analyse("file:///dnf-nullable.php", source)
+	if countDiagnosticCode(diagnostics, "PHPStan.Level0.Symbols") != 0 {
+		t.Fatalf("expected defined DNF members to avoid level-zero symbol diagnostics, got %#v", diagnostics)
+	}
+
+	methodDiagnostics := countDiagnosticCode(diagnostics, "PHPStan.Level2.MethodExistence")
+	if methodDiagnostics != 3 {
+		t.Fatalf("expected three DNF/nullable unknown-method diagnostics, got %d: %#v", methodDiagnostics, diagnostics)
+	}
+
+	if countDiagnosticMessage(diagnostics, "PHPStan.Level2.MethodExistence", "(DnfMissingLeft&DnfMissingTag)|DnfMissingRight::missing()") != 1 {
+		t.Fatalf("expected one all-missing DNF diagnostic, got %#v", diagnostics)
+	}
+	if countDiagnosticMessage(diagnostics, "PHPStan.Level2.MethodExistence", "NullableMissing::missing()") != 2 {
+		t.Fatalf("expected nullable parameter and ternary diagnostics, got %#v", diagnostics)
+	}
+	for _, unexpected := range []string{"available()", "NullableKnown::available()"} {
+		if countDiagnosticMessage(diagnostics, "PHPStan.Level2.MethodExistence", unexpected) != 0 {
+			t.Fatalf("expected supported DNF/known nullable method to remain clean for %q, got %#v", unexpected, diagnostics)
+		}
+	}
+}
+
 func TestDiagnosticsProvider_SuppressesDisabledUndefinedVariables(t *testing.T) {
 	source := `<?php
 function run(): void {
@@ -271,6 +318,26 @@ func hasDiagnosticCode(diagnostics []lsp.Diagnostic, code string) bool {
 		}
 	}
 	return false
+}
+
+func countDiagnosticCode(diagnostics []lsp.Diagnostic, code string) int {
+	count := 0
+	for _, diagnostic := range diagnostics {
+		if diagnostic.Code == code {
+			count++
+		}
+	}
+	return count
+}
+
+func countDiagnosticMessage(diagnostics []lsp.Diagnostic, code, message string) int {
+	count := 0
+	for _, diagnostic := range diagnostics {
+		if diagnostic.Code == code && strings.Contains(diagnostic.Message, message) {
+			count++
+		}
+	}
+	return count
 }
 
 func TestDiagnosticsProvider_StyleOverrideSuppressesMatchingClass(t *testing.T) {
