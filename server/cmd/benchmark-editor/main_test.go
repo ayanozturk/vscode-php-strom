@@ -46,3 +46,20 @@ func TestSyntheticEditorScenarioExercisesTraceGates(t *testing.T) {
 		t.Fatalf("expected synthetic editor trace gates to pass, got %v", failures)
 	}
 }
+
+func TestProcessColdEnvPinsGOMAXPROCS(t *testing.T) {
+	t.Setenv("GOMAXPROCS", "99")
+	env := processColdEnv(2)
+	found := false
+	for _, kv := range env {
+		if kv == "GOMAXPROCS=99" {
+			t.Fatal("parent GOMAXPROCS leaked into process-cold worker")
+		}
+		if kv == "GOMAXPROCS=2" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected GOMAXPROCS=2 in process-cold environment, got %v", env)
+	}
+}

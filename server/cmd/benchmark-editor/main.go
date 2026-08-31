@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -42,6 +43,8 @@ type latencyReport struct {
 		ColdRuns    int    `json:"coldRuns"`
 		EditRuns    int    `json:"editRuns"`
 		ColdProcess bool   `json:"coldProcess"`
+		GoMaxProcs  int    `json:"goMaxProcs"`
+		ColdWarmups int    `json:"coldWarmups"`
 	} `json:"environment"`
 	Measurements struct {
 		ColdStart        durationStats `json:"coldStart"`
@@ -103,12 +106,12 @@ func main() {
 	}
 
 	coldSamples := make([]float64, 0, *coldRuns)
+	if err := runProcessCold(root, *timeout); err != nil {
+		fatalf("process-cold warmup: %v", err)
+	}
 	for range *coldRuns {
 		started := time.Now()
-		command := exec.Command(os.Args[0], "--cold-worker", root, "--timeout", timeout.String())
-		command.Stdout = io.Discard
-		command.Stderr = io.Discard
-		if err := command.Run(); err != nil {
+		if err := runProcessCold(root, *timeout); err != nil {
 			fatalf("process-cold start: %v", err)
 		}
 		coldSamples = append(coldSamples, float64(time.Since(started).Microseconds())/1000)
@@ -139,6 +142,8 @@ func main() {
 	report.Environment.ColdRuns = *coldRuns
 	report.Environment.EditRuns = *editRuns
 	report.Environment.ColdProcess = true
+	report.Environment.GoMaxProcs = runtime.GOMAXPROCS(0)
+	report.Environment.ColdWarmups = 1
 	report.Measurements.ColdStart = summarize(coldSamples)
 	report.Measurements.CacheReuseSave = summarize(measurements["cache_reuse"])
 	report.Measurements.BodyEdit = summarize(measurements["body_edit"])
@@ -189,6 +194,29 @@ func writeFixture(root string, additional int) (map[string]string, error) {
 		}
 	}
 	return files, nil
+}
+
+func runProcessCold(root string, timeout time.Duration) error {
+	command := exec.Command(os.Args[0], "--cold-worker", root, "--timeout", timeout.String())
+	command.Stdout = io.Discard
+	command.Stderr = io.Discard
+	command.Env = processColdEnv(runtime.GOMAXPROCS(0))
+	return command.Run()
+}
+
+func processColdEnv(procs int) []string {
+	if procs < 1 {
+		procs = 1
+	}
+	env := os.Environ()
+	out := make([]string, 0, len(env)+1)
+	for _, kv := range env {
+		if strings.HasPrefix(kv, "GOMAXPROCS=") {
+			continue
+		}
+		out = append(out, kv)
+	}
+	return append(out, "GOMAXPROCS="+strconv.Itoa(procs))
 }
 
 func initialiseHandler(root string, timeout time.Duration) (*phpstrom.Handler, error) {
