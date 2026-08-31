@@ -772,7 +772,7 @@ func (c Config) disabledAnalysisIssueCodes() map[string]bool {
 			disabled[code] = true
 		}
 	}
-	add(d.UndefinedSymbols, "PHPStan.Level0.Symbols", "PHPStan.Level2.MethodExistence")
+	add(d.UndefinedSymbols, "PHPStan.Level0.Symbols", "PHPStan.Level2.MethodExistence", "PHPStan.Level7.MethodUnion")
 	add(d.UndefinedVariables, "PHPStan.Level0.Variables", "PHPStan.Level1.Variables")
 	add(d.ClassModel, "PHPStan.Level0.ClassModel")
 	add(d.InvalidCalls, "PHPStan.Level0.Invocation")

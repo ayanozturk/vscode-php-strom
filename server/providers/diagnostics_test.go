@@ -97,6 +97,7 @@ func TestDiagnosticsProvider_DisablesConfiguredAnalysisCodes(t *testing.T) {
 	for _, code := range []string{
 		"PHPStan.Level0.Symbols",
 		"PHPStan.Level2.MethodExistence",
+		"PHPStan.Level7.MethodUnion",
 		"PHPStan.Level0.Variables",
 		"PHPStan.Level1.Variables",
 		"A.RETURN.TYPE",
@@ -151,7 +152,7 @@ function run(Service $service): void {
 	}
 
 	disabled := (&DiagnosticsProvider{cfg: Config{DisabledAnalysis: DisabledAnalysis{UndefinedSymbols: true}}}).Analyse("file:///test.php", source)
-	if hasDiagnosticCode(disabled, "PHPStan.Level2.MethodExistence") {
+	if hasAnyDiagnosticCode(disabled, "PHPStan.Level2.MethodExistence", "PHPStan.Level7.MethodUnion") {
 		t.Fatalf("expected undefined-method diagnostic to be disabled with undefined symbols, got %#v", disabled)
 	}
 }
@@ -204,6 +205,9 @@ makeService()->missing();
 		if !found {
 			t.Fatalf("expected unknown-method diagnostic containing %q, got %#v", expected, methodDiagnostics)
 		}
+	}
+	if countDiagnosticMessage(diagnostics, "PHPStan.Level7.MethodUnion", "HasAvailableMethod|NoAvailableMethod::available()") != 1 {
+		t.Fatalf("expected one partial-union level-seven diagnostic, got %#v", diagnostics)
 	}
 }
 
@@ -702,6 +706,9 @@ function run(
 		if countDiagnosticMessage(diagnostics, "PHPStan.Level2.MethodExistence", unexpected) != 0 {
 			t.Fatalf("expected supported DNF/known nullable method to remain clean for %q, got %#v", unexpected, diagnostics)
 		}
+	}
+	if countDiagnosticMessage(diagnostics, "PHPStan.Level7.MethodUnion", "(DnfAvailableTag&HasAvailableMethod)|DnfMissingRight::available()") != 1 {
+		t.Fatalf("expected one partial-DNF level-seven diagnostic, got %#v", diagnostics)
 	}
 }
 
