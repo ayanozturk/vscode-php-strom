@@ -95,22 +95,21 @@ func TestDiagnosticsProvider_DisablesConfiguredAnalysisCodes(t *testing.T) {
 	}
 	disabled := cfg.disabledAnalysisIssueCodes()
 	for _, code := range []string{
-		"PHPStan.Level0.Symbols",
-		"PHPStan.Level2.MethodExistence",
-		"PHPStan.Level7.MethodUnion",
-		"PHPStan.Level0.Variables",
-		"PHPStan.Level1.Variables",
+		"Level0.Symbols",
+		"Level2.MethodExistence",
+		"Level7.MethodUnion",
+		"Level1.Variables",
 		"A.RETURN.TYPE",
 		"A.PROP.TYPE",
 		"A.ARG.TYPE",
 		"A.ARG.COUNT",
-		"PHPStan.Level2.MethodNonObject",
-		"PHPStan.Level8.MethodNonObject",
-		"PHPStan.Level0.ClassModel",
-		"PHPStan.Level0.Invocation",
-		"PHPStan.Level0.Language",
-		"PHPStan.Level2.MethodVisibility",
-		"PHPStan.Level3.ThrowType",
+		"Level2.MethodNonObject",
+		"Level8.MethodNonObject",
+		"Level0.ClassModel",
+		"Level0.Invocation",
+		"Level0.Language",
+		"Level2.MethodVisibility",
+		"Level3.ThrowType",
 		"A.DEPRECATED.CALL",
 		"Generic.CodeAnalysis.UnreachableCode",
 		"Generic.CodeAnalysis.EmptyStatement",
@@ -148,12 +147,12 @@ function run(Service $service): void {
 }
 `
 	enabled := (&DiagnosticsProvider{}).Analyse("file:///test.php", source)
-	if !hasDiagnosticCode(enabled, "PHPStan.Level2.MethodExistence") {
+	if !hasDiagnosticCode(enabled, "Level2.MethodExistence") {
 		t.Fatalf("expected undefined-method diagnostic before disabling undefined symbols, got %#v", enabled)
 	}
 
 	disabled := (&DiagnosticsProvider{cfg: Config{DisabledAnalysis: DisabledAnalysis{UndefinedSymbols: true}}}).Analyse("file:///test.php", source)
-	if hasAnyDiagnosticCode(disabled, "PHPStan.Level2.MethodExistence", "PHPStan.Level7.MethodUnion") {
+	if hasAnyDiagnosticCode(disabled, "Level2.MethodExistence", "Level7.MethodUnion") {
 		t.Fatalf("expected undefined-method diagnostic to be disabled with undefined symbols, got %#v", disabled)
 	}
 }
@@ -183,7 +182,7 @@ makeService()->missing();
 
 	var methodDiagnostics []lsp.Diagnostic
 	for _, diagnostic := range diagnostics {
-		if diagnostic.Code == "PHPStan.Level2.MethodExistence" {
+		if diagnostic.Code == "Level2.MethodExistence" {
 			methodDiagnostics = append(methodDiagnostics, diagnostic)
 		}
 	}
@@ -207,7 +206,7 @@ makeService()->missing();
 			t.Fatalf("expected unknown-method diagnostic containing %q, got %#v", expected, methodDiagnostics)
 		}
 	}
-	if countDiagnosticMessage(diagnostics, "PHPStan.Level7.MethodUnion", "HasAvailableMethod|NoAvailableMethod::available()") != 1 {
+	if countDiagnosticMessage(diagnostics, "Level7.MethodUnion", "HasAvailableMethod|NoAvailableMethod::available()") != 1 {
 		t.Fatalf("expected one partial-union level-seven diagnostic, got %#v", diagnostics)
 	}
 }
@@ -246,10 +245,10 @@ function knownDynamicReceiver(string $class): void {
 }
 `
 	diagnostics := (&DiagnosticsProvider{}).Analyse("file:///callable-receivers.php", source)
-	if countDiagnosticCode(diagnostics, "PHPStan.Level0.Symbols") != 0 {
+	if countDiagnosticCode(diagnostics, "Level0.Symbols") != 0 {
 		t.Fatalf("expected known receiver classes to avoid level-zero symbol diagnostics, got %#v", diagnostics)
 	}
-	if countDiagnosticCode(diagnostics, "PHPStan.Level2.MethodExistence") != 3 {
+	if countDiagnosticCode(diagnostics, "Level2.MethodExistence") != 3 {
 		t.Fatalf("expected three unknown-method diagnostics, got %#v", diagnostics)
 	}
 	for _, expected := range []string{
@@ -257,7 +256,7 @@ function knownDynamicReceiver(string $class): void {
 		"ClosureService::missing()",
 		"DynamicService::missing()",
 	} {
-		if countDiagnosticMessage(diagnostics, "PHPStan.Level2.MethodExistence", expected) != 1 {
+		if countDiagnosticMessage(diagnostics, "Level2.MethodExistence", expected) != 1 {
 			t.Fatalf("expected one diagnostic containing %q, got %#v", expected, diagnostics)
 		}
 	}
@@ -266,7 +265,7 @@ function knownDynamicReceiver(string $class): void {
 		"KnownClosureService::execute()",
 		"KnownDynamicService::execute()",
 	} {
-		if countDiagnosticMessage(diagnostics, "PHPStan.Level2.MethodExistence", unexpected) != 0 {
+		if countDiagnosticMessage(diagnostics, "Level2.MethodExistence", unexpected) != 0 {
 			t.Fatalf("expected known method %q to remain clean, got %#v", unexpected, diagnostics)
 		}
 	}
@@ -324,10 +323,10 @@ function knownTemplateReceiver(string $class): void {
 }
 `
 	diagnostics := (&DiagnosticsProvider{}).Analyse("file:///declared-callables.php", source)
-	if countDiagnosticCode(diagnostics, "PHPStan.Level0.Symbols") != 0 {
+	if countDiagnosticCode(diagnostics, "Level0.Symbols") != 0 {
 		t.Fatalf("expected known receiver classes to avoid level-zero symbol diagnostics, got %#v", diagnostics)
 	}
-	if countDiagnosticCode(diagnostics, "PHPStan.Level2.MethodExistence") != 4 {
+	if countDiagnosticCode(diagnostics, "Level2.MethodExistence") != 4 {
 		t.Fatalf("expected four unknown-method diagnostics, got %#v", diagnostics)
 	}
 	for _, expected := range []string{
@@ -336,7 +335,7 @@ function knownTemplateReceiver(string $class): void {
 		"ShapeCallableService::missing()",
 		"TemplateService::missing()",
 	} {
-		if countDiagnosticMessage(diagnostics, "PHPStan.Level2.MethodExistence", expected) != 1 {
+		if countDiagnosticMessage(diagnostics, "Level2.MethodExistence", expected) != 1 {
 			t.Fatalf("expected one diagnostic containing %q, got %#v", expected, diagnostics)
 		}
 	}
@@ -346,7 +345,7 @@ function knownTemplateReceiver(string $class): void {
 		"KnownShapeCallableService::execute()",
 		"KnownTemplateService::execute()",
 	} {
-		if countDiagnosticMessage(diagnostics, "PHPStan.Level2.MethodExistence", unexpected) != 0 {
+		if countDiagnosticMessage(diagnostics, "Level2.MethodExistence", unexpected) != 0 {
 			t.Fatalf("expected known method %q to remain clean, got %#v", unexpected, diagnostics)
 		}
 	}
@@ -378,10 +377,10 @@ function run(array $nested, array $list, CloneService $clone, ?CoalesceService $
 }
 `
 	diagnostics := (&DiagnosticsProvider{}).Analyse("file:///nested-receivers.php", source)
-	if countDiagnosticCode(diagnostics, "PHPStan.Level0.Symbols") != 0 {
+	if countDiagnosticCode(diagnostics, "Level0.Symbols") != 0 {
 		t.Fatalf("expected known receiver classes to avoid level-zero symbol diagnostics, got %#v", diagnostics)
 	}
-	if countDiagnosticCode(diagnostics, "PHPStan.Level2.MethodExistence") != 6 {
+	if countDiagnosticCode(diagnostics, "Level2.MethodExistence") != 6 {
 		t.Fatalf("expected six unknown-method diagnostics, got %#v", diagnostics)
 	}
 	for _, expected := range []string{
@@ -392,11 +391,11 @@ function run(array $nested, array $list, CloneService $clone, ?CoalesceService $
 		"MatchLeft|MatchRight::missing()",
 		"NullsafeService::missing()",
 	} {
-		if countDiagnosticMessage(diagnostics, "PHPStan.Level2.MethodExistence", expected) != 1 {
+		if countDiagnosticMessage(diagnostics, "Level2.MethodExistence", expected) != 1 {
 			t.Fatalf("expected one diagnostic containing %q, got %#v", expected, diagnostics)
 		}
 	}
-	if countDiagnosticMessage(diagnostics, "PHPStan.Level2.MethodExistence", "KnownNestedShapeService::execute()") != 0 {
+	if countDiagnosticMessage(diagnostics, "Level2.MethodExistence", "KnownNestedShapeService::execute()") != 0 {
 		t.Fatalf("expected known nested shape method to remain clean, got %#v", diagnostics)
 	}
 }
@@ -433,15 +432,15 @@ function run(array $factories, array $list, string $name, int $i): void {
 }
 `
 	diagnostics := (&DiagnosticsProvider{}).Analyse("file:///dynamic-indexes.php", source)
-	if countDiagnosticCode(diagnostics, "PHPStan.Level0.Symbols") != 0 {
+	if countDiagnosticCode(diagnostics, "Level0.Symbols") != 0 {
 		t.Fatalf("expected known receiver classes to avoid level-zero symbol diagnostics, got %#v", diagnostics)
 	}
-	if countDiagnosticCode(diagnostics, "PHPStan.Level2.MethodExistence") != 4 {
+	if countDiagnosticCode(diagnostics, "Level2.MethodExistence") != 4 {
 		t.Fatalf("expected four unknown-method diagnostics, got %#v", diagnostics)
 	}
 	got := map[string]int{}
 	for _, diagnostic := range diagnostics {
-		if diagnostic.Code == "PHPStan.Level2.MethodExistence" {
+		if diagnostic.Code == "Level2.MethodExistence" {
 			got[diagnostic.Message]++
 		}
 	}
@@ -454,7 +453,7 @@ function run(array $factories, array $list, string $name, int $i): void {
 	if got["Call to an undefined method IntListLeft|IntListRight::missing()."] != 1 {
 		t.Fatalf("expected unknown int list-index diagnostic, got %#v", diagnostics)
 	}
-	if countDiagnosticMessage(diagnostics, "PHPStan.Level2.MethodExistence", "KnownAssignedIndexService::execute()") != 0 {
+	if countDiagnosticMessage(diagnostics, "Level2.MethodExistence", "KnownAssignedIndexService::execute()") != 0 {
 		t.Fatalf("expected known assigned and string-index methods to remain clean, got %#v", diagnostics)
 	}
 }
@@ -505,10 +504,10 @@ function run(array $global, array $foreign, array $matched, Holder $holder, arra
 }
 `
 	diagnostics := (&DiagnosticsProvider{}).Analyse("file:///expression-receivers.php", source)
-	if countDiagnosticCode(diagnostics, "PHPStan.Level0.Symbols") != 0 {
+	if countDiagnosticCode(diagnostics, "Level0.Symbols") != 0 {
 		t.Fatalf("expected known receiver classes to avoid level-zero symbol diagnostics, got %#v", diagnostics)
 	}
-	if countDiagnosticCode(diagnostics, "PHPStan.Level2.MethodExistence") != 6 {
+	if countDiagnosticCode(diagnostics, "Level2.MethodExistence") != 6 {
 		t.Fatalf("expected six unknown-method diagnostics, got %#v", diagnostics)
 	}
 	for _, expected := range []string{
@@ -519,7 +518,7 @@ function run(array $global, array $foreign, array $matched, Holder $holder, arra
 		"ReturnedShapeService::missing()",
 		"ListObjectService::missing()",
 	} {
-		if countDiagnosticMessage(diagnostics, "PHPStan.Level2.MethodExistence", expected) != 1 {
+		if countDiagnosticMessage(diagnostics, "Level2.MethodExistence", expected) != 1 {
 			t.Fatalf("expected one diagnostic containing %q, got %#v", expected, diagnostics)
 		}
 	}
@@ -527,7 +526,7 @@ function run(array $global, array $foreign, array $matched, Holder $holder, arra
 		"MatchIndexRight::execute()",
 		"KnownPropertyShapeService::execute()",
 	} {
-		if countDiagnosticMessage(diagnostics, "PHPStan.Level2.MethodExistence", unexpected) != 0 {
+		if countDiagnosticMessage(diagnostics, "Level2.MethodExistence", unexpected) != 0 {
 			t.Fatalf("expected known method %q to remain clean, got %#v", unexpected, diagnostics)
 		}
 	}
@@ -549,13 +548,13 @@ enum UnitWithValue {
 }
 `
 	diagnostics := (&DiagnosticsProvider{}).Analyse("file:///level0-class-model.php", source)
-	if countDiagnosticCode(diagnostics, "PHPStan.Level0.ClassModel") != 3 {
+	if countDiagnosticCode(diagnostics, "Level0.ClassModel") != 3 {
 		t.Fatalf("expected three class-model diagnostics, got %#v", diagnostics)
 	}
-	if countDiagnosticCode(diagnostics, "PHPStan.Level0.Invocation") != 1 {
+	if countDiagnosticCode(diagnostics, "Level0.Invocation") != 1 {
 		t.Fatalf("expected one static-call-to-instance diagnostic, got %#v", diagnostics)
 	}
-	if countDiagnosticCode(diagnostics, "PHPStan.Level0.Symbols") != 1 {
+	if countDiagnosticCode(diagnostics, "Level0.Symbols") != 1 {
 		t.Fatalf("expected one unknown static method diagnostic, got %#v", diagnostics)
 	}
 	for _, expected := range []string{
@@ -588,10 +587,10 @@ enum BadMethods: string {
 }
 `
 	diagnostics := (&DiagnosticsProvider{}).Analyse("file:///level0-enum-casts.php", source)
-	if countDiagnosticCode(diagnostics, "PHPStan.Level0.Language") != 2 {
+	if countDiagnosticCode(diagnostics, "Level0.Language") != 2 {
 		t.Fatalf("expected two invalid-cast diagnostics, got %#v", diagnostics)
 	}
-	if countDiagnosticCode(diagnostics, "PHPStan.Level0.ClassModel") != 1 {
+	if countDiagnosticCode(diagnostics, "Level0.ClassModel") != 1 {
 		t.Fatalf("expected one enum constructor diagnostic, got %#v", diagnostics)
 	}
 	for _, expected := range []string{
@@ -639,10 +638,10 @@ function run(
 }
 `
 	diagnostics := (&DiagnosticsProvider{}).Analyse("file:///non-object-receivers.php", source)
-	if countDiagnosticCode(diagnostics, "PHPStan.Level0.Symbols") != 0 {
+	if countDiagnosticCode(diagnostics, "Level0.Symbols") != 0 {
 		t.Fatalf("expected known receiver classes to avoid level-zero symbol diagnostics, got %#v", diagnostics)
 	}
-	if countDiagnosticCode(diagnostics, "PHPStan.Level2.MethodNonObject") != 6 {
+	if countDiagnosticCode(diagnostics, "Level2.MethodNonObject") != 6 {
 		t.Fatalf("expected six non-object method diagnostics, got %#v", diagnostics)
 	}
 	for _, expected := range []string{
@@ -651,14 +650,14 @@ function run(
 		"on callable.",
 		"on iterable.",
 	} {
-		if countDiagnosticMessage(diagnostics, "PHPStan.Level2.MethodNonObject", expected) != 1 {
+		if countDiagnosticMessage(diagnostics, "Level2.MethodNonObject", expected) != 1 {
 			t.Fatalf("expected one diagnostic containing %q, got %#v", expected, diagnostics)
 		}
 	}
-	if countDiagnosticMessage(diagnostics, "PHPStan.Level2.MethodNonObject", "on object.") != 0 {
+	if countDiagnosticMessage(diagnostics, "Level2.MethodNonObject", "on object.") != 0 {
 		t.Fatalf("expected object receivers to remain clean, got %#v", diagnostics)
 	}
-	if countDiagnosticMessage(diagnostics, "PHPStan.Level2.MethodNonObject", "execute() on") != 0 {
+	if countDiagnosticMessage(diagnostics, "Level2.MethodNonObject", "execute() on") != 0 {
 		t.Fatalf("expected known class-or-string methods to remain clean, got %#v", diagnostics)
 	}
 }
@@ -688,30 +687,30 @@ function run(
 }
 `
 	diagnostics := (&DiagnosticsProvider{}).Analyse("file:///dnf-nullable.php", source)
-	if countDiagnosticCode(diagnostics, "PHPStan.Level0.Symbols") != 0 {
+	if countDiagnosticCode(diagnostics, "Level0.Symbols") != 0 {
 		t.Fatalf("expected defined DNF members to avoid level-zero symbol diagnostics, got %#v", diagnostics)
 	}
 
-	methodDiagnostics := countDiagnosticCode(diagnostics, "PHPStan.Level2.MethodExistence")
+	methodDiagnostics := countDiagnosticCode(diagnostics, "Level2.MethodExistence")
 	if methodDiagnostics != 3 {
 		t.Fatalf("expected three DNF/nullable unknown-method diagnostics, got %d: %#v", methodDiagnostics, diagnostics)
 	}
 
-	if countDiagnosticMessage(diagnostics, "PHPStan.Level2.MethodExistence", "(DnfMissingLeft&DnfMissingTag)|DnfMissingRight::missing()") != 1 {
+	if countDiagnosticMessage(diagnostics, "Level2.MethodExistence", "(DnfMissingLeft&DnfMissingTag)|DnfMissingRight::missing()") != 1 {
 		t.Fatalf("expected one all-missing DNF diagnostic, got %#v", diagnostics)
 	}
-	if countDiagnosticMessage(diagnostics, "PHPStan.Level2.MethodExistence", "NullableMissing::missing()") != 2 {
+	if countDiagnosticMessage(diagnostics, "Level2.MethodExistence", "NullableMissing::missing()") != 2 {
 		t.Fatalf("expected nullable parameter and ternary diagnostics, got %#v", diagnostics)
 	}
 	for _, unexpected := range []string{"available()", "NullableKnown::available()"} {
-		if countDiagnosticMessage(diagnostics, "PHPStan.Level2.MethodExistence", unexpected) != 0 {
+		if countDiagnosticMessage(diagnostics, "Level2.MethodExistence", unexpected) != 0 {
 			t.Fatalf("expected supported DNF/known nullable method to remain clean for %q, got %#v", unexpected, diagnostics)
 		}
 	}
-	if countDiagnosticMessage(diagnostics, "PHPStan.Level7.MethodUnion", "(DnfAvailableTag&HasAvailableMethod)|DnfMissingRight::available()") != 1 {
+	if countDiagnosticMessage(diagnostics, "Level7.MethodUnion", "(DnfAvailableTag&HasAvailableMethod)|DnfMissingRight::available()") != 1 {
 		t.Fatalf("expected one partial-DNF level-seven diagnostic, got %#v", diagnostics)
 	}
-	if countDiagnosticMessage(diagnostics, "PHPStan.Level8.MethodNonObject", "available() on NullableKnown|null.") != 1 {
+	if countDiagnosticMessage(diagnostics, "Level8.MethodNonObject", "available() on NullableKnown|null.") != 1 {
 		t.Fatalf("expected one known nullable level-eight diagnostic, got %#v", diagnostics)
 	}
 }
@@ -723,17 +722,17 @@ function run(): void {
 }
 `
 	enabled := (&DiagnosticsProvider{}).Analyse("file:///test.php", source)
-	if !hasAnyDiagnosticCode(enabled, "PHPStan.Level0.Variables", "PHPStan.Level1.Variables") {
+	if !hasDiagnosticCode(enabled, "Level1.Variables") {
 		t.Fatalf("expected undefined-variable diagnostic before disabling it, got %#v", enabled)
 	}
 
 	disabled := (&DiagnosticsProvider{cfg: Config{DisabledAnalysis: DisabledAnalysis{UndefinedVariables: true}}}).Analyse("file:///test.php", source)
-	if hasAnyDiagnosticCode(disabled, "PHPStan.Level0.Variables", "PHPStan.Level1.Variables") {
+	if hasDiagnosticCode(disabled, "Level1.Variables") {
 		t.Fatalf("expected undefined-variable diagnostic to be disabled, got %#v", disabled)
 	}
 }
 
-func TestDiagnosticsProviderPreservesPHPStanLevelBoundaries(t *testing.T) {
+func TestDiagnosticsProviderPreservesAnalysisLevelBoundaries(t *testing.T) {
 	source := `<?php
 class VisibilityExample {
     protected function hidden(): void {}
@@ -745,14 +744,14 @@ throw new DateTime();
 `
 	diagnostics := (&DiagnosticsProvider{}).Analyse("file:///levels.php", source)
 
-	if !hasDiagnosticCode(diagnostics, "PHPStan.Level2.MethodVisibility") {
+	if !hasDiagnosticCode(diagnostics, "Level2.MethodVisibility") {
 		t.Fatalf("expected protected visibility at level two, got %#v", diagnostics)
 	}
-	if !hasDiagnosticCode(diagnostics, "PHPStan.Level3.ThrowType") {
+	if !hasDiagnosticCode(diagnostics, "Level3.ThrowType") {
 		t.Fatalf("expected non-throwable object at level three, got %#v", diagnostics)
 	}
 	for _, diagnostic := range diagnostics {
-		if diagnostic.Code == "PHPStan.Level0.Invocation" && strings.Contains(diagnostic.Message, "static method") {
+		if diagnostic.Code == "Level0.Invocation" && strings.Contains(diagnostic.Message, "static method") {
 			t.Fatalf("instance syntax for a static method should remain clean, got %#v", diagnostics)
 		}
 	}
@@ -1236,7 +1235,7 @@ final class DemoTest extends TestCase
 `)
 
 	for _, diag := range diags {
-		if code, ok := diag.Code.(string); ok && code == "PHPStan.Level0.Invocation" && strings.Contains(diag.Message, "assertSame") {
+		if code, ok := diag.Code.(string); ok && code == "Level0.Invocation" && strings.Contains(diag.Message, "assertSame") {
 			t.Fatalf("expected indexed vendor parent method signature to satisfy invocation, got %+v", diag)
 		}
 	}
@@ -1263,7 +1262,7 @@ function fail(): void
 `)
 
 	for _, diag := range diags {
-		if code, ok := diag.Code.(string); ok && code == "PHPStan.Level0.ClassModel" && strings.Contains(diag.Message, "JsonException") {
+		if code, ok := diag.Code.(string); ok && code == "Level0.ClassModel" && strings.Contains(diag.Message, "JsonException") {
 			t.Fatalf("expected indexed vendor throwable hierarchy to satisfy throw check, got %+v", diag)
 		}
 	}
@@ -1424,7 +1423,7 @@ function consume(): string
 `)
 
 	for _, diag := range diags {
-		if code, ok := diag.Code.(string); ok && code == "PHPStan.Level0.Symbols" && strings.Contains(diag.Message, "helper_id") {
+		if code, ok := diag.Code.(string); ok && code == "Level0.Symbols" && strings.Contains(diag.Message, "helper_id") {
 			t.Fatalf("unexpected missing workspace function diagnostic: %+v", diag)
 		}
 	}
@@ -1492,7 +1491,7 @@ function consume(): string
 `)
 
 	for _, diag := range diags {
-		if code, ok := diag.Code.(string); ok && code == "PHPStan.Level0.Symbols" && strings.Contains(diag.Message, "local_helper") {
+		if code, ok := diag.Code.(string); ok && code == "Level0.Symbols" && strings.Contains(diag.Message, "local_helper") {
 			t.Fatalf("unexpected missing current-file function diagnostic: %+v", diag)
 		}
 	}
@@ -1514,7 +1513,7 @@ class DuplicateName {}
 `)
 
 		for _, diag := range diags {
-			if code, ok := diag.Code.(string); ok && code == "PHPStan.Level0.ClassModel" && strings.Contains(diag.Message, "DuplicateName") {
+			if code, ok := diag.Code.(string); ok && code == "Level0.ClassModel" && strings.Contains(diag.Message, "DuplicateName") {
 				return
 			}
 		}
@@ -1812,7 +1811,7 @@ func TestDiagnosticsProvider_MapsStructuredAnalysisSpanAfterEmoji(t *testing.T) 
 	diagnostics := (&DiagnosticsProvider{}).Analyse("file:///structured-span.php", source)
 
 	for _, diagnostic := range diagnostics {
-		if diagnostic.Code != "PHPStan.Level0.Symbols" {
+		if diagnostic.Code != "Level0.Symbols" {
 			continue
 		}
 		want := lsp.Range{
@@ -1827,5 +1826,5 @@ func TestDiagnosticsProvider_MapsStructuredAnalysisSpanAfterEmoji(t *testing.T) 
 		}
 		return
 	}
-	t.Fatalf("expected PHPStan.Level0.Symbols diagnostic, got %#v", diagnostics)
+	t.Fatalf("expected Level0.Symbols diagnostic, got %#v", diagnostics)
 }

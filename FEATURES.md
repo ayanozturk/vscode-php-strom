@@ -137,7 +137,7 @@ VS Code
 | Concern | Choice | Rationale |
 |---|---|---|
 | Language server | Go (`server/`) | Same engine as the standalone `analyze` CLI |
-| Parser / analyser | [go-php-parser](https://github.com/ayanozturk/go-php-parser) | PHP 8.x parse, project index, PHPStan-gated analysis |
+| Parser / analyser | [go-php-parser](https://github.com/ayanozturk/go-php-parser) | PHP 8.x parse, project index, level-gated analysis |
 | Client | TypeScript (`src/extension.ts`) | VS Code Language Client only |
 | Stubs | Bundled PHP version stubs under `stubs/` | Built-in symbols without a live phpstorm-stubs clone |
 | Transport | stdio | Language client to Go server |

@@ -24,7 +24,6 @@
     "lsp",
     "intellisense",
     "code-completion",
-    "phpstan",
     "psalm"
   ],
   "activationEvents": [

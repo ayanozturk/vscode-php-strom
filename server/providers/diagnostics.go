@@ -772,14 +772,14 @@ func (c Config) disabledAnalysisIssueCodes() map[string]bool {
 			disabled[code] = true
 		}
 	}
-	add(d.UndefinedSymbols, "PHPStan.Level0.Symbols", "PHPStan.Level2.MethodExistence", "PHPStan.Level7.MethodUnion")
-	add(d.UndefinedVariables, "PHPStan.Level0.Variables", "PHPStan.Level1.Variables")
-	add(d.ClassModel, "PHPStan.Level0.ClassModel")
-	add(d.InvalidCalls, "PHPStan.Level0.Invocation")
-	add(d.Language, "PHPStan.Level0.Language")
-	add(d.TypeErrors, "A.RETURN.TYPE", "A.PROP.TYPE", "A.ARG.TYPE", "A.ARG.COUNT", "PHPStan.Level2.MethodNonObject", "PHPStan.Level8.MethodNonObject")
-	add(d.MethodVisibility, "PHPStan.Level2.MethodVisibility")
-	add(d.ThrowTypes, "PHPStan.Level3.ThrowType")
+	add(d.UndefinedSymbols, "Level0.Symbols", "Level2.MethodExistence", "Level7.MethodUnion")
+	add(d.UndefinedVariables, "Level1.Variables")
+	add(d.ClassModel, "Level0.ClassModel")
+	add(d.InvalidCalls, "Level0.Invocation")
+	add(d.Language, "Level0.Language")
+	add(d.TypeErrors, "A.RETURN.TYPE", "A.PROP.TYPE", "A.ARG.TYPE", "A.ARG.COUNT", "Level2.MethodNonObject", "Level8.MethodNonObject")
+	add(d.MethodVisibility, "Level2.MethodVisibility")
+	add(d.ThrowTypes, "Level3.ThrowType")
 	add(d.Deprecated, "A.DEPRECATED.CALL")
 	add(d.UnreachableCode, "Generic.CodeAnalysis.UnreachableCode")
 	add(d.EmptyStatements, "Generic.CodeAnalysis.EmptyStatement")
