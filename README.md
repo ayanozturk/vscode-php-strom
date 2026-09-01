@@ -1,107 +1,82 @@
 # PHP Strom
 
-PHP Strom is a high-performance, fully open-source PHP language intelligence extension for VS Code.
+Open-source PHP language support for VS Code. A TypeScript client talks to a bundled Go language server that runs [go-php-parser](https://github.com/ayanozturk/go-php-parser) for parsing, indexing, and diagnostics.
 
-It provides a complete PHP language experience with code completion, go to definition, hover, references, diagnostics, formatting, code actions, inlay hints, document links, type hierarchy, and more.
+Not a complete Intelephense/PhpStorm stand-in. Several LSP methods are advertised but still return empty results (formatting, rename, folding, code actions, code lens, inlay hints, document links, type hierarchy, implementations, highlights).
 
-## Why PHP Strom
+## What it does now
 
-- Fully open source under MIT
-- Native bundled language server for macOS, Linux, and Windows in one VSIX
-- Fast workspace indexing and incremental updates
-- Rich PHP language features without a premium tier
-- PHPDoc-aware analysis and configurable diagnostics
+- Workspace indexing of PHP files, with bundled extension stubs and Composer PHP-version detection (`auto` → `composer.json`, else 8.3)
+- Diagnostics from the parser analyser (syntax, undefined symbols/variables, class model, invalid calls, language, types, visibility, throws, deprecated, unreachable, empty statements, assignment-in-condition; optional side-effects and style). Toggle families under `phpstrom.diagnostics.analysis.*`
+- Hover (inferred type + PHPDoc when indexed)
+- Go to definition and declaration, including typed `->` / `::` members
+- Go to type definition
+- Signature help for calls and `new`
+- Completion from the symbol index plus PHP keywords
+- Document outline and workspace symbol search
+- Problems view (list/tree, path/regex/error filters) and status for indexing/analysis
+- Commands: restart server, clear cache, re-index, refresh problems scan
 
-## Features
+## Install
 
-PHP Strom includes support for:
+Marketplace publisher: `AOSSoftware`. Or build a VSIX locally:
 
-- IntelliSense and symbol-aware completion
-- Signature help and hover information
-- Go to definition, declaration, type definition, and implementations
-- Find references and document highlights
-- Workspace symbols and document symbols
-- Diagnostics for undefined symbols, types, and other analysis families (each toggleable in Settings)
-- Formatting with configurable brace style and indentation
-- Code actions, code lens, inlay hints, and folding
-- Document links and type hierarchy
+```sh
+make install    # Go server + extension, package, install into VS Code
+# or
+make package    # VSIX only
+```
 
-A full feature specification is available in [FEATURES.md](./FEATURES.md).
+Needs Go 1.23+, Node.js, and the `code` CLI on `PATH` for `make install`.
 
-## Installation
+## Develop
 
-Install from the VS Code Marketplace.
+Release and local builds use the parser revision pinned in `server/go.mod`. They do not require a sibling checkout.
 
-## Development Build
+```sh
+make build-server-local   # host language-server binary
+make build-ext
+make test-server
+make test-ext
+make test-editor-latency  # synthetic editor-path regression gate
+```
 
-`make build-server`, `make build-server-local`, and `make test-server` use the exact parser revision pinned in `server/go.mod`. They do not depend on a sibling checkout or a mutable clone of the parser repository.
-
-For coordinated local development across both repositories, use `make build-server-dev` or `make test-server-dev`. These explicit development targets generate a temporary Go workspace using the sibling `../go-php-parser` checkout.
-
-Override the sibling path if needed:
+To build against a local parser checkout:
 
 ```sh
 make build-server-dev LOCAL_PHP_PARSER_DIR=/path/to/go-php-parser
+make test-server-dev
 ```
-
-Run the synthetic editor-path trace gate with:
-
-```sh
-make test-editor-latency
-```
-
-The gate launches fresh language-server processes for cold workspace indexing,
-then drives the real handler path through cached saves, body-only and dependency
-edits, debounce cancellation, stale-result rejection, and a collision-triggered
-full index fallback. It emits a machine-readable JSON report with end-to-end
-latencies and cache/index accounting. The fixture is synthetic; results are an
-absolute regression signal, not a claim about latency in a particular project.
 
 ## Configuration
 
-Important settings include:
+Settings live under `phpstrom.*` in VS Code. The ones that affect behaviour today:
 
 - `phpstrom.enable`
-- `phpstrom.environment.phpVersion`
-- `phpstrom.environment.includePaths`
-- `phpstrom.environment.documentRoot`
-- `phpstrom.files.exclude`
-- `phpstrom.diagnostics.*`
-- `phpstrom.diagnostics.overrides`
-- `phpstrom.format.*`
-- `phpstrom.codeLens.*`
-- `phpstrom.inlayHints.*`
+- `phpstrom.environment.phpVersion` / `phpVersionOverride` / `includePaths`
+- `phpstrom.files.associations` / `files.exclude` / `files.maxSize`
+- `phpstrom.stubs`
+- `phpstrom.diagnostics.enable` / `run` / `workspaceScanOnStart` / `exclude` / `overrides`
+- `phpstrom.diagnostics.analysis.*` (style and side-effects default off)
 
-See [FEATURES.md](./FEATURES.md) for the full configuration reference.
-
-`phpstrom.diagnostics.overrides` accepts rule-specific matchers. For example:
+`phpstrom.diagnostics.overrides` example:
 
 ```json
 {
-	"phpstrom.diagnostics.overrides": {
-		"PSR1.Classes.ClassDeclaration.PascalCase": {
-			"classes": ["/^Legacy_/", "SpecialClass"]
-		}
-	}
+  "phpstrom.diagnostics.overrides": {
+    "PSR1.Classes.ClassDeclaration.PascalCase": {
+      "classes": ["/^Legacy_/", "SpecialClass"]
+    }
+  }
 }
 ```
 
-Matching classes are ignored by the scanner for that diagnostic code.
+Format, completion `use`-insert, PHPDoc generation, code lens, and inlay-hint settings exist in the schema but have no working Go providers yet.
 
-## Cross-platform Packaging
+## Packaging
 
-The extension bundles platform-specific language server binaries for:
+One VSIX bundles language-server binaries for `darwin-arm64`, `darwin-x64`, `linux-arm64`, `linux-x64`, `win32-arm64`, and `win32-x64`.
 
-- `darwin-arm64`
-- `darwin-x64`
-- `linux-arm64`
-- `linux-x64`
-- `win32-arm64`
-- `win32-x64`
+## License
 
-This allows a single VSIX to work across supported macOS, Linux, and Windows environments.
-
-## Repository
-
-- Source: https://github.com/ayanozturk/vscode-php-strom
-- License: MIT
+MIT. Source: https://github.com/ayanozturk/vscode-php-strom
