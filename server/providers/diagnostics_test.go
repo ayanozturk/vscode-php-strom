@@ -271,6 +271,36 @@ function knownDynamicReceiver(string $class): void {
 	}
 }
 
+func TestDiagnosticsProvider_DoesNotFlagCoreBuiltinsOrTraitMethods(t *testing.T) {
+	source := `<?php
+trait CreatedDateTrait {
+    public function getCreatedDate(): mixed { return null; }
+}
+class InvitedUser {
+    use CreatedDateTrait;
+}
+function run(InvitedUser $user, DateTime $now): string {
+    $user->getCreatedDate();
+    return $now->format('c');
+}
+function fail(): void {
+    throw new RuntimeException('missing');
+}
+`
+	diagnostics := (&DiagnosticsProvider{}).Analyse("file:///hr-builtins.php", source)
+	for _, unexpected := range []string{
+		"InvitedUser::getCreatedDate()",
+		"DateTime::format()",
+		"Instantiated class RuntimeException not found",
+	} {
+		for _, diagnostic := range diagnostics {
+			if strings.Contains(diagnostic.Message, unexpected) {
+				t.Fatalf("unexpected diagnostic %q: %#v", unexpected, diagnostics)
+			}
+		}
+	}
+}
+
 func TestDiagnosticsProvider_ReportsDeclaredCallableAndArrayShapeMethods(t *testing.T) {
 	source := `<?php
 class PropertyCallableService {}
