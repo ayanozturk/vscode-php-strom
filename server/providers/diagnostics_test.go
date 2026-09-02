@@ -116,6 +116,7 @@ func TestDiagnosticsProvider_DisablesConfiguredAnalysisCodes(t *testing.T) {
 		"Level2.PHPDocGenericLessTypes",
 		"Level2.PHPDocGenericMoreTypes",
 		"Level2.PHPDocNotGeneric",
+		"Level2.PHPDocGenericNotSubtype",
 		"Level2.MethodNonObject",
 		"Level8.MethodNonObject",
 		"Level0.ClassModel",
@@ -878,6 +879,13 @@ final class PairValueContainer {}
 
 final class PlainValueContainer {}
 
+class Animal {}
+
+class Vehicle {}
+
+/** @template TAnimal of Animal */
+final class AnimalContainer {}
+
 /** @param SingleValueContainer<int, string> $box */
 function inspectTooMany(SingleValueContainer $box): void {}
 
@@ -886,6 +894,12 @@ function inspectTooFew(PairValueContainer $box): void {}
 
 /** @param PlainValueContainer<int> $box */
 function inspectNonGeneric(PlainValueContainer $box): void {}
+
+/** @param AnimalContainer<Vehicle> $box */
+function inspectInvalidBound(AnimalContainer $box): void {}
+
+/** @param AnimalContainer<Animal> $box */
+function inspectValidBound(AnimalContainer $box): void {}
 `
 
 	enabled := (&DiagnosticsProvider{}).Analyse("file:///phpdoc-generics.php", source)
@@ -893,6 +907,7 @@ function inspectNonGeneric(PlainValueContainer $box): void {}
 		"Level2.PHPDocGenericMoreTypes",
 		"Level2.PHPDocGenericLessTypes",
 		"Level2.PHPDocNotGeneric",
+		"Level2.PHPDocGenericNotSubtype",
 	} {
 		if countDiagnosticCode(enabled, code) != 1 {
 			t.Fatalf("expected one %s diagnostic at level two, got %#v", code, enabled)
@@ -904,6 +919,7 @@ function inspectNonGeneric(PlainValueContainer $box): void {}
 		"Level2.PHPDocGenericMoreTypes",
 		"Level2.PHPDocGenericLessTypes",
 		"Level2.PHPDocNotGeneric",
+		"Level2.PHPDocGenericNotSubtype",
 	} {
 		if hasDiagnosticCode(disabled, code) {
 			t.Fatalf("expected %s to be suppressed by type-error toggle, got %#v", code, disabled)
