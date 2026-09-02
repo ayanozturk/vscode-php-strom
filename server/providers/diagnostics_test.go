@@ -117,6 +117,8 @@ func TestDiagnosticsProvider_DisablesConfiguredAnalysisCodes(t *testing.T) {
 		"Level2.PHPDocGenericMoreTypes",
 		"Level2.PHPDocNotGeneric",
 		"Level2.PHPDocGenericNotSubtype",
+		"Level6.MissingGenericType",
+		"Level6.MissingIterableValueType",
 		"Level2.MethodNonObject",
 		"Level8.MethodNonObject",
 		"Level0.ClassModel",
@@ -920,6 +922,45 @@ function inspectValidBound(AnimalContainer $box): void {}
 		"Level2.PHPDocGenericLessTypes",
 		"Level2.PHPDocNotGeneric",
 		"Level2.PHPDocGenericNotSubtype",
+	} {
+		if hasDiagnosticCode(disabled, code) {
+			t.Fatalf("expected %s to be suppressed by type-error toggle, got %#v", code, disabled)
+		}
+	}
+}
+
+func TestDiagnosticsProviderReportsAndSuppressesLevel6MissingTypes(t *testing.T) {
+	source := `<?php
+class Animal {}
+
+class Vehicle {}
+
+/** @template TAnimal of Animal */
+final class AnimalContainer {}
+
+function inspectMissingGeneric(AnimalContainer $box): void {}
+
+/** @param AnimalContainer<Animal> $box */
+function inspectKnownGeneric(AnimalContainer $box): void {}
+
+function inspectMissingIterable(array $items): void {}
+
+/** @param array<int, string> $items */
+function inspectKnownIterable(array $items): void {}
+`
+
+	enabled := (&DiagnosticsProvider{}).Analyse("file:///level6-missing-types.php", source)
+	if countDiagnosticCode(enabled, "Level6.MissingGenericType") != 1 {
+		t.Fatalf("expected one missing-generic-type diagnostic at level six, got %#v", enabled)
+	}
+	if countDiagnosticCode(enabled, "Level6.MissingIterableValueType") != 1 {
+		t.Fatalf("expected one missing-iterable-value-type diagnostic at level six, got %#v", enabled)
+	}
+
+	disabled := (&DiagnosticsProvider{cfg: Config{DisabledAnalysis: DisabledAnalysis{TypeErrors: true}}}).Analyse("file:///level6-missing-types.php", source)
+	for _, code := range []string{
+		"Level6.MissingGenericType",
+		"Level6.MissingIterableValueType",
 	} {
 		if hasDiagnosticCode(disabled, code) {
 			t.Fatalf("expected %s to be suppressed by type-error toggle, got %#v", code, disabled)
