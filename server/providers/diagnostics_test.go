@@ -113,6 +113,9 @@ func TestDiagnosticsProvider_DisablesConfiguredAnalysisCodes(t *testing.T) {
 		"Level2.PHPDocParamType",
 		"Level2.PHPDocPropertyType",
 		"Level2.PHPDocReturnType",
+		"Level2.PHPDocGenericLessTypes",
+		"Level2.PHPDocGenericMoreTypes",
+		"Level2.PHPDocNotGeneric",
 		"Level2.MethodNonObject",
 		"Level8.MethodNonObject",
 		"Level0.ClassModel",
@@ -859,6 +862,52 @@ function clean(KnownService $service): KnownService { return $service; }
 	}
 	if countDiagnosticCode(diagnostics, "Level2.PHPDocPropertyType") != 1 {
 		t.Fatalf("expected one PHPDoc property-type diagnostic, got %#v", diagnostics)
+	}
+}
+
+func TestDiagnosticsProviderReportsAndSuppressesPHPDocGenericErrors(t *testing.T) {
+	source := `<?php
+/** @template TValue */
+final class SingleValueContainer {}
+
+/**
+ * @template TKey
+ * @template TValue
+ */
+final class PairValueContainer {}
+
+final class PlainValueContainer {}
+
+/** @param SingleValueContainer<int, string> $box */
+function inspectTooMany(SingleValueContainer $box): void {}
+
+/** @param PairValueContainer<int> $box */
+function inspectTooFew(PairValueContainer $box): void {}
+
+/** @param PlainValueContainer<int> $box */
+function inspectNonGeneric(PlainValueContainer $box): void {}
+`
+
+	enabled := (&DiagnosticsProvider{}).Analyse("file:///phpdoc-generics.php", source)
+	for _, code := range []string{
+		"Level2.PHPDocGenericMoreTypes",
+		"Level2.PHPDocGenericLessTypes",
+		"Level2.PHPDocNotGeneric",
+	} {
+		if countDiagnosticCode(enabled, code) != 1 {
+			t.Fatalf("expected one %s diagnostic at level two, got %#v", code, enabled)
+		}
+	}
+
+	disabled := (&DiagnosticsProvider{cfg: Config{DisabledAnalysis: DisabledAnalysis{TypeErrors: true}}}).Analyse("file:///phpdoc-generics.php", source)
+	for _, code := range []string{
+		"Level2.PHPDocGenericMoreTypes",
+		"Level2.PHPDocGenericLessTypes",
+		"Level2.PHPDocNotGeneric",
+	} {
+		if hasDiagnosticCode(disabled, code) {
+			t.Fatalf("expected %s to be suppressed by type-error toggle, got %#v", code, disabled)
+		}
 	}
 }
 
