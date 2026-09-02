@@ -119,6 +119,9 @@ func TestDiagnosticsProvider_DisablesConfiguredAnalysisCodes(t *testing.T) {
 		"Level2.PHPDocGenericNotSubtype",
 		"Level6.MissingGenericType",
 		"Level6.MissingIterableValueType",
+		"Level6.MissingParameterType",
+		"Level6.MissingReturnType",
+		"Level6.MissingPropertyType",
 		"Level2.MethodNonObject",
 		"Level8.MethodNonObject",
 		"Level0.ClassModel",
@@ -962,6 +965,64 @@ function inspectKnownIterable(array $items): void {}
 		"Level6.MissingGenericType",
 		"Level6.MissingIterableValueType",
 	} {
+		if hasDiagnosticCode(disabled, code) {
+			t.Fatalf("expected %s to be suppressed by type-error toggle, got %#v", code, disabled)
+		}
+	}
+}
+
+func TestDiagnosticsProviderReportsLevel6MissingDeclarationTypesAndHonorsControls(t *testing.T) {
+	source := `<?php
+final class DeclarationTypes
+{
+    public $missingProperty;
+
+    /** @var string */
+    public $documentedProperty;
+
+    public function missingMethod($value)
+    {
+        return $value;
+    }
+
+    /**
+     * @param string $value
+     * @return string
+     */
+    public function documentedMethod($value)
+    {
+        return $value;
+    }
+
+    public function explicitMethod(mixed $value): void
+    {
+    }
+}
+
+function missingFunction($value)
+{
+    return $value;
+}
+
+function explicitFunction(mixed $value): void
+{
+}
+`
+
+	enabled := (&DiagnosticsProvider{}).Analyse("file:///level6-missing-declaration-types.php", source)
+	want := map[string]int{
+		"Level6.MissingParameterType": 2,
+		"Level6.MissingReturnType":    2,
+		"Level6.MissingPropertyType":  1,
+	}
+	for code, count := range want {
+		if got := countDiagnosticCode(enabled, code); got != count {
+			t.Fatalf("expected %d %s diagnostics, got %d: %#v", count, code, got, enabled)
+		}
+	}
+
+	disabled := (&DiagnosticsProvider{cfg: Config{DisabledAnalysis: DisabledAnalysis{TypeErrors: true}}}).Analyse("file:///level6-missing-declaration-types.php", source)
+	for code := range want {
 		if hasDiagnosticCode(disabled, code) {
 			t.Fatalf("expected %s to be suppressed by type-error toggle, got %#v", code, disabled)
 		}

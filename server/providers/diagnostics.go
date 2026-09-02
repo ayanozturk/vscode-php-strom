@@ -785,6 +785,7 @@ func (c Config) disabledAnalysisIssueCodes() map[string]bool {
 		"Level2.PHPDocPropertyType", "Level2.PHPDocReturnType",
 		"Level2.PHPDocGenericLessTypes", "Level2.PHPDocGenericMoreTypes", "Level2.PHPDocNotGeneric", "Level2.PHPDocGenericNotSubtype",
 		"Level6.MissingGenericType", "Level6.MissingIterableValueType",
+		"Level6.MissingParameterType", "Level6.MissingReturnType", "Level6.MissingPropertyType",
 		"Level2.MethodNonObject", "Level8.MethodNonObject",
 	)
 	add(d.MethodVisibility, "Level2.MethodVisibility")
