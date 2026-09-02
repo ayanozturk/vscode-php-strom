@@ -777,7 +777,12 @@ func (c Config) disabledAnalysisIssueCodes() map[string]bool {
 	add(d.ClassModel, "Level0.ClassModel")
 	add(d.InvalidCalls, "Level0.Invocation")
 	add(d.Language, "Level0.Language")
-	add(d.TypeErrors, "A.RETURN.TYPE", "A.PROP.TYPE", "A.ARG.TYPE", "A.ARG.COUNT", "Level2.MethodNonObject", "Level8.MethodNonObject")
+	add(d.TypeErrors,
+		"A.RETURN.TYPE", "A.RETURN.VOID", "A.RETURN.NEVER", "A.VOID.PURE",
+		"A.PROP.TYPE", "A.ARG.TYPE", "A.ARG.COUNT",
+		"A.ASSIGN.OP.INVALID", "A.BINARY.OP.INVALID",
+		"Level2.MethodNonObject", "Level8.MethodNonObject",
+	)
 	add(d.MethodVisibility, "Level2.MethodVisibility")
 	add(d.ThrowTypes, "Level3.ThrowType")
 	add(d.Deprecated, "A.DEPRECATED.CALL")

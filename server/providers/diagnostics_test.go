@@ -100,9 +100,14 @@ func TestDiagnosticsProvider_DisablesConfiguredAnalysisCodes(t *testing.T) {
 		"Level7.MethodUnion",
 		"Level1.Variables",
 		"A.RETURN.TYPE",
+		"A.RETURN.VOID",
+		"A.RETURN.NEVER",
+		"A.VOID.PURE",
 		"A.PROP.TYPE",
 		"A.ARG.TYPE",
 		"A.ARG.COUNT",
+		"A.ASSIGN.OP.INVALID",
+		"A.BINARY.OP.INVALID",
 		"Level2.MethodNonObject",
 		"Level8.MethodNonObject",
 		"Level0.ClassModel",
@@ -784,6 +789,29 @@ throw new DateTime();
 		if diagnostic.Code == "Level0.Invocation" && strings.Contains(diagnostic.Message, "static method") {
 			t.Fatalf("instance syntax for a static method should remain clean, got %#v", diagnostics)
 		}
+	}
+}
+
+func TestDiagnosticsProviderReportsBinaryAndInferredReturnTypes(t *testing.T) {
+	source := `<?php
+function invalidOperation(): void {
+    echo 1 + "bad";
+}
+
+function invalidReturn(): string {
+    return 1 < 2;
+}
+
+function validReturn(): bool {
+    return 1 < 2;
+}
+`
+	diagnostics := (&DiagnosticsProvider{}).Analyse("file:///expressions.php", source)
+	if countDiagnosticCode(diagnostics, "A.BINARY.OP.INVALID") != 1 {
+		t.Fatalf("expected one invalid binary-operation diagnostic, got %#v", diagnostics)
+	}
+	if countDiagnosticCode(diagnostics, "A.RETURN.TYPE") != 1 {
+		t.Fatalf("expected one inferred return-type diagnostic, got %#v", diagnostics)
 	}
 }
 
