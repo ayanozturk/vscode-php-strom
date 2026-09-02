@@ -422,7 +422,7 @@
           "phpstrom.diagnostics.analysis.typeErrors": {
             "type": "boolean",
             "default": true,
-            "markdownDescription": "Report return, property, argument type, and argument-count mismatches.",
+            "markdownDescription": "Report return, property, argument type, argument-count, and PHPDoc declaration mismatches.",
             "order": 7,
             "scope": "resource"
           },

@@ -293,7 +293,7 @@ Symbols reported:
 
 #### Type errors
 
-Enabled by `phpstrom.diagnostics.analysis.typeErrors` (default on). Covers return, property, argument type, and argument-count mismatches.
+Enabled by `phpstrom.diagnostics.analysis.typeErrors` (default on). Covers return, property, argument type, argument-count, and PHPDoc declaration mismatches.
 
 Each analysis family can be turned on or off from **Settings → PHP Strom → Analysis**.
 

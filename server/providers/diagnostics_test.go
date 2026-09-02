@@ -108,6 +108,11 @@ func TestDiagnosticsProvider_DisablesConfiguredAnalysisCodes(t *testing.T) {
 		"A.ARG.COUNT",
 		"A.ASSIGN.OP.INVALID",
 		"A.BINARY.OP.INVALID",
+		"Level2.PHPDocClass",
+		"Level2.PHPDocParamName",
+		"Level2.PHPDocParamType",
+		"Level2.PHPDocPropertyType",
+		"Level2.PHPDocReturnType",
 		"Level2.MethodNonObject",
 		"Level8.MethodNonObject",
 		"Level0.ClassModel",
@@ -812,6 +817,48 @@ function validReturn(): bool {
 	}
 	if countDiagnosticCode(diagnostics, "A.RETURN.TYPE") != 1 {
 		t.Fatalf("expected one inferred return-type diagnostic, got %#v", diagnostics)
+	}
+}
+
+func TestDiagnosticsProviderReportsPHPDocDeclarationErrors(t *testing.T) {
+	source := `<?php
+class KnownService {}
+
+/** @param MissingService $service */
+function unknownClass($service): void { echo $service; }
+
+/** @param string $value */
+function incompatibleType(int $value): void { echo $value; }
+
+/** @param string $missing */
+function unknownName(int $value): void { echo $value; }
+
+/** @return string */
+function incompatibleReturn(): int { return 1; }
+
+class Holder {
+    /** @var string */
+    public int $count = 0;
+}
+
+/** @return KnownService */
+function clean(KnownService $service): KnownService { return $service; }
+`
+	diagnostics := (&DiagnosticsProvider{}).Analyse("file:///phpdoc.php", source)
+	if countDiagnosticCode(diagnostics, "Level2.PHPDocClass") != 1 {
+		t.Fatalf("expected one unknown PHPDoc-class diagnostic, got %#v", diagnostics)
+	}
+	if countDiagnosticCode(diagnostics, "Level2.PHPDocParamType") != 1 {
+		t.Fatalf("expected one PHPDoc parameter-type diagnostic, got %#v", diagnostics)
+	}
+	if countDiagnosticCode(diagnostics, "Level2.PHPDocParamName") != 1 {
+		t.Fatalf("expected one PHPDoc parameter-name diagnostic, got %#v", diagnostics)
+	}
+	if countDiagnosticCode(diagnostics, "Level2.PHPDocReturnType") != 1 {
+		t.Fatalf("expected one PHPDoc return-type diagnostic, got %#v", diagnostics)
+	}
+	if countDiagnosticCode(diagnostics, "Level2.PHPDocPropertyType") != 1 {
+		t.Fatalf("expected one PHPDoc property-type diagnostic, got %#v", diagnostics)
 	}
 }
 
