@@ -106,6 +106,7 @@ func TestDiagnosticsProvider_DisablesConfiguredAnalysisCodes(t *testing.T) {
 		"A.PROP.TYPE",
 		"A.ARG.TYPE",
 		"A.ARG.COUNT",
+		"Level0.PropertyCallableType",
 		"A.ASSIGN.OP.INVALID",
 		"A.BINARY.OP.INVALID",
 		"Level2.PHPDocClass",
@@ -1043,6 +1044,27 @@ function run(): void { acceptCount('wrong'); }
 	disabled := (&DiagnosticsProvider{cfg: Config{DisabledAnalysis: DisabledAnalysis{TypeErrors: true}}}).Analyse("file:///level5-function-argument.php", source)
 	if hasDiagnosticCode(disabled, "A.ARG.TYPE") {
 		t.Fatalf("expected named-function argument-type diagnostic to be suppressed, got %#v", disabled)
+	}
+}
+
+func TestDiagnosticsProviderReportsAndSuppressesCallablePropertyTypes(t *testing.T) {
+	source := `<?php
+final class CallbackHolder {
+    public callable $native;
+    /** @var callable */
+    public $documented;
+    public Closure $closure;
+}
+`
+
+	enabled := (&DiagnosticsProvider{}).Analyse("file:///callable-property.php", source)
+	if countDiagnosticCode(enabled, "Level0.PropertyCallableType") != 1 {
+		t.Fatalf("expected one native callable-property diagnostic, got %#v", enabled)
+	}
+
+	disabled := (&DiagnosticsProvider{cfg: Config{DisabledAnalysis: DisabledAnalysis{TypeErrors: true}}}).Analyse("file:///callable-property.php", source)
+	if hasDiagnosticCode(disabled, "Level0.PropertyCallableType") {
+		t.Fatalf("expected callable-property diagnostic to be suppressed, got %#v", disabled)
 	}
 }
 

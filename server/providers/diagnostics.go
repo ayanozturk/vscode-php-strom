@@ -780,6 +780,7 @@ func (c Config) disabledAnalysisIssueCodes() map[string]bool {
 	add(d.TypeErrors,
 		"A.RETURN.TYPE", "A.RETURN.VOID", "A.RETURN.NEVER", "A.VOID.PURE",
 		"A.PROP.TYPE", "A.ARG.TYPE", "A.ARG.COUNT",
+		"Level0.PropertyCallableType",
 		"A.ASSIGN.OP.INVALID", "A.BINARY.OP.INVALID",
 		"Level2.PHPDocClass", "Level2.PHPDocParamName", "Level2.PHPDocParamType",
 		"Level2.PHPDocPropertyType", "Level2.PHPDocReturnType",
