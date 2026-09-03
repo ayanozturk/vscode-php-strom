@@ -2,4 +2,4 @@ module github.com/ayanozturk/vscode-php-strom
 
 go 1.23
 
-require github.com/ayanozturk/go-php-parser v0.0.0-20260903174218-dd0a8cc0e345
+require github.com/ayanozturk/go-php-parser v0.0.0-20260903180729-18f7520dca65
