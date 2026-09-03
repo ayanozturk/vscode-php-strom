@@ -1029,6 +1029,23 @@ function explicitFunction(mixed $value): void
 	}
 }
 
+func TestDiagnosticsProviderReportsAndSuppressesNamedFunctionArgumentTypes(t *testing.T) {
+	source := `<?php
+function acceptCount(int $count): void {}
+function run(): void { acceptCount('wrong'); }
+`
+
+	enabled := (&DiagnosticsProvider{}).Analyse("file:///level5-function-argument.php", source)
+	if countDiagnosticCode(enabled, "A.ARG.TYPE") != 1 {
+		t.Fatalf("expected one named-function argument-type diagnostic, got %#v", enabled)
+	}
+
+	disabled := (&DiagnosticsProvider{cfg: Config{DisabledAnalysis: DisabledAnalysis{TypeErrors: true}}}).Analyse("file:///level5-function-argument.php", source)
+	if hasDiagnosticCode(disabled, "A.ARG.TYPE") {
+		t.Fatalf("expected named-function argument-type diagnostic to be suppressed, got %#v", disabled)
+	}
+}
+
 func TestDiagnosticsProvider_AnalyseTransientDoesNotRetainSemanticCache(t *testing.T) {
 	const uri = "file:///workspace/Transient.php"
 	const source = `<?php
