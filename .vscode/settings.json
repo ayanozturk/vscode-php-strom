@@ -4,5 +4,6 @@
 	},
 	"go.testEnvVars": {
 		"GOWORK": "${workspaceFolder}/.cache/phpstrom.build.work"
-	}
+	},
+	"phpstrom.diagnostics.overrides": {}
 }

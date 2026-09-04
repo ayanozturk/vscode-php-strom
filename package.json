@@ -46,6 +46,10 @@
         {
           "id": "phpstromProblems",
           "name": "Problems"
+        },
+        {
+          "id": "phpstromQuickConfig",
+          "name": "Quick Config"
         }
       ]
     },
@@ -377,6 +381,26 @@
       {
         "title": "Analysis",
         "properties": {
+          "phpstrom.diagnostics.analysis.level": {
+            "type": "number",
+            "default": 9,
+            "order": 0,
+            "scope": "resource",
+            "enum": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+            "enumDescriptions": [
+              "Basic checks: unknown classes/methods/functions, invocation & language errors",
+              "Adds possibly-undefined variable checks",
+              "Adds method existence, visibility & PHPDoc consistency checks",
+              "Adds throw-type checks",
+              "Dead code checks (not yet implemented)",
+              "Argument type checks (not yet implemented)",
+              "Flags missing type hints (params, return, properties, generics)",
+              "Flags partially-invalid calls on union types",
+              "Flags method/property access on nullable types",
+              "Strictest: cautious handling of mixed types (not yet implemented)"
+            ],
+            "markdownDescription": "How strict PHP Strom analysis should be, mirroring the `Level0`-`Level9` diagnostic scheme (0 = basic, 9 = strictest)."
+          },
           "phpstrom.diagnostics.analysis.syntaxErrors": {
             "type": "boolean",
             "default": true,
@@ -734,6 +758,21 @@
       {
         "command": "phpstrom.showDetectedPhpExtensions",
         "title": "PHP Strom: Show Detected PHP Extensions"
+      },
+      {
+        "command": "phpstrom.quickConfig.selectAnalysisLevel",
+        "title": "PHP Strom: Select Analysis Level",
+        "icon": "$(gear)"
+      },
+      {
+        "command": "phpstrom.quickConfig.selectWorkspaceScanOnStart",
+        "title": "PHP Strom: Select Analyse on Start",
+        "icon": "$(rocket)"
+      },
+      {
+        "command": "phpstrom.quickConfig.selectPhpVersion",
+        "title": "PHP Strom: Select PHP Version",
+        "icon": "$(versions)"
       }
     ],
     "menus": {
@@ -779,6 +818,15 @@
         },
         {
           "command": "phpstrom.showDetectedPhpExtensions"
+        },
+        {
+          "command": "phpstrom.quickConfig.selectAnalysisLevel"
+        },
+        {
+          "command": "phpstrom.quickConfig.selectWorkspaceScanOnStart"
+        },
+        {
+          "command": "phpstrom.quickConfig.selectPhpVersion"
         }
       ],
       "view/title": [

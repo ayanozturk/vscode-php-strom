@@ -11,6 +11,7 @@ import {
   openDiagnosticNode,
   ProjectDiagnosticsTreeProvider,
 } from './client/diagnosticsView.js';
+import { QuickConfigTreeProvider } from './client/quickConfigView.js';
 
 let client: LanguageClient | undefined;
 let outputChannel: vscode.OutputChannel;
@@ -36,6 +37,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   });
   diagnosticsTreeProvider.setView(diagnosticsTreeView);
   context.subscriptions.push(diagnosticsTreeView);
+  const quickConfigTreeProvider = new QuickConfigTreeProvider();
+  context.subscriptions.push(quickConfigTreeProvider);
+  const quickConfigTreeView = vscode.window.createTreeView('phpstromQuickConfig', {
+    treeDataProvider: quickConfigTreeProvider,
+  });
+  context.subscriptions.push(quickConfigTreeView);
+  context.subscriptions.push(
+    quickConfigTreeProvider.onDidChangeAnalysisLevel(() => {
+      if (quickConfigTreeProvider.getWorkspaceScanOnStart()) {
+        client?.sendNotification('phpstrom/scanWorkspaceDiagnostics');
+      }
+    }),
+  );
   indexingStatusItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
   indexingStatusItem.name = 'PHP Strom Indexing';
   indexingStatusItem.command = 'phpstrom.showOutputChannel';
@@ -113,6 +127,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
     vscode.commands.registerCommand('phpstrom.problems.openDiagnostic', async (node) => {
       await openDiagnosticNode(node);
+    }),
+
+    vscode.commands.registerCommand('phpstrom.quickConfig.selectAnalysisLevel', async () => {
+      await quickConfigTreeProvider.promptAnalysisLevel();
+    }),
+
+    vscode.commands.registerCommand('phpstrom.quickConfig.selectWorkspaceScanOnStart', async () => {
+      await quickConfigTreeProvider.promptWorkspaceScanOnStart();
+    }),
+
+    vscode.commands.registerCommand('phpstrom.quickConfig.selectPhpVersion', async () => {
+      await quickConfigTreeProvider.promptPhpVersion();
     }),
   );
 
