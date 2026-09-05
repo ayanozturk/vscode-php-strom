@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/ayanozturk/go-php-parser/ast"
 )
 
 func TestReadAtMostStopsAfterLimitSentinel(t *testing.T) {
@@ -556,6 +558,40 @@ func TestCollectWorkspaceFilePathsIndexesGitignoredVendorDependencies(t *testing
 	}
 
 	t.Fatalf("expected gitignored Composer dependency to be indexed, got %#v", paths)
+}
+
+func TestReplaceWorkspaceProjectNodesDropsVendorASTsAndKeepsSymbols(t *testing.T) {
+	wi := New(Config{})
+	vendorURI := "file:///workspace/vendor/symfony/framework-bundle/Test/WebTestCase.php"
+	appURI := "file:///workspace/src/App.php"
+	vendor := ParseSourceForIndex(vendorURI, `<?php
+namespace Symfony\Bundle\FrameworkBundle\Test;
+class WebTestCase {
+    public static function assertResponseIsSuccessful(): void {}
+}
+`)
+	app := ParseSourceForIndex(appURI, `<?php
+class App {
+    public function run(): void {}
+}
+`)
+	wi.replaceWorkspaceProjectNodes(map[string][]ast.Node{
+		vendorURI: vendor.Nodes,
+		appURI:    app.Nodes,
+	}, map[string]uint64{
+		vendorURI: sourceHash(vendor.Text),
+		appURI:    sourceHash(app.Text),
+	})
+
+	if _, ok := wi.projectNodes[vendorURI]; ok {
+		t.Fatal("expected vendor AST to be dropped from the live node map")
+	}
+	if _, ok := wi.projectNodes[appURI]; !ok {
+		t.Fatal("expected application AST to remain")
+	}
+	if _, ok := wi.ProjectIndex().ResolveMethod(`Symfony\Bundle\FrameworkBundle\Test\WebTestCase`, "assertResponseIsSuccessful"); !ok {
+		t.Fatal("expected vendor method symbols to remain after dropping ASTs")
+	}
 }
 
 func TestUpdateConfigAppliesWorkspaceExcludes(t *testing.T) {

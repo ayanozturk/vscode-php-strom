@@ -487,6 +487,7 @@ func (wi *WorkspaceIndexer) replaceWorkspaceProjectNodes(nodes map[string][]ast.
 	wi.projectNodes = next
 	wi.projectHashes = nextHashes
 	wi.rebuildProjectIndexLocked()
+	wi.compactRetainedTreesLocked()
 	wi.mu.Unlock()
 }
 
@@ -496,6 +497,21 @@ func (wi *WorkspaceIndexer) rebuildProjectIndexLocked() {
 	wi.project = analyse.BuildProjectIndexForVersion(parsed, wi.cfg.PHPVersion)
 	wi.trace.fullBuilds.Add(1)
 	wi.recordSemanticChangesLocked(analyse.ProjectIndexChanges{Complete: false})
+}
+
+func (wi *WorkspaceIndexer) compactRetainedTreesLocked() {
+	if wi.project != nil {
+		wi.project.DropRetainedTrees(isVendoredIndexPath)
+	}
+	for key := range wi.projectNodes {
+		if isVendoredIndexPath(key) {
+			delete(wi.projectNodes, key)
+		}
+	}
+}
+
+func isVendoredIndexPath(path string) bool {
+	return slices.Contains(splitPathSegments(path), "vendor")
 }
 
 func (wi *WorkspaceIndexer) rebuildProjectIndexFilesLocked(changedFiles ...string) {
@@ -684,7 +700,7 @@ func (wi *WorkspaceIndexer) collectWorkspaceFilePathsParallel(folders []Workspac
 }
 
 func shouldIndexGitignoredPath(path string) bool {
-	return slices.Contains(splitPathSegments(path), "vendor")
+	return isVendoredIndexPath(path)
 }
 
 func (wi *WorkspaceIndexer) trackWorkspaceURI(uri string) {

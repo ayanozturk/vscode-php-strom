@@ -121,6 +121,7 @@ func NewHandler(srv *Server) *Handler {
 		initialIndexDone:       make(chan struct{}),
 		trace:                  &editorTraceRecorder{},
 	}
+	startMemoryWatchdog()
 
 	idx.OnIndexingStart(func() { srv.Notify("phpstrom/indexingStarted", nil) })
 	idx.OnIndexingProgress(func(done, total int) {
