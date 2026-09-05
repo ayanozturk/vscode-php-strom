@@ -35,7 +35,8 @@ export async function run(): Promise<void> {
   const manifest = extension.packageJSON as ExtensionManifest;
   const commands = manifest.contributes?.commands?.map(({ command }) => command) ?? [];
   assert.ok(commands.includes('phpstrom.restartServer'), 'expected restart command contribution');
-  assert.ok(commands.includes('phpstrom.indexWorkspace'), 'expected workspace index command contribution');
+  assert.ok(!commands.includes('phpstrom.problems.showListView'), 'expected list/tree problems toggle to be removed');
+  assert.ok(!commands.includes('phpstrom.problems.showTreeView'), 'expected list/tree problems toggle to be removed');
 
   const languages = manifest.contributes?.languages?.map(({ id }) => id) ?? [];
   assert.ok(languages.includes('php'), 'expected PHP language contribution');

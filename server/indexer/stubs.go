@@ -4,20 +4,21 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+
+	"github.com/ayanozturk/go-php-parser/phpstubs"
 )
 
 func (wi *WorkspaceIndexer) loadConfiguredStubs() {
-	if wi.cfg.StubsPath == "" || len(wi.cfg.Stubs) == 0 {
+	if len(wi.cfg.Stubs) == 0 {
 		return
 	}
 
 	for _, name := range wi.cfg.Stubs {
-		stubPath := wi.stubFilePath(name)
-		data, err := os.ReadFile(stubPath)
+		data, uri, err := wi.readStub(name)
 		if err != nil {
 			continue
 		}
-		parsed := ParseSourceForIndex(pathToURI(stubPath), string(data))
+		parsed := ParseSourceForIndex(uri, string(data))
 		if len(parsed.Errors) > 0 {
 			// The parser is intentionally error-tolerant and can return a useful
 			// declaration AST even when a stub contains syntax it does not yet
@@ -27,13 +28,24 @@ func (wi *WorkspaceIndexer) loadConfiguredStubs() {
 		}
 		wi.index.PutFile(parsed.URI, parsed.Symbols)
 		wi.mu.Lock()
-		key := projectIndexKey(parsed.URI)
-		wi.projectNodes[key] = parsed.Nodes
-		wi.projectHashes[key] = sourceHash(parsed.Text)
 		wi.stubURIs = append(wi.stubURIs, parsed.URI)
-		wi.rebuildProjectIndexFilesLocked(key)
 		wi.mu.Unlock()
 	}
+}
+
+func (wi *WorkspaceIndexer) readStub(name string) ([]byte, string, error) {
+	if wi.cfg.StubsPath != "" {
+		stubPath := wi.stubFilePath(name)
+		data, err := os.ReadFile(stubPath)
+		if err == nil {
+			return data, pathToURI(stubPath), nil
+		}
+	}
+	data, err := phpstubs.Read(wi.cfg.PHPVersion, name)
+	if err != nil {
+		return nil, "", err
+	}
+	return data, phpstubs.FileName(wi.cfg.PHPVersion, name), nil
 }
 
 func (wi *WorkspaceIndexer) stubFilePath(name string) string {

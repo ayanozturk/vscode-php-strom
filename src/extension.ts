@@ -85,14 +85,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       client?.sendNotification('phpstrom/scanWorkspaceDiagnostics');
     }),
 
-    vscode.commands.registerCommand('phpstrom.problems.showListView', () => {
-      diagnosticsTreeProvider.setViewMode('list');
-    }),
-
-    vscode.commands.registerCommand('phpstrom.problems.showTreeView', () => {
-      diagnosticsTreeProvider.setViewMode('tree');
-    }),
-
     vscode.commands.registerCommand('phpstrom.problems.setFilePathFilter', async () => {
       await diagnosticsTreeProvider.promptFilePathFilter();
     }),

@@ -125,7 +125,7 @@ func New(cfg Config) *WorkspaceIndexer {
 	wi := &WorkspaceIndexer{
 		cfg:              cfg,
 		index:            newIndex(),
-		project:          analyse.NewProjectIndex(),
+		project:          analyse.NewProjectIndexForVersion(cfg.PHPVersion),
 		projectNodes:     make(map[string][]ast.Node),
 		projectHashes:    make(map[string]uint64),
 		compiledExcludes: compileExcludePatterns(cfg.Exclude),
@@ -493,7 +493,7 @@ func (wi *WorkspaceIndexer) replaceWorkspaceProjectNodes(nodes map[string][]ast.
 func (wi *WorkspaceIndexer) rebuildProjectIndexLocked() {
 	parsed := make(map[string][]ast.Node, len(wi.projectNodes))
 	maps.Copy(parsed, wi.projectNodes)
-	wi.project = analyse.BuildProjectIndex(parsed)
+	wi.project = analyse.BuildProjectIndexForVersion(parsed, wi.cfg.PHPVersion)
 	wi.trace.fullBuilds.Add(1)
 	wi.recordSemanticChangesLocked(analyse.ProjectIndexChanges{Complete: false})
 }
@@ -1095,6 +1095,7 @@ func extractFromNodes(nodes []ast.Node, uri string, ctx extractionContext, syms 
 			for _, implemented := range n.Implements {
 				sym.Implements = append(sym.Implements, resolveClassLike(ctx, implemented))
 			}
+			sym.Traits = traitUsesFromMembers(n.Properties, ctx)
 			*syms = append(*syms, sym)
 			extractPHPDocMethods(n.PHPDoc, uri, classFQN, ctx, syms)
 			extractClassMembers(n, uri, classFQN, ctx, templates, syms)
@@ -1134,6 +1135,7 @@ func extractFromNodes(nodes []ast.Node, uri string, ctx extractionContext, syms 
 				Namespace:  ctx.namespace,
 				URI:        uri,
 				Range:      positionRange(n.GetPos()),
+				Traits:     traitUsesFromMembers(n.Body, ctx),
 				Visibility: "public",
 			})
 			extractTraitMembers(n.Body, uri, traitFQN, ctx, syms)
@@ -1180,6 +1182,22 @@ func extractFromNodes(nodes []ast.Node, uri string, ctx extractionContext, syms 
 			})
 		}
 	}
+}
+
+func traitUsesFromMembers(members []ast.Node, ctx extractionContext) []string {
+	var traits []string
+	for _, member := range members {
+		use, ok := member.(*ast.TraitUseNode)
+		if !ok {
+			continue
+		}
+		for _, trait := range use.Traits {
+			if resolved := resolveClassLike(ctx, trait); resolved != "" {
+				traits = append(traits, resolved)
+			}
+		}
+	}
+	return traits
 }
 
 func resolveClassLike(ctx extractionContext, name string) string {

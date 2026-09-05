@@ -60,6 +60,7 @@ type Symbol struct {
 	// Relationships
 	Extends        []string // FQNs of parent classes/interfaces
 	Implements     []string // FQNs of implemented interfaces
+	Traits         []string // FQNs of used traits
 	Templates      []string
 	GenericParents []GenericParent
 	DocComment     string

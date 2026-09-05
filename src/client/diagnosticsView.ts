@@ -1,6 +1,5 @@
 import * as vscode from 'vscode';
 
-type DiagnosticsViewMode = 'tree' | 'list';
 type ProblemCategoryKey = 'style' | 'staticAnalysis';
 type DiagnosticTypeFilter = 'all' | 'errors';
 
@@ -12,7 +11,7 @@ type ProblemCategoryNode = {
   fileCount: number;
   problemTypeCount: number;
   maxSeverity: vscode.DiagnosticSeverity;
-  children: ProblemTypeNode[] | ProblemListFileNode[];
+  children: ProblemTypeNode[];
 };
 
 type ProblemTypeNode = {
@@ -22,37 +21,7 @@ type ProblemTypeNode = {
   diagnosticsCount: number;
   fileCount: number;
   maxSeverity: vscode.DiagnosticSeverity;
-  children: ProblemChildNode[] | ProblemListFileNode[];
-};
-
-type ProblemFolderNode = {
-  kind: 'folder';
-  id: string;
-  label: string;
-  relativePath: string;
-  diagnosticsCount: number;
-  fileCount: number;
-  maxSeverity: vscode.DiagnosticSeverity;
-  children: ProblemChildNode[];
-};
-
-type ProblemFileNode = {
-  kind: 'file';
-  id: string;
-  uri: vscode.Uri;
-  relativePath: string;
-  diagnosticsCount: number;
-  maxSeverity: vscode.DiagnosticSeverity;
-  diagnostics: ProblemDiagnosticNode[];
-};
-
-type ProblemDiagnosticNode = {
-  kind: 'diagnostic';
-  id: string;
-  uri: vscode.Uri;
-  diagnostic: vscode.Diagnostic;
-  label: string;
-  description: string;
+  children: ProblemListFileNode[];
 };
 
 type ProblemListFileNode = {
@@ -69,22 +38,7 @@ type ProblemListFileNode = {
   description: string;
 };
 
-type ProblemChildNode = ProblemFolderNode | ProblemFileNode;
-
-type DiagnosticNavigationNode = ProblemDiagnosticNode | ProblemListFileNode;
-
-type DiagnosticsViewNode = ProblemCategoryNode | ProblemTypeNode | ProblemFolderNode | ProblemFileNode | ProblemDiagnosticNode | ProblemListFileNode;
-
-type FolderAccumulator = {
-  id: string;
-  label: string;
-  relativePath: string;
-  diagnosticsCount: number;
-  fileCount: number;
-  maxSeverity: vscode.DiagnosticSeverity;
-  folders: Map<string, FolderAccumulator>;
-  files: ProblemFileNode[];
-};
+type DiagnosticsViewNode = ProblemCategoryNode | ProblemTypeNode | ProblemListFileNode;
 
 type ViewStats = {
   totalDiagnostics: number;
@@ -106,7 +60,6 @@ export class ProjectDiagnosticsTreeProvider implements vscode.TreeDataProvider<D
   private workspaceScanInProgress = false;
   private workspaceScanProgress = { done: 0, total: 0 };
   private lastScanSummary: ScanSummary | undefined;
-  private viewMode: DiagnosticsViewMode = 'tree';
   private filePathFilter = '';
   private filePathFilterRegex = false;
   private filePathFilterRegexError: string | undefined;
@@ -116,7 +69,6 @@ export class ProjectDiagnosticsTreeProvider implements vscode.TreeDataProvider<D
 
   setView(view: vscode.TreeView<DiagnosticsViewNode>): void {
     this.view = view;
-    void this.updateViewModeContext();
     this.updateFilterContexts();
     this.updateViewPresentation();
   }
@@ -172,17 +124,6 @@ export class ProjectDiagnosticsTreeProvider implements vscode.TreeDataProvider<D
 
     this.diagnosticTypeFilter = nextFilter;
     this.updateFilterContexts();
-    this.updateViewPresentation();
-    this.treeDataEmitter.fire();
-  }
-
-  setViewMode(mode: DiagnosticsViewMode): void {
-    if (this.viewMode === mode) {
-      return;
-    }
-
-    this.viewMode = mode;
-    void this.updateViewModeContext();
     this.updateViewPresentation();
     this.treeDataEmitter.fire();
   }
@@ -282,55 +223,6 @@ export class ProjectDiagnosticsTreeProvider implements vscode.TreeDataProvider<D
         };
         return item;
       }
-      case 'file': {
-        const item = new vscode.TreeItem(
-          element.uri,
-          vscode.TreeItemCollapsibleState.Collapsed,
-        );
-        item.id = element.id;
-        item.resourceUri = element.uri;
-        item.description = `${formatCount(element.diagnosticsCount)} issue${element.diagnosticsCount === 1 ? '' : 's'}`;
-        item.iconPath = iconForSeverity(element.maxSeverity);
-        item.tooltip = `${element.relativePath}\n${formatCount(element.diagnosticsCount)} diagnostic${element.diagnosticsCount === 1 ? '' : 's'}`;
-        item.accessibilityInformation = {
-          label: `${element.relativePath}, ${formatCount(element.diagnosticsCount)} diagnostics`,
-          role: 'treeitem',
-        };
-        return item;
-      }
-      case 'folder': {
-        const item = new vscode.TreeItem(
-          element.label,
-          vscode.TreeItemCollapsibleState.Collapsed,
-        );
-        item.id = element.id;
-        item.description = `${formatCount(element.diagnosticsCount)} issues • ${formatCount(element.fileCount)} files`;
-        item.iconPath = new vscode.ThemeIcon('folder');
-        item.tooltip = `${element.relativePath}\n${formatCount(element.diagnosticsCount)} diagnostic${element.diagnosticsCount === 1 ? '' : 's'} in ${formatCount(element.fileCount)} file${element.fileCount === 1 ? '' : 's'}`;
-        return item;
-      }
-      case 'diagnostic': {
-        const item = new vscode.TreeItem(
-          element.label,
-          vscode.TreeItemCollapsibleState.None,
-        );
-        item.id = element.id;
-        item.description = element.description;
-        item.iconPath = iconForSeverity(element.diagnostic.severity ?? vscode.DiagnosticSeverity.Warning);
-        item.tooltip = new vscode.MarkdownString([
-          `**${element.label}**`,
-          '',
-          `${element.description}`,
-          '',
-          `${vscode.workspace.asRelativePath(element.uri, false)}`,
-        ].join('\n'));
-        item.command = {
-          command: 'phpstrom.problems.openDiagnostic',
-          title: 'Open Diagnostic',
-          arguments: [element],
-        };
-        return item;
-      }
       case 'listFile': {
         const item = new vscode.TreeItem(
           element.label,
@@ -376,19 +268,7 @@ export class ProjectDiagnosticsTreeProvider implements vscode.TreeDataProvider<D
       return element.children;
     }
 
-    if (element.kind === 'folder') {
-      return element.children;
-    }
-
-    if (element.kind === 'file') {
-      return element.diagnostics;
-    }
-
     return [];
-  }
-
-  private updateViewModeContext(): Thenable<void> {
-    return vscode.commands.executeCommand('setContext', 'phpstromProblems.viewMode', this.viewMode);
   }
 
   private updateFilterContexts(): void {
@@ -453,11 +333,6 @@ export class ProjectDiagnosticsTreeProvider implements vscode.TreeDataProvider<D
       totalDiagnostics += category.diagnosticsCount;
       totalProblemTypes += category.problemTypeCount;
       for (const child of category.children) {
-        if (child.kind === 'listFile') {
-          fileUris.add(child.uri.toString());
-          continue;
-        }
-
         for (const uri of collectProblemTypeFileUris(child.children)) {
           fileUris.add(uri);
         }
@@ -475,105 +350,7 @@ export class ProjectDiagnosticsTreeProvider implements vscode.TreeDataProvider<D
   private buildProblemCategoryNodes(): ProblemCategoryNode[] {
     const matchesPath = this.createPathFilterPredicate();
     const matchesDiagnostic = this.createDiagnosticTypeFilterPredicate();
-    if (this.viewMode === 'list') {
-      return this.buildListCategoryNodes(matchesPath, matchesDiagnostic);
-    }
-
-    const categories = new Map<ProblemCategoryKey, {
-      label: string;
-      problemTypes: Map<string, { label: string; files: Map<string, ProblemFileNode> }>;
-    }>();
-
-    for (const [uriString, diagnostics] of this.diagnosticsByUri.entries()) {
-      const uri = vscode.Uri.parse(uriString);
-      const relativePath = vscode.workspace.asRelativePath(uri, false);
-
-      if (!matchesPath(relativePath)) {
-        continue;
-      }
-
-      for (const diagnostic of diagnostics) {
-        if (!matchesDiagnostic(diagnostic)) {
-          continue;
-        }
-
-        const categoryInfo = getDiagnosticCategory(diagnostic);
-        let category = categories.get(categoryInfo.key);
-        if (!category) {
-          category = {
-            label: categoryInfo.label,
-            problemTypes: new Map<string, { label: string; files: Map<string, ProblemFileNode> }>(),
-          };
-          categories.set(categoryInfo.key, category);
-        }
-
-        const groupKey = getDiagnosticGroupKey(diagnostic);
-        const scopedGroupKey = `${categoryInfo.key}:${groupKey}`;
-        let group = category.problemTypes.get(groupKey);
-        if (!group) {
-          group = {
-            label: getDiagnosticGroupLabel(diagnostic),
-            files: new Map<string, ProblemFileNode>(),
-          };
-          category.problemTypes.set(groupKey, group);
-        }
-
-        let file = group.files.get(uriString);
-        if (!file) {
-          file = {
-            kind: 'file',
-            id: `file:${scopedGroupKey}:${uriString}`,
-            uri,
-            relativePath,
-            diagnosticsCount: 0,
-            maxSeverity: vscode.DiagnosticSeverity.Hint,
-            diagnostics: [],
-          };
-          group.files.set(uriString, file);
-        }
-
-        const location = formatDiagnosticLocation(diagnostic.range.start);
-        file.diagnostics.push({
-          kind: 'diagnostic',
-          id: `diagnostic:${scopedGroupKey}:${uriString}:${diagnostic.range.start.line}:${diagnostic.range.start.character}:${diagnostic.message}`,
-          uri,
-          diagnostic,
-          label: diagnostic.message,
-          description: location,
-        });
-        file.diagnosticsCount += 1;
-        file.maxSeverity = maxSeverity(file.maxSeverity, diagnostic.severity);
-      }
-    }
-
-    return [...categories.entries()]
-      .map(([categoryKey, category]): ProblemCategoryNode => {
-        const problemTypes = buildProblemTypeNodes(categoryKey, category.problemTypes);
-        const fileUris = new Set<string>();
-        const diagnosticsCount = problemTypes.reduce((total, problemType) => total + problemType.diagnosticsCount, 0);
-        const maxCategorySeverity = problemTypes.reduce(
-          (severity, problemType) => maxSeverity(severity, problemType.maxSeverity),
-          vscode.DiagnosticSeverity.Hint,
-        );
-
-        for (const problemType of problemTypes) {
-          for (const uri of collectProblemTypeFileUris(problemType.children)) {
-            fileUris.add(uri);
-          }
-        }
-
-        return {
-          kind: 'category',
-          id: categoryKey,
-          label: category.label,
-          diagnosticsCount,
-          fileCount: fileUris.size,
-          problemTypeCount: problemTypes.length,
-          maxSeverity: maxCategorySeverity,
-          children: problemTypes,
-        };
-      })
-      .sort((left, right) => categorySortOrder(left.id) - categorySortOrder(right.id));
+    return this.buildListCategoryNodes(matchesPath, matchesDiagnostic);
   }
 
   private buildListCategoryNodes(
@@ -656,9 +433,7 @@ export class ProjectDiagnosticsTreeProvider implements vscode.TreeDataProvider<D
 
         for (const problemType of problemTypes) {
           for (const file of problemType.children) {
-            if (file.kind === 'listFile') {
-              fileUris.add(file.uri.toString());
-            }
+            fileUris.add(file.uri.toString());
           }
         }
 
@@ -722,46 +497,6 @@ export class ProjectDiagnosticsTreeProvider implements vscode.TreeDataProvider<D
   }
 }
 
-function buildProblemTypeNodes(
-  categoryKey: ProblemCategoryKey,
-  groups: Map<string, { label: string; files: Map<string, ProblemFileNode> }>,
-): ProblemTypeNode[] {
-  return [...groups.entries()]
-    .map(([groupKey, group]): ProblemTypeNode => {
-      const scopedGroupKey = `${categoryKey}:${groupKey}`;
-      const files = [...group.files.values()]
-        .map((file) => ({
-          ...file,
-          diagnostics: file.diagnostics.sort(compareDiagnostics),
-        }))
-        .sort((left, right) => left.relativePath.localeCompare(right.relativePath));
-      const children = buildFolderTree(scopedGroupKey, files);
-
-      const diagnosticsCount = files.reduce((total, file) => total + file.diagnosticsCount, 0);
-      const maxGroupSeverity = files.reduce(
-        (severity, file) => maxSeverity(severity, file.maxSeverity),
-        vscode.DiagnosticSeverity.Hint,
-      );
-
-      return {
-        kind: 'problemType',
-        id: `problemType:${scopedGroupKey}`,
-        label: group.label,
-        diagnosticsCount,
-        fileCount: files.length,
-        maxSeverity: maxGroupSeverity,
-        children,
-      };
-    })
-    .sort((left, right) => {
-      if (right.diagnosticsCount !== left.diagnosticsCount) {
-        return right.diagnosticsCount - left.diagnosticsCount;
-      }
-
-      return left.label.localeCompare(right.label);
-    });
-}
-
 function buildListProblemTypeNodes(
   categoryKey: ProblemCategoryKey,
   groups: Map<string, {
@@ -818,9 +553,9 @@ function buildListProblemTypeNodes(
     });
 }
 
-export async function openDiagnosticNode(node: DiagnosticNavigationNode): Promise<void> {
+export async function openDiagnosticNode(node: ProblemListFileNode): Promise<void> {
   const document = await vscode.workspace.openTextDocument(node.uri);
-  const diagnostic = node.kind === 'listFile' ? node.firstDiagnostic : node.diagnostic;
+  const diagnostic = node.firstDiagnostic;
   const editor = await vscode.window.showTextDocument(document, {
     preview: true,
     selection: new vscode.Range(diagnostic.range.start, diagnostic.range.end),
@@ -854,111 +589,8 @@ function compareDiagnosticPositions(left: vscode.Diagnostic, right: vscode.Diagn
   return left.message.localeCompare(right.message);
 }
 
-function compareDiagnostics(left: ProblemDiagnosticNode, right: ProblemDiagnosticNode): number {
-  if (left.diagnostic.range.start.line !== right.diagnostic.range.start.line) {
-    return left.diagnostic.range.start.line - right.diagnostic.range.start.line;
-  }
-
-  if (left.diagnostic.range.start.character !== right.diagnostic.range.start.character) {
-    return left.diagnostic.range.start.character - right.diagnostic.range.start.character;
-  }
-
-  return left.label.localeCompare(right.label);
-}
-
-function buildFolderTree(groupKey: string, files: ProblemFileNode[]): ProblemChildNode[] {
-  const root: FolderAccumulator = {
-    id: `folder:${groupKey}:root`,
-    label: '',
-    relativePath: '',
-    diagnosticsCount: 0,
-    fileCount: 0,
-    maxSeverity: vscode.DiagnosticSeverity.Hint,
-    folders: new Map<string, FolderAccumulator>(),
-    files: [],
-  };
-
-  for (const file of files) {
-    const segments = splitRelativePath(file.relativePath);
-    const directorySegments = segments.slice(0, -1);
-    let current = root;
-
-    for (const segment of directorySegments) {
-      let next = current.folders.get(segment);
-      if (!next) {
-        const relativePath = current.relativePath ? `${current.relativePath}/${segment}` : segment;
-        next = {
-          id: `folder:${groupKey}:${relativePath}`,
-          label: segment,
-          relativePath,
-          diagnosticsCount: 0,
-          fileCount: 0,
-          maxSeverity: vscode.DiagnosticSeverity.Hint,
-          folders: new Map<string, FolderAccumulator>(),
-          files: [],
-        };
-        current.folders.set(segment, next);
-      }
-
-      next.diagnosticsCount += file.diagnosticsCount;
-      next.fileCount += 1;
-      next.maxSeverity = maxSeverity(next.maxSeverity, file.maxSeverity);
-      current = next;
-    }
-
-    current.files.push(file);
-  }
-
-  return materializeFolderChildren(root);
-}
-
-function materializeFolderChildren(folder: FolderAccumulator): ProblemChildNode[] {
-  const folders = [...folder.folders.values()]
-    .sort((left, right) => left.relativePath.localeCompare(right.relativePath))
-    .map((child): ProblemFolderNode => ({
-      kind: 'folder',
-      id: child.id,
-      label: child.label,
-      relativePath: child.relativePath,
-      diagnosticsCount: child.diagnosticsCount,
-      fileCount: child.fileCount,
-      maxSeverity: child.maxSeverity,
-      children: materializeFolderChildren(child),
-    }));
-
-  const files = [...folder.files].sort((left, right) => left.relativePath.localeCompare(right.relativePath));
-  return [...folders, ...files];
-}
-
-function collectFiles(children: ProblemChildNode[]): ProblemFileNode[] {
-  const files: ProblemFileNode[] = [];
-
-  for (const child of children) {
-    if (child.kind === 'file') {
-      files.push(child);
-      continue;
-    }
-
-    files.push(...collectFiles(child.children));
-  }
-
-  return files;
-}
-
-function collectProblemTypeFileUris(children: ProblemTypeNode['children']): string[] {
-  if (children.length === 0) {
-    return [];
-  }
-
-  if (children[0].kind === 'listFile') {
-    return (children as ProblemListFileNode[]).map((child) => child.uri.toString());
-  }
-
-  return collectFiles(children as ProblemChildNode[]).map((file) => file.uri.toString());
-}
-
-function splitRelativePath(relativePath: string): string[] {
-  return relativePath.split(/[\\/]+/).filter((segment) => segment.length > 0);
+function collectProblemTypeFileUris(children: ProblemListFileNode[]): string[] {
+  return children.map((child) => child.uri.toString());
 }
 
 function getDiagnosticGroupKey(diagnostic: vscode.Diagnostic): string {
@@ -1019,10 +651,6 @@ function categorySortOrder(category: ProblemCategoryKey): number {
     case 'staticAnalysis':
       return 1;
   }
-}
-
-function formatDiagnosticLocation(position: vscode.Position): string {
-  return `Line ${position.line + 1}, Col ${position.character + 1}`;
 }
 
 function formatCount(count: number): string {

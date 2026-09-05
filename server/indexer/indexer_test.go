@@ -352,6 +352,41 @@ class ArrayCollection implements Collection {}
 	t.Fatal("expected ArrayCollection symbol")
 }
 
+func TestExtractSymbolsIndexesTraitUsesOnClassesAndTraits(t *testing.T) {
+	src := `<?php
+namespace Symfony\Bundle\FrameworkBundle\Test;
+
+trait BrowserKitAssertionsTrait {}
+
+trait WebTestAssertionsTrait
+{
+    use BrowserKitAssertionsTrait;
+}
+
+class WebTestCase
+{
+    use WebTestAssertionsTrait;
+}
+`
+
+	syms := extractSymbols("file:///test.php", src)
+	var webTestCase, assertionsTrait *Symbol
+	for _, sym := range syms {
+		switch {
+		case sym.Kind == KindClass && sym.Name == "WebTestCase":
+			webTestCase = sym
+		case sym.Kind == KindModule && sym.Name == "WebTestAssertionsTrait":
+			assertionsTrait = sym
+		}
+	}
+	if webTestCase == nil || len(webTestCase.Traits) != 1 || webTestCase.Traits[0] != `\Symfony\Bundle\FrameworkBundle\Test\WebTestAssertionsTrait` {
+		t.Fatalf("expected WebTestCase trait use, got %#v", webTestCase)
+	}
+	if assertionsTrait == nil || len(assertionsTrait.Traits) != 1 || assertionsTrait.Traits[0] != `\Symfony\Bundle\FrameworkBundle\Test\BrowserKitAssertionsTrait` {
+		t.Fatalf("expected composed trait use, got %#v", assertionsTrait)
+	}
+}
+
 func TestConfiguredStubsAreIndexed(t *testing.T) {
 	stubsPath, err := filepath.Abs("../../stubs")
 	if err != nil {

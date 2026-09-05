@@ -1623,6 +1623,49 @@ class Controller
 	}
 }
 
+func TestDiagnosticsProvider_UsesIndexedVendorTraitMethodsForInvocation(t *testing.T) {
+	idx := indexer.New(indexer.Config{})
+	idx.IndexDocument("file:///workspace/vendor/symfony/framework-bundle/Test/WebTestCase.php", `<?php
+namespace Symfony\Bundle\FrameworkBundle\Test;
+
+trait BrowserKitAssertionsTrait
+{
+    public static function assertResponseIsSuccessful(string $message = ''): void {}
+}
+
+trait WebTestAssertionsTrait
+{
+    use BrowserKitAssertionsTrait;
+}
+
+class WebTestCase
+{
+    use WebTestAssertionsTrait;
+}
+`)
+
+	p := &DiagnosticsProvider{idx: idx}
+	diags := p.Analyse("file:///workspace/tests/ShiftAssignmentWorkspaceRoutesTest.php", `<?php
+namespace App\Tests\Integration\Module\Shift\Controller;
+
+use Symfony\Bundle\FrameworkBundle\Test\WebTestCase;
+
+final class ShiftAssignmentWorkspaceRoutesTest extends WebTestCase
+{
+    public function testIndexRouteRendersWithSharedWorkspaceNavigation(): void
+    {
+        $this->assertResponseIsSuccessful();
+    }
+}
+`)
+
+	for _, diag := range diags {
+		if strings.Contains(diag.Message, "assertResponseIsSuccessful") {
+			t.Fatalf("expected inherited nested trait method to resolve, got %+v", diag)
+		}
+	}
+}
+
 func TestDiagnosticsProvider_UsesIndexedVendorParentMethodsForInvocation(t *testing.T) {
 	idx := indexer.New(indexer.Config{})
 	idx.IndexDocument("file:///workspace/vendor/phpunit/TestCase.php", `<?php

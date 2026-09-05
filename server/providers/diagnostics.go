@@ -248,6 +248,7 @@ func (r workspaceSymbolResolver) ResolveClass(name string) (analyse.ResolvedClas
 		Name:       sym.FQN,
 		Extends:    append([]string(nil), sym.Extends...),
 		Implements: append([]string(nil), sym.Implements...),
+		Traits:     append([]string(nil), sym.Traits...),
 		Kind:       resolvedClassKind(sym.Kind),
 		Final:      sym.IsFinal,
 		Abstract:   sym.IsAbstract,
@@ -303,7 +304,7 @@ func (r workspaceSymbolResolver) resolveMethodWithTemplates(className, methodNam
 		}
 		return method, true
 	}
-	parents := append(append([]string(nil), classSym.Extends...), classSym.Implements...)
+	parents := append(append(append([]string(nil), classSym.Extends...), classSym.Implements...), classSym.Traits...)
 	for _, parentName := range parents {
 		parentSym, parentOK := r.resolveClassSymbol(parentName)
 		if !parentOK {
@@ -483,6 +484,9 @@ func (r workspaceSymbolResolver) classLineage(className string) []string {
 		}
 		for _, iface := range class.Implements {
 			walk(iface)
+		}
+		for _, trait := range class.Traits {
+			walk(trait)
 		}
 	}
 	walk(className)
