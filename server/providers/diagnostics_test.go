@@ -2178,3 +2178,45 @@ function outside(?Lantern $lamp): string {
 		t.Fatalf("expected one unguarded argument error, got %+v", diags)
 	}
 }
+
+func TestDiagnosticsProvider_PropertyGuardsPreserveReceiverIdentity(t *testing.T) {
+	p := &DiagnosticsProvider{}
+	source := `<?php
+class Beacon { public function ping(): string { return 'ready'; } }
+function useBeacon(Beacon $beacon): string { return $beacon->ping(); }
+class Harbor {
+    public ?Beacon $beacon;
+    public function guarded(): string {
+        if ($this->beacon === null) { return ''; }
+        return $this->beacon->ping();
+    }
+    public function fallback(): Beacon { return $this->beacon ?: new Beacon(); }
+    public function other(Harbor $other): string {
+        if ($this->beacon === null) { return ''; }
+        return useBeacon($other->beacon);
+    }
+    public function reset(): string {
+        if ($this->beacon === null) { return ''; }
+        $this->beacon = null;
+        return useBeacon($this->beacon);
+    }
+}
+`
+	diags := p.Analyse("file:///property-guards.php", source)
+	var argumentErrors int
+	for _, diag := range diags {
+		code, _ := diag.Code.(string)
+		if code == "A.RETURN.TYPE" || code == "Level8.MethodNonObject" {
+			t.Fatalf("unexpected guarded expression error: %+v", diag)
+		}
+		if code == "A.ARG.TYPE" {
+			argumentErrors++
+			if diag.Range.Start.Line != 12 && diag.Range.Start.Line != 17 {
+				t.Fatalf("argument error escaped invalid controls: %+v", diag)
+			}
+		}
+	}
+	if argumentErrors != 2 {
+		t.Fatalf("expected both invalid property arguments, got %+v", diags)
+	}
+}
