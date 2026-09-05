@@ -112,17 +112,12 @@ func (r projectFallbackResolver) MethodsDeclaredBy(className string) []analyse.R
 }
 
 func (r projectFallbackResolver) ResolveProperty(className, propertyName string) (analyse.ResolvedProperty, bool) {
-	for _, candidate := range r.classLineage(className) {
-		if r.project != nil {
-			if property, ok := resolveDirectProjectProperty(r.project, candidate, propertyName); ok {
-				return property, true
-			}
-		}
-		if property, ok := r.fallback.resolveDirectProperty(candidate, propertyName); ok {
+	if r.project != nil {
+		if property, ok := r.project.ResolveProperty(className, propertyName); ok {
 			return property, true
 		}
 	}
-	return analyse.ResolvedProperty{}, false
+	return r.fallback.ResolveProperty(className, propertyName)
 }
 
 func (r projectFallbackResolver) ResolveConstant(className, constantName string) (analyse.ResolvedConstant, bool) {
@@ -209,25 +204,6 @@ func resolveDirectProjectMethod(project *analyse.ProjectIndex, className, method
 	}
 	method.DeclaringClass = className
 	return method, true
-}
-
-func resolveDirectProjectProperty(project *analyse.ProjectIndex, className, propertyName string) (analyse.ResolvedProperty, bool) {
-	if project == nil {
-		return analyse.ResolvedProperty{}, false
-	}
-	class, ok := project.ResolveClass(className)
-	if ok {
-		className = class.Name
-	}
-	properties := project.Properties[resolverIndexKey(className)]
-	if properties == nil {
-		return analyse.ResolvedProperty{}, false
-	}
-	property, ok := properties[strings.ToLower(strings.TrimPrefix(propertyName, "$"))]
-	if !ok {
-		return analyse.ResolvedProperty{}, false
-	}
-	return property, true
 }
 
 func resolverIndexKey(name string) string {

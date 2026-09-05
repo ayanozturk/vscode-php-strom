@@ -397,6 +397,48 @@ func TestMatchSimpleMatchesVendorRootPattern(t *testing.T) {
 	}
 }
 
+func TestExtractSymbolsIndexesEnumNativePropertiesAndMethods(t *testing.T) {
+	src := `<?php
+namespace App\Module\Subscription\Enum;
+
+enum InvoiceStatus: int {
+    case PENDING = 1;
+
+    public function isPending(): bool {
+        return $this->value === self::PENDING->value;
+    }
+}
+
+enum UnitStatus {
+    case Ready;
+}
+`
+	syms := extractSymbols("file:///test.php", src)
+	byFQN := map[string]*Symbol{}
+	for _, sym := range syms {
+		byFQN[sym.FQN] = sym
+	}
+
+	value, ok := byFQN[`\App\Module\Subscription\Enum\InvoiceStatus::$value`]
+	if !ok || value.Kind != KindProperty || value.Type != "int" || !value.IsReadonly {
+		t.Fatalf("expected backed enum $value property, got %#v, %v", value, ok)
+	}
+	name, ok := byFQN[`\App\Module\Subscription\Enum\InvoiceStatus::$name`]
+	if !ok || name.Kind != KindProperty || name.Type != "string" {
+		t.Fatalf("expected enum $name property, got %#v, %v", name, ok)
+	}
+	method, ok := byFQN[`\App\Module\Subscription\Enum\InvoiceStatus::isPending`]
+	if !ok || method.Kind != KindMethod {
+		t.Fatalf("expected enum instance method, got %#v, %v", method, ok)
+	}
+	if _, ok := byFQN[`\App\Module\Subscription\Enum\UnitStatus::$name`]; !ok {
+		t.Fatal("expected unit enum $name property")
+	}
+	if _, ok := byFQN[`\App\Module\Subscription\Enum\UnitStatus::$value`]; ok {
+		t.Fatal("did not expect unit enum $value property")
+	}
+}
+
 func TestMatchSimpleMatchesVendorTestsPattern(t *testing.T) {
 	if !matchSimple("**/vendor/**/{Tests,tests}/**", "/workspace/project/vendor/symfony/http-foundation/Tests") {
 		t.Fatal("expected Tests directory under vendor to match exclude pattern")

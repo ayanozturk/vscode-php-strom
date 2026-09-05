@@ -23,6 +23,8 @@ func inferVariableFlowHoverType(nodes []ast.Node, targetLine int, variableName s
 				walk(n.Body)
 			case *ast.ClassNode:
 				walk(n.Methods)
+			case *ast.EnumNode:
+				walk(n.Methods)
 			case *ast.FunctionNode:
 				if nodesContainVariableAtLine(n.Body, targetLine, variableName) {
 					result, _ = inferVariableTypeThroughStatements(nodes, n.Body, targetLine, variableName, ctx)

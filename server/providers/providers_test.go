@@ -478,3 +478,64 @@ class Session
 		t.Fatalf("expected unresolved chain hover to still show mixed type, got %q", hover.Contents.Value)
 	}
 }
+
+func TestHoverProviderResolvesBackedEnumValueInsteadOfUnrelatedClass(t *testing.T) {
+	idx := indexer.New(indexer.Config{})
+	idx.IndexDocument("file:///workspace/vendor/Doctrine/Value.php", `<?php
+namespace Doctrine\Common\Collections\Expr;
+
+/** @final since 2.5 */
+class Value {}
+`)
+
+	uri := "file:///workspace/InvoiceStatus.php"
+	text := `<?php
+namespace App\Module\Subscription\Enum;
+
+enum InvoiceStatus: int {
+    case PENDING = 1;
+
+    public function isPending(): bool {
+        return $this->value === self::PENDING->value;
+    }
+}
+`
+	idx.IndexDocument(uri, text)
+	provider := &HoverProvider{idx: idx, cache: newSemanticDocumentCache()}
+
+	lines := strings.Split(text, "\n")
+	line := 0
+	for i, contents := range lines {
+		if strings.Contains(contents, "$this->value") {
+			line = i
+			break
+		}
+	}
+	if line == 0 {
+		t.Fatal("expected $this->value in fixture")
+	}
+	thisValueCol := strings.Index(lines[line], "value")
+	caseValueCol := strings.LastIndex(lines[line], "value")
+
+	thisHover := provider.Provide(uri, text, lsp.Position{Line: uint32(line), Character: uint32(thisValueCol + 1)})
+	if thisHover == nil {
+		t.Fatal("expected hover for $this->value")
+	}
+	if strings.Contains(thisHover.Contents.Value, `Doctrine\Common\Collections\Expr\Value`) {
+		t.Fatalf("expected enum $value hover not to resolve Doctrine Value, got %q", thisHover.Contents.Value)
+	}
+	if !strings.Contains(thisHover.Contents.Value, "int") {
+		t.Fatalf("expected int type for backed enum $value, got %q", thisHover.Contents.Value)
+	}
+	if !strings.Contains(thisHover.Contents.Value, `InvoiceStatus::$value`) {
+		t.Fatalf("expected InvoiceStatus::$value symbol in hover, got %q", thisHover.Contents.Value)
+	}
+
+	caseHover := provider.Provide(uri, text, lsp.Position{Line: uint32(line), Character: uint32(caseValueCol + 1)})
+	if caseHover == nil {
+		t.Fatal("expected hover for enum-case ->value")
+	}
+	if strings.Contains(caseHover.Contents.Value, `Doctrine\Common\Collections\Expr\Value`) {
+		t.Fatalf("expected enum-case $value hover not to resolve Doctrine Value, got %q", caseHover.Contents.Value)
+	}
+}

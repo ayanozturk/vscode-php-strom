@@ -2185,6 +2185,35 @@ class Entity
 	}
 }
 
+func TestDiagnosticsProvider_AcceptsBackedEnumNativeProperties(t *testing.T) {
+	idx := indexer.New(indexer.Config{})
+	idx.IndexDocument("file:///workspace/vendor/Doctrine/Value.php", `<?php
+namespace Doctrine\Common\Collections\Expr;
+
+class Value {}
+`)
+	uri := "file:///workspace/InvoiceStatus.php"
+	source := `<?php
+namespace App\Module\Subscription\Enum;
+
+enum InvoiceStatus: int {
+    case PENDING = 1;
+    case PAID = 2;
+
+    public function isPending(): bool {
+        return $this->value === self::PENDING->value;
+    }
+}
+`
+	idx.IndexDocument(uri, source)
+	diagnostics := (&DiagnosticsProvider{idx: idx, cache: newSemanticDocumentCache()}).Analyse(uri, source)
+	for _, diagnostic := range diagnostics {
+		if diagnostic.Code == "Level0.Symbols" && strings.Contains(diagnostic.Message, "undefined property") && strings.Contains(diagnostic.Message, "$value") {
+			t.Fatalf("expected backed enum $value to be defined, got %#v", diagnostics)
+		}
+	}
+}
+
 func TestLineColToRange(t *testing.T) {
 	r := lineColToRange(5, 10)
 	if r.Start.Line != 4 || r.Start.Character != 9 {

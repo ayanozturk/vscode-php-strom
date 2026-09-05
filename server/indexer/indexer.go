@@ -1148,8 +1148,9 @@ func extractFromNodes(nodes []ast.Node, uri string, ctx extractionContext, syms 
 				URI:        uri,
 				Range:      positionRange(n.GetPos()),
 				Visibility: "public",
+				IsFinal:    true,
 			})
-			extractEnumCases(n.Cases, uri, enumFQN, syms)
+			extractEnumMembers(n, uri, enumFQN, ctx, syms)
 
 		case *ast.FunctionNode:
 			functionFQN := fqn(ctx.namespace, n.Name)
@@ -1628,6 +1629,57 @@ func extractInterfaceMembers(members []ast.Node, uri, interfaceFQN string, ctx e
 			})
 		}
 	}
+}
+
+func extractEnumMembers(enum *ast.EnumNode, uri, enumFQN string, ctx extractionContext, syms *[]*Symbol) {
+	enumRange := positionRange(enum.GetPos())
+	*syms = append(*syms, &Symbol{
+		FQN:        enumFQN + "::$name",
+		Name:       "name",
+		Kind:       KindProperty,
+		URI:        uri,
+		Range:      enumRange,
+		Type:       "string",
+		IsReadonly: true,
+		Visibility: "public",
+	})
+	backing := strings.ToLower(strings.TrimSpace(enum.BackedBy))
+	if backing == "int" || backing == "string" {
+		*syms = append(*syms, &Symbol{
+			FQN:        enumFQN + "::$value",
+			Name:       "value",
+			Kind:       KindProperty,
+			URI:        uri,
+			Range:      enumRange,
+			Type:       backing,
+			IsReadonly: true,
+			Visibility: "public",
+		})
+	}
+	for _, methodNode := range enum.Methods {
+		method, ok := methodNode.(*ast.FunctionNode)
+		if !ok {
+			continue
+		}
+		visibility := visibilityFromModifiers(method.Visibility, method.Modifiers)
+		returnType := method.ReturnType
+		if method.PHPDoc != nil && method.PHPDoc.ReturnType != "" {
+			returnType = method.PHPDoc.ReturnType
+		}
+		*syms = append(*syms, &Symbol{
+			FQN:        enumFQN + "::" + method.Name,
+			Name:       method.Name,
+			Kind:       KindMethod,
+			URI:        uri,
+			Range:      positionRange(method.GetPos()),
+			DocComment: docRaw(method.PHPDoc),
+			ReturnType: resolveTypeHint(ctx, returnType),
+			IsStatic:   hasModifierList(method.Modifiers, "static"),
+			Visibility: visibility,
+			Params:     extractParamsWithPHPDoc(ctx, method.Params, method.PHPDoc, nil),
+		})
+	}
+	extractEnumCases(enum.Cases, uri, enumFQN, syms)
 }
 
 func extractEnumCases(cases []*ast.EnumCaseNode, uri, enumFQN string, syms *[]*Symbol) {
