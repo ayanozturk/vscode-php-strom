@@ -23,6 +23,7 @@ type Config struct {
 	InlayHintsParamTypes    bool
 	InlayHintsReturnTypes   bool
 	DisabledAnalysis        DisabledAnalysis
+	AnalysisLevel           *int
 	DiagnosticsExclusions   DiagnosticsPathExclusions
 	DiagnosticsOverrides    *overrides.Compiled
 }

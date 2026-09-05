@@ -2,9 +2,12 @@ package phpstrom
 
 import "github.com/ayanozturk/vscode-php-strom/providers"
 
+const defaultAnalysisLevel = 9
+
 // AnalysisToggles controls which diagnostic families run. All correctness
 // checks default on; style and PSR-1 side-effects default off.
 type AnalysisToggles struct {
+	Level                 *int
 	SyntaxErrors          bool
 	UndefinedSymbols      bool
 	UndefinedVariables    bool
@@ -23,7 +26,9 @@ type AnalysisToggles struct {
 }
 
 func DefaultAnalysisToggles() AnalysisToggles {
+	level := defaultAnalysisLevel
 	return AnalysisToggles{
+		Level:                 &level,
 		SyntaxErrors:          true,
 		UndefinedSymbols:      true,
 		UndefinedVariables:    true,
@@ -70,6 +75,7 @@ func applyAnalysisToggles(dst *AnalysisToggles, diagnostics map[string]interface
 }
 
 func applyFlattenedAnalysisToggles(dst *AnalysisToggles, settings map[string]interface{}) {
+	applyAnalysisLevel(&dst.Level, settings["diagnostics.analysis.level"])
 	applyBool(&dst.UndefinedSymbols, settings["diagnostics.undefinedSymbols"])
 	applyBool(&dst.UndefinedVariables, settings["diagnostics.undefinedVariables"])
 	applyBool(&dst.TypeErrors, settings["diagnostics.typeErrors"])
@@ -97,6 +103,7 @@ func applyLegacyAnalysisToggles(dst *AnalysisToggles, diagnostics map[string]int
 }
 
 func applyAnalysisMap(dst *AnalysisToggles, analysis map[string]interface{}) {
+	applyAnalysisLevel(&dst.Level, analysis["level"])
 	applyBool(&dst.SyntaxErrors, analysis["syntaxErrors"])
 	applyBool(&dst.UndefinedSymbols, analysis["undefinedSymbols"])
 	applyBool(&dst.UndefinedVariables, analysis["undefinedVariables"])
@@ -118,6 +125,15 @@ func applyBool(dst *bool, raw interface{}) {
 	if v, ok := raw.(bool); ok {
 		*dst = v
 	}
+}
+
+func applyAnalysisLevel(dst **int, raw interface{}) {
+	n, ok := toInt64(raw)
+	if !ok || n < 0 {
+		return
+	}
+	level := int(n)
+	*dst = &level
 }
 
 func applyNestedEnable(dst *bool, settings map[string]interface{}, section, key string) {

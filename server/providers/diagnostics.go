@@ -720,6 +720,7 @@ func (p *DiagnosticsProvider) analyseParsed(cacheKey, filename, text string, nod
 	// Run analysis rules (assignment-in-condition, empty statements, etc.)
 	analysisCtx := p.cache.analysisContextForFile(p.idx, cacheKey, filename, text, nodes)
 	analysisCtx.PHPVersion = p.cfg.PHPVersion
+	analysisCtx.AnalysisLevel = p.cfg.AnalysisLevel
 	analysisCtx.DisabledIssueCodes = p.cfg.disabledAnalysisIssueCodes()
 	for _, issue := range analyse.FilterIssues(runAnalysisRulesForSource(filename, text, nodes, analysisCtx), p.cfg.DiagnosticsOverrides) {
 		sev := lsp.DiagSeverityWarning

@@ -2,6 +2,7 @@ package providers
 
 import (
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -805,6 +806,109 @@ throw new DateTime();
 			t.Fatalf("instance syntax for a static method should remain clean, got %#v", diagnostics)
 		}
 	}
+}
+
+func TestDiagnosticsProviderHonorsConfiguredAnalysisLevel(t *testing.T) {
+	source := `<?php
+class Visible {
+    protected function hidden(): void {}
+}
+class Available {
+    public function ping(): void {}
+}
+class MissingPing {}
+
+function usesMissing(): void {
+    unknown_function();
+    echo $undefined;
+    (new Visible())->hidden();
+    throw new DateTime();
+}
+
+function dead(): void {
+    return;
+    echo 1;
+}
+
+function takesInt(int $n): void {}
+
+function badArg(): void {
+    takesInt("nope");
+}
+
+function untyped($value) {
+    return $value;
+}
+
+function unionCall(Available|MissingPing $value): void {
+    $value->ping();
+}
+
+function nullableCall(?Available $value): void {
+    $value->ping();
+}
+
+function badReturn(): int {
+    return "x";
+}
+`
+	type levelExpectation struct {
+		code     string
+		minLevel int
+	}
+	expectations := []levelExpectation{
+		{code: "Level0.Symbols", minLevel: 0},
+		{code: "Level1.Variables", minLevel: 1},
+		{code: "Level2.MethodVisibility", minLevel: 2},
+		{code: "Level3.ThrowType", minLevel: 3},
+		{code: "A.RETURN.TYPE", minLevel: 3},
+		{code: "Generic.CodeAnalysis.UnreachableCode", minLevel: 4},
+		{code: "A.ARG.TYPE", minLevel: 5},
+		{code: "Level6.MissingParameterType", minLevel: 6},
+		{code: "Level7.MethodUnion", minLevel: 7},
+		{code: "Level8.MethodNonObject", minLevel: 8},
+	}
+
+	for _, level := range []int{0, 1, 2, 3, 4, 5, 6, 7, 8, 9} {
+		diagnostics := (&DiagnosticsProvider{cfg: Config{
+			AnalysisLevel:    &level,
+			DisabledAnalysis: DisabledAnalysis{Style: true},
+		}}).Analyse("file:///analysis-level.php", source)
+		for _, expectation := range expectations {
+			has := hasDiagnosticCode(diagnostics, expectation.code)
+			if level < expectation.minLevel {
+				if has {
+					t.Fatalf("level %d ran %s, which is registered at %d: %#v", level, expectation.code, expectation.minLevel, diagnostics)
+				}
+				continue
+			}
+			if !has {
+				t.Fatalf("level %d missing %s: %#v", level, expectation.code, diagnostics)
+			}
+		}
+		for _, diagnostic := range diagnostics {
+			code, _ := diagnostic.Code.(string)
+			if n, ok := analysisLevelFromCode(code); ok && n > level {
+				t.Fatalf("level %d emitted higher-level code %s: %#v", level, code, diagnostics)
+			}
+		}
+	}
+}
+
+func analysisLevelFromCode(code string) (int, bool) {
+	if !strings.HasPrefix(code, "Level") {
+		return 0, false
+	}
+	rest := strings.TrimPrefix(code, "Level")
+	idx := strings.IndexByte(rest, '.')
+	if idx <= 0 {
+		return 0, false
+	}
+	n, err := strconv.Atoi(rest[:idx])
+	if err != nil {
+		return 0, false
+	}
+	return n, true
 }
 
 func TestDiagnosticsProviderReportsBinaryAndInferredReturnTypes(t *testing.T) {

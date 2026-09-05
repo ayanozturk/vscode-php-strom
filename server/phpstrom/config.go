@@ -337,6 +337,7 @@ func (c *Config) toProviderConfig(folders []indexer.WorkspaceFolder) providers.C
 		InlayHintsParamTypes:    c.InlayHints.ParameterTypes,
 		InlayHintsReturnTypes:   c.InlayHints.ReturnTypes,
 		DisabledAnalysis:        c.Diagnostics.Analysis.toProviderDisables(),
+		AnalysisLevel:           c.Diagnostics.Analysis.Level,
 		DiagnosticsExclusions:   providers.BuildDiagnosticsPathExclusions(c.Diagnostics.Exclude, folders),
 		DiagnosticsOverrides:    matcher,
 	}

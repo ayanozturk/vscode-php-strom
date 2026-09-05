@@ -100,6 +100,12 @@ func TestUpdateLoadsDiagnosticToggles(t *testing.T) {
 
 func TestDefaultAnalysisTogglesDisableStyleAndSideEffects(t *testing.T) {
 	cfg := DefaultConfig()
+	if cfg.Diagnostics.Analysis.Level == nil || *cfg.Diagnostics.Analysis.Level != 9 {
+		t.Fatalf("expected default analysis level 9, got %#v", cfg.Diagnostics.Analysis.Level)
+	}
+	if cfg.toProviderConfig(nil).AnalysisLevel == nil || *cfg.toProviderConfig(nil).AnalysisLevel != 9 {
+		t.Fatalf("expected default analysis level to reach providers")
+	}
 	if cfg.Diagnostics.Analysis.Style || cfg.Diagnostics.Analysis.SideEffects {
 		t.Fatalf("expected style and side-effects analysis to be off by default, got %#v", cfg.Diagnostics.Analysis)
 	}
@@ -108,6 +114,30 @@ func TestDefaultAnalysisTogglesDisableStyleAndSideEffects(t *testing.T) {
 	}
 	if !cfg.toProviderConfig(nil).DisabledAnalysis.Style {
 		t.Fatal("expected default config to disable style diagnostics in providers")
+	}
+}
+
+func TestUpdateLoadsAnalysisLevel(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Update(map[string]interface{}{
+		"diagnostics": map[string]interface{}{
+			"analysis": map[string]interface{}{
+				"level": float64(2),
+			},
+		},
+	})
+	if cfg.Diagnostics.Analysis.Level == nil || *cfg.Diagnostics.Analysis.Level != 2 {
+		t.Fatalf("expected nested analysis level 2, got %#v", cfg.Diagnostics.Analysis.Level)
+	}
+	if got := cfg.toProviderConfig(nil).AnalysisLevel; got == nil || *got != 2 {
+		t.Fatalf("expected analysis level 2 to reach providers, got %#v", got)
+	}
+
+	cfg.Update(map[string]interface{}{
+		"diagnostics.analysis.level": float64(0),
+	})
+	if cfg.Diagnostics.Analysis.Level == nil || *cfg.Diagnostics.Analysis.Level != 0 {
+		t.Fatalf("expected flattened analysis level 0, got %#v", cfg.Diagnostics.Analysis.Level)
 	}
 }
 

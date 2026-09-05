@@ -80,6 +80,26 @@ func TestNonDiagnosticConfigurationChangeDoesNotStartWorkspaceScan(t *testing.T)
 	}
 }
 
+func TestAnalysisLevelConfigurationChangeStartsWorkspaceScan(t *testing.T) {
+	var out synchronizedBuffer
+	h := NewHandler(&Server{out: &out})
+	params, err := json.Marshal(map[string]interface{}{
+		"settings": map[string]interface{}{
+			"diagnostics": map[string]interface{}{
+				"analysis": map[string]interface{}{"level": float64(0)},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal configuration: %v", err)
+	}
+
+	h.HandleNotification("workspace/didChangeConfiguration", params)
+	waitForCondition(t, func() bool {
+		return strings.Contains(out.String(), "phpstrom/workspaceDiagnosticsStarted")
+	})
+}
+
 func TestWorkspaceScanDoesNotPublishEmptyDiagnosticsForCleanFiles(t *testing.T) {
 	tmpDir := t.TempDir()
 	filePath := filepath.Join(tmpDir, "Clean.php")

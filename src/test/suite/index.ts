@@ -44,6 +44,10 @@ export async function run(): Promise<void> {
   const scanOnStart = properties['phpstrom.diagnostics.workspaceScanOnStart'];
   assert.equal(scanOnStart?.default, false, 'expected startup to index symbols without running full diagnostics');
 
+  const analysisLevel = properties['phpstrom.diagnostics.analysis.level'];
+  assert.equal(analysisLevel?.type, 'number');
+  assert.equal(analysisLevel?.default, 9);
+
   const analysisToggles = [
     'phpstrom.diagnostics.analysis.syntaxErrors',
     'phpstrom.diagnostics.analysis.undefinedSymbols',

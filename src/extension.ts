@@ -491,6 +491,7 @@ function getConfiguration(): Record<string, unknown> {
       undefinedVariables,
       typeErrors,
       analysis: {
+        level: config.get<number>('diagnostics.analysis.level', 9),
         syntaxErrors: config.get<boolean>('diagnostics.analysis.syntaxErrors', true),
         undefinedSymbols,
         undefinedVariables,
