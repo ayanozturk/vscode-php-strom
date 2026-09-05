@@ -2139,3 +2139,42 @@ func TestDiagnosticsProvider_MapsStructuredAnalysisSpanAfterEmoji(t *testing.T) 
 	}
 	t.Fatalf("expected Level0.Symbols diagnostic, got %#v", diagnostics)
 }
+
+func TestDiagnosticsProvider_TernaryNarrowingIsBranchLocal(t *testing.T) {
+	p := &DiagnosticsProvider{}
+	diags := p.Analyse("file:///ternary.php", `<?php
+class Lantern {
+    public function glow(): string { return 'lit'; }
+}
+function illuminate(Lantern $lamp): string { return $lamp->glow(); }
+function guarded(?Lantern $lamp): string {
+    return $lamp ? illuminate($lamp) : '';
+}
+function reversed(?Lantern $lamp): string {
+    return $lamp === null ? '' : $lamp->glow();
+}
+function fallback(?Lantern $lamp): Lantern {
+    return $lamp ?: new Lantern();
+}
+function outside(?Lantern $lamp): string {
+    $text = $lamp ? $lamp->glow() : '';
+    return illuminate($lamp);
+}
+`)
+	var typeIssues int
+	for _, diag := range diags {
+		code, _ := diag.Code.(string)
+		if code == "A.ARG.TYPE" {
+			typeIssues++
+			if diag.Range.Start.Line != 16 {
+				t.Fatalf("unexpected argument error inside a narrowed branch: %+v", diag)
+			}
+		}
+		if code == "A.RETURN.TYPE" || code == "Level8.MethodNonObject" {
+			t.Fatalf("unexpected guarded expression error: %+v", diag)
+		}
+	}
+	if typeIssues != 1 {
+		t.Fatalf("expected one unguarded argument error, got %+v", diags)
+	}
+}
