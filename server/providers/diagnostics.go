@@ -24,6 +24,9 @@ const parserDiagnosticCode = "Parser Errors"
 var analysisSourceLocks [64]sync.Mutex
 
 func runAnalysisRulesForSource(filename, text string, nodes []ast.Node, ctx *analyse.AnalysisContext) []analyse.AnalysisIssue {
+	if isVendoredAnalysisPath(filename) {
+		return nil
+	}
 	lock := &analysisSourceLocks[crc32.ChecksumIEEE([]byte(filename))%uint32(len(analysisSourceLocks))]
 	lock.Lock()
 	defer lock.Unlock()
@@ -869,6 +872,19 @@ func (s inlineDiagnosticSuppressions) filter(diags []lsp.Diagnostic) []lsp.Diagn
 		filtered = append(filtered, diag)
 	}
 	return filtered
+}
+
+func isVendoredAnalysisPath(path string) bool {
+	if path == "" {
+		return false
+	}
+	normalized := strings.ReplaceAll(path, "\\", "/")
+	for _, segment := range strings.Split(normalized, "/") {
+		if segment == "vendor" {
+			return true
+		}
+	}
+	return false
 }
 
 // uriToFilename strips the file:// scheme for display in issue messages.
