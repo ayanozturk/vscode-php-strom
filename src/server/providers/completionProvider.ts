@@ -51,22 +51,30 @@ export class CompletionProvider {
     //   6. Sort by relevance (camelCase prefix match score).
 
     const items: CompletionItem[] = [];
+    const line = doc.getText({
+      start: { line: position.line, character: 0 },
+      end: position,
+    });
+    const memberAccess = /(\?->|::|->)\s*[\w\\]*$/.test(line);
 
-    // Emit keyword completions as a baseline
-    for (const kw of PHP_KEYWORDS) {
-      items.push({
-        label: kw,
-        kind: CompletionItemKind.Keyword,
-        insertTextFormat: InsertTextFormat.PlainText,
-      });
+    if (!memberAccess) {
+      for (const kw of PHP_KEYWORDS) {
+        items.push({
+          label: kw,
+          kind: CompletionItemKind.Keyword,
+          insertTextFormat: InsertTextFormat.PlainText,
+          sortText: `9_${kw}`,
+        });
+      }
     }
 
-    // Emit workspace symbol completions
     const partial = this.wordBefore(doc, position);
     if (partial.length > 0) {
       const symbols = this.indexer.symbolIndex.search(partial, this.config.completion.maxItems);
       for (const sym of symbols) {
-        items.push(symbolToCompletion(sym));
+        const item = symbolToCompletion(sym);
+        item.sortText = `0_${sym.name.toLowerCase()}`;
+        items.push(item);
       }
     }
 

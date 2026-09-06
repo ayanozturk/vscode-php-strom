@@ -90,7 +90,7 @@ func (r *Registry) SemanticCacheTrace() SemanticCacheTraceSnapshot {
 func NewRegistry(idx *indexer.WorkspaceIndexer, cfg Config) *Registry {
 	r := &Registry{idx: idx, cfg: cfg}
 	semanticCache := newSemanticDocumentCache()
-	r.Completion = &CompletionProvider{idx: idx, cfg: cfg}
+	r.Completion = &CompletionProvider{idx: idx, cfg: cfg, cache: semanticCache}
 	r.Hover = &HoverProvider{idx: idx, cache: semanticCache}
 	r.Definition = &DefinitionProvider{idx: idx, cache: semanticCache}
 	r.Declaration = &DeclarationProvider{idx: idx, cache: semanticCache}
