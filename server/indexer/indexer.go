@@ -433,7 +433,7 @@ func (wi *WorkspaceIndexer) ProjectIndexSnapshotForFile(filename, text string, n
 	return project, revision
 }
 
-func (wi *WorkspaceIndexer) SetStubs(stubsPath string, stubs []string, phpVersion string) {
+func (wi *WorkspaceIndexer) SetStubs(stubs []string, phpVersion string) {
 	wi.mu.Lock()
 	for _, uri := range wi.stubURIs {
 		wi.index.RemoveFile(uri)
@@ -442,7 +442,6 @@ func (wi *WorkspaceIndexer) SetStubs(stubsPath string, stubs []string, phpVersio
 		delete(wi.projectHashes, key)
 	}
 	wi.stubURIs = nil
-	wi.cfg.StubsPath = stubsPath
 	wi.cfg.Stubs = append([]string(nil), stubs...)
 	wi.cfg.PHPVersion = phpVersion
 	wi.rebuildProjectIndexLocked()

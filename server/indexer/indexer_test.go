@@ -390,12 +390,7 @@ class WebTestCase
 }
 
 func TestConfiguredStubsAreIndexed(t *testing.T) {
-	stubsPath, err := filepath.Abs("../../stubs")
-	if err != nil {
-		t.Fatalf("resolve stubs path: %v", err)
-	}
-
-	wi := New(Config{StubsPath: stubsPath, Stubs: []string{"Core", "SPL"}, PHPVersion: "8.3"})
+	wi := New(Config{Stubs: []string{"Core", "SPL"}, PHPVersion: "8.3"})
 	sym := wi.GetIndex().GetByFQN(`\ArrayIterator`)
 	if sym == nil {
 		t.Fatal("expected ArrayIterator stub symbol to be indexed")
@@ -406,12 +401,7 @@ func TestConfiguredStubsAreIndexed(t *testing.T) {
 }
 
 func TestExpandedSPLStubsAreIndexed(t *testing.T) {
-	stubsPath, err := filepath.Abs("../../stubs")
-	if err != nil {
-		t.Fatalf("resolve stubs path: %v", err)
-	}
-
-	wi := New(Config{StubsPath: stubsPath, Stubs: []string{"Core", "SPL"}, PHPVersion: "8.4"})
+	wi := New(Config{Stubs: []string{"Core", "SPL"}, PHPVersion: "8.4"})
 	for _, fqn := range []string{
 		`\RecursiveIteratorIterator`,
 		`\SplFileObject`,

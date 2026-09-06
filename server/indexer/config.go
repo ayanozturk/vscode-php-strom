@@ -4,9 +4,8 @@ package indexer
 type Config struct {
 	Associations []string
 	Exclude      []string
-	MaxSize      int64
-	StubsPath    string
-	Stubs        []string
+	MaxSize    int64
+	Stubs      []string
 	PHPVersion   string
 }
 

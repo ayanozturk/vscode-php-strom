@@ -82,6 +82,32 @@ class User {
 	}
 }
 
+func TestCompletionAfterReflectionGetMethodUsesReflectionMembers(t *testing.T) {
+	idx := indexer.New(indexer.Config{Stubs: []string{"Reflection"}})
+	source := `<?php
+class Example {
+    public function countByCycle(): int { return 0; }
+}
+class ExampleTest {
+    public function testHasCountByCycleMethod(): void {
+        $reflection = new \ReflectionClass(new Example());
+        $method = $reflection->getMethod('countByCycle');
+        $method->
+    }
+}
+`
+	uri := "file:///workspace/ExampleTest.php"
+	idx.IndexDocument(uri, source)
+	provider := &CompletionProvider{idx: idx, cfg: Config{MaxCompletionItems: 100}, cache: newSemanticDocumentCache()}
+	items := provider.Provide(uri, source, positionAfter(source, "$method->"), nil)
+	if !hasCompletionLabel(items, "isPublic") {
+		t.Fatalf("expected ReflectionMethod::isPublic, got %#v", completionLabels(items))
+	}
+	if hasCompletionLabel(items, "testHasCountByCycleMethod") {
+		t.Fatalf("object access must not list the enclosing test methods, got %#v", completionLabels(items))
+	}
+}
+
 func TestKeywordCompletionsSortAfterSymbols(t *testing.T) {
 	items := phpKeywordCompletions("cl")
 	if len(items) == 0 {

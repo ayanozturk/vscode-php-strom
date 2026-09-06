@@ -2,8 +2,6 @@ package indexer
 
 import (
 	"log"
-	"os"
-	"path/filepath"
 
 	"github.com/ayanozturk/go-php-parser/phpstubs"
 )
@@ -34,26 +32,12 @@ func (wi *WorkspaceIndexer) loadConfiguredStubs() {
 }
 
 func (wi *WorkspaceIndexer) readStub(name string) ([]byte, string, error) {
-	if wi.cfg.StubsPath != "" {
-		stubPath := wi.stubFilePath(name)
-		data, err := os.ReadFile(stubPath)
-		if err == nil {
-			return data, pathToURI(stubPath), nil
-		}
+	if data, err := phpstubs.Read(wi.cfg.PHPVersion, name); err == nil {
+		return data, phpstubs.FileName(wi.cfg.PHPVersion, name), nil
 	}
-	data, err := phpstubs.Read(wi.cfg.PHPVersion, name)
+	data, err := phpstubs.ReadShared(name)
 	if err != nil {
 		return nil, "", err
 	}
-	return data, phpstubs.FileName(wi.cfg.PHPVersion, name), nil
-}
-
-func (wi *WorkspaceIndexer) stubFilePath(name string) string {
-	if wi.cfg.PHPVersion != "" {
-		versioned := filepath.Join(wi.cfg.StubsPath, wi.cfg.PHPVersion, name+".php")
-		if _, err := os.Stat(versioned); err == nil {
-			return versioned
-		}
-	}
-	return filepath.Join(wi.cfg.StubsPath, name+".php")
+	return data, phpstubs.SharedFileName(name), nil
 }

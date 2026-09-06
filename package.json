@@ -290,7 +290,7 @@
               "zip",
               "zlib"
             ],
-            "markdownDescription": "Built-in PHP extension stubs to include for symbol resolution. Keep the bundled core set unless you know a stub is unused."
+            "markdownDescription": "Built-in PHP extension stubs to include for symbol resolution. Names must match files in go-php-parser `phpstubs` (versioned plus shared). Unknown names are skipped."
           }
         }
       },

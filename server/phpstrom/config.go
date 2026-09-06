@@ -2,7 +2,6 @@ package phpstrom
 
 import (
 	"log"
-	"path/filepath"
 
 	"github.com/ayanozturk/go-php-parser/overrides"
 
@@ -72,7 +71,7 @@ func DefaultConfig() *Config {
 	c.Files.Associations = []string{"**/*.php", "**/*.phtml", "**/*.phar"}
 	c.Files.Exclude = []string{"**/.git/**", "**/node_modules/**", "**/vendor/**/{Tests,tests}/**"}
 	c.Files.MaxSize = 1_000_000
-	c.Stubs = []string{"Core", "SPL"}
+	c.Stubs = []string{"Core", "SPL", "Reflection"}
 	c.Diagnostics.Enable = true
 	c.Diagnostics.Run = "onType"
 	c.Diagnostics.WorkspaceScanOnStart = false
@@ -292,17 +291,9 @@ func (c *Config) toIndexerConfig() indexer.Config {
 		Associations: c.Files.Associations,
 		Exclude:      c.Files.Exclude,
 		MaxSize:      c.Files.MaxSize,
-		StubsPath:    c.stubsPath(),
 		Stubs:        c.Stubs,
 		PHPVersion:   c.Environment.EffectivePHPVersion,
 	}
-}
-
-func (c *Config) stubsPath() string {
-	if c.ExtensionPath == "" {
-		return ""
-	}
-	return filepath.Join(c.ExtensionPath, "stubs")
 }
 
 func (c *Config) resolvePHPVersion(folders []indexer.WorkspaceFolder) string {

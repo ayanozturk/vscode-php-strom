@@ -376,7 +376,7 @@ func (h *Handler) HandleNotification(method string, raw json.RawMessage) {
 		phpVersion := h.cfg.resolvePHPVersion(folders)
 		h.idx.UpdateConfig(h.cfg.toIndexerConfig())
 		if beforeStubs != strings.Join(h.cfg.Stubs, "\x00") || beforePHPVersion != phpVersion {
-			h.idx.SetStubs(h.cfg.stubsPath(), h.cfg.Stubs, phpVersion)
+			h.idx.SetStubs(h.cfg.Stubs, phpVersion)
 		}
 		h.prov = providers.NewRegistry(h.idx, h.cfg.toProviderConfig(folders))
 		afterDiagnostics := workspaceDiagnosticsFingerprint(h.cfg)
@@ -449,7 +449,7 @@ func (h *Handler) initialize(raw json.RawMessage) (any, *lsp.ResponseError) {
 	h.cfg.ApplyInitOptions(p.InitializationOptions)
 	h.idx.UpdateConfig(h.cfg.toIndexerConfig())
 	phpVersion := h.cfg.resolvePHPVersion(folders)
-	h.idx.SetStubs(h.cfg.stubsPath(), h.cfg.Stubs, phpVersion)
+	h.idx.SetStubs(h.cfg.Stubs, phpVersion)
 	h.prov = providers.NewRegistry(h.idx, h.cfg.toProviderConfig(h.idx.WorkspaceFolders()))
 
 	return lsp.InitializeResult{

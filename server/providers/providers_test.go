@@ -1,7 +1,6 @@
 package providers
 
 import (
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -63,11 +62,7 @@ func TestDefinitionProviderResolvesMethodCallOverSameNamedClass(t *testing.T) {
 }
 
 func TestDefinitionProviderResolvesConfiguredStubClass(t *testing.T) {
-	stubsPath, err := filepath.Abs("../../stubs")
-	if err != nil {
-		t.Fatalf("resolve stubs path: %v", err)
-	}
-	idx := indexer.New(indexer.Config{StubsPath: stubsPath, Stubs: []string{"Core", "SPL"}, PHPVersion: "8.3"})
+	idx := indexer.New(indexer.Config{Stubs: []string{"Core", "SPL"}, PHPVersion: "8.3"})
 
 	provider := &DefinitionProvider{idx: idx}
 	text := "<?php\nreturn new ArrayIterator([]);\n"
@@ -76,17 +71,13 @@ func TestDefinitionProviderResolvesConfiguredStubClass(t *testing.T) {
 	if len(locs) != 1 {
 		t.Fatalf("expected 1 stub definition, got %d", len(locs))
 	}
-	if !strings.HasSuffix(locs[0].URI, "/stubs/8.3/SPL.php") {
+	if locs[0].URI != "phpstub:8.3/SPL.php" {
 		t.Fatalf("expected ArrayIterator definition in SPL stub, got %s", locs[0].URI)
 	}
 }
 
 func TestDiagnosticsAcceptArrayIteratorAsTraversableFromStubs(t *testing.T) {
-	stubsPath, err := filepath.Abs("../../stubs")
-	if err != nil {
-		t.Fatalf("resolve stubs path: %v", err)
-	}
-	idx := indexer.New(indexer.Config{StubsPath: stubsPath, Stubs: []string{"Core", "SPL"}, PHPVersion: "8.3"})
+	idx := indexer.New(indexer.Config{Stubs: []string{"Core", "SPL"}, PHPVersion: "8.3"})
 	provider := &DiagnosticsProvider{idx: idx, cache: newSemanticDocumentCache()}
 	text := `<?php
 function getIterator(): Traversable
