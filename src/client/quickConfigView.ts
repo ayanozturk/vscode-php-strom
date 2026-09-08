@@ -13,12 +13,12 @@ const ANALYSIS_LEVEL_DESCRIPTIONS: Record<AnalysisLevel, string> = {
   1: 'Adds possibly-undefined variable checks',
   2: 'Adds method existence, visibility & PHPDoc consistency checks',
   3: 'Adds throw-type checks',
-  4: 'Dead code checks (not yet implemented)',
-  5: 'Argument type checks (not yet implemented)',
+  4: 'Dead code checks (unreachable code)',
+  5: 'Argument type checks',
   6: 'Flags missing type hints (params, return, properties, generics)',
   7: 'Flags partially-invalid calls on union types',
   8: 'Flags method/property access on nullable types',
-  9: 'Strictest: cautious handling of mixed types (not yet implemented)',
+  9: 'Adds deprecated-call warnings. Mixed-type strictness is not implemented yet',
 };
 
 const WORKSPACE_SCAN_ON_START_SETTING = 'diagnostics.workspaceScanOnStart';
@@ -93,7 +93,6 @@ export class QuickConfigTreeProvider implements vscode.TreeDataProvider<QuickCon
     return vscode.workspace.getConfiguration(CONFIG_SECTION).get<PhpVersion>(PHP_VERSION_SETTING, DEFAULT_PHP_VERSION);
   }
 
-  // Not yet wired to the analyzer; the setting is persisted but has no effect on diagnostics yet.
   async promptAnalysisLevel(): Promise<void> {
     const current = this.getAnalysisLevel();
     const picked = await this.pickValue(

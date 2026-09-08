@@ -2,7 +2,7 @@
 
 Open-source PHP language support for VS Code. A TypeScript client talks to a bundled Go language server that runs [go-php-parser](https://github.com/ayanozturk/go-php-parser) for parsing, indexing, and diagnostics.
 
-Not a complete Intelephense/PhpStorm stand-in. Several LSP methods are advertised but still return empty results (formatting, rename, folding, code actions, code lens, inlay hints, document links, type hierarchy, implementations, highlights).
+Not a complete Intelephense/PhpStorm stand-in. Unimplemented LSP features (formatting, rename, folding, code actions, code lens, inlay hints, document links, type hierarchy, implementations, references, highlights, and similar) are not advertised until implemented.
 
 ## What it does now
 

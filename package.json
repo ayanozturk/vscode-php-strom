@@ -403,14 +403,14 @@
               "Adds possibly-undefined variable checks",
               "Adds method existence, visibility & PHPDoc consistency checks",
               "Adds throw-type checks",
-              "Dead code checks (not yet implemented)",
-              "Argument type checks (not yet implemented)",
+              "Dead code checks (unreachable code)",
+              "Argument type checks",
               "Flags missing type hints (params, return, properties, generics)",
               "Flags partially-invalid calls on union types",
               "Flags method/property access on nullable types",
-              "Strictest: cautious handling of mixed types (not yet implemented)"
+              "Adds deprecated-call warnings. Mixed-type strictness is not implemented yet"
             ],
-            "markdownDescription": "How strict PHP Strom analysis should be, mirroring the `Level0`-`Level9` diagnostic scheme (0 = basic, 9 = strictest)."
+            "markdownDescription": "How strict PHP Strom analysis should be, mirroring the `Level0`-`Level9` diagnostic scheme (0 = basic, 9 = highest UI level). Level 9 does not yet include full mixed-type strictness."
           },
           "phpstrom.diagnostics.analysis.syntaxErrors": {
             "type": "boolean",
@@ -874,22 +874,10 @@
     "test": "npm run compile && node ./out/test/runTest.js"
   },
   "dependencies": {
-    "fast-glob": "^3.3.2",
-    "fs-extra": "^11.2.0",
-    "lru-cache": "^10.2.2",
-    "micromatch": "^4.0.7",
-    "semver": "^7.6.2",
-    "vscode-languageclient": "^9.0.1",
-    "vscode-languageserver": "^9.0.1",
-    "vscode-languageserver-textdocument": "^1.0.11",
-    "vscode-languageserver-types": "^3.17.5",
-    "vscode-uri": "^3.0.8"
+    "vscode-languageclient": "^9.0.1"
   },
   "devDependencies": {
-    "@types/fs-extra": "^11.0.4",
-    "@types/micromatch": "^4.0.9",
     "@types/node": "^20.12.12",
-    "@types/semver": "^7.5.8",
     "@types/vscode": "^1.89.0",
     "@typescript-eslint/eslint-plugin": "^8.0.0",
     "@typescript-eslint/parser": "^8.0.0",

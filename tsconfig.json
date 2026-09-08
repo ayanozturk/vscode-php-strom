@@ -18,5 +18,5 @@
     "declarationMap": true
   },
   "include": ["src/extension.ts", "src/client/**/*.ts", "src/test/**/*.ts"],
-  "exclude": ["src/server/**", "node_modules", "out", "dist"]
+  "exclude": ["node_modules", "out", "dist"]
 }

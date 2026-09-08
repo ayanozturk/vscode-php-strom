@@ -808,6 +808,44 @@ throw new DateTime();
 	}
 }
 
+func TestDiagnosticsProviderReportsDeprecatedCallsAtDefaultLevel(t *testing.T) {
+	source := `<?php
+/** @deprecated */
+function old_fn(): void {}
+
+function run(): void {
+    old_fn();
+}
+`
+	const uri = "file:///deprecated.php"
+	level9 := 9
+	level8 := 8
+
+	atLevel9 := (&DiagnosticsProvider{cfg: Config{
+		AnalysisLevel:    &level9,
+		DisabledAnalysis: DisabledAnalysis{Style: true},
+	}}).Analyse(uri, source)
+	if !hasDiagnosticCode(atLevel9, "A.DEPRECATED.CALL") {
+		t.Fatalf("expected deprecated-call diagnostic at analysis level 9, got %#v", atLevel9)
+	}
+
+	atLevel8 := (&DiagnosticsProvider{cfg: Config{
+		AnalysisLevel:    &level8,
+		DisabledAnalysis: DisabledAnalysis{Style: true},
+	}}).Analyse(uri, source)
+	if hasDiagnosticCode(atLevel8, "A.DEPRECATED.CALL") {
+		t.Fatalf("expected no deprecated-call diagnostic at analysis level 8, got %#v", atLevel8)
+	}
+
+	disabled := (&DiagnosticsProvider{cfg: Config{
+		AnalysisLevel:    &level9,
+		DisabledAnalysis: DisabledAnalysis{Deprecated: true, Style: true},
+	}}).Analyse(uri, source)
+	if hasDiagnosticCode(disabled, "A.DEPRECATED.CALL") {
+		t.Fatalf("expected deprecated-call diagnostic to be disabled by toggle, got %#v", disabled)
+	}
+}
+
 func TestDiagnosticsProviderHonorsConfiguredAnalysisLevel(t *testing.T) {
 	source := `<?php
 class Visible {

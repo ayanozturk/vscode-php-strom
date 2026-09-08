@@ -4,7 +4,7 @@ module.exports = [
   {
     // Keep lint aligned with the production TypeScript build. The active
     // language server is the Go implementation under server/.
-    ignores: ['dist/**', 'node_modules/**', 'out/**', 'src/server/**'],
+    ignores: ['dist/**', 'node_modules/**', 'out/**'],
   },
   ...typescriptEslint.configs['flat/recommended'],
 ];
