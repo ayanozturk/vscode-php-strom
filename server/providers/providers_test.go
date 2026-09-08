@@ -139,6 +139,10 @@ class RecordProcessor
     public function process(Record $record): void {}
 }
 `)
+	method, ok := idx.ProjectIndex().ResolveMethod(`App\RecordStore`, "lookup")
+	if !ok || method.ReturnType != `App\Record|null` {
+		t.Fatalf("expected workspace project index to bind inherited generic return, got %#v, %t", method, ok)
+	}
 	provider := &HoverProvider{idx: idx}
 	text := `<?php
 namespace App;
@@ -204,7 +208,7 @@ class TeamEndpoint extends BaseEndpoint
 		t.Fatalf("expected inherited factory return type for receiver assignment, got %#v", receiver)
 	}
 	result := provider.Provide("file:///workspace/TeamEndpoint.php", text, lsp.Position{Line: 7, Character: 10})
-	if result == nil || !strings.Contains(result.Contents.Value, "```php\nDomain\\Sequence<string,Domain\\Member>\n```") {
+	if result == nil || !strings.Contains(result.Contents.Value, "```php\nDomain\\Sequence<string, Domain\\Member>\n```") {
 		t.Fatalf("expected generic method result for inherited receiver, got %#v", result)
 	}
 }

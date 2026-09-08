@@ -77,20 +77,21 @@ func (r projectFallbackResolver) ResolveClass(name string) (analyse.ResolvedClas
 }
 
 func (r projectFallbackResolver) ResolveMethod(className, methodName string) (analyse.ResolvedMethod, bool) {
-	if method, ok := r.fallback.ResolveMethod(className, methodName); ok {
-		return method, true
-	}
-	for _, candidate := range r.classLineage(className) {
-		if r.project != nil {
-			if method, ok := resolveDirectProjectMethod(r.project, candidate, methodName); ok {
-				return method, true
-			}
-		}
-		if method, ok := r.fallback.resolveDirectMethod(candidate, methodName); ok {
+	if r.project != nil {
+		if method, ok := r.project.ResolveMethod(className, methodName); ok {
 			return method, true
 		}
 	}
-	return analyse.ResolvedMethod{}, false
+	return r.fallback.ResolveMethod(className, methodName)
+}
+
+func (r projectFallbackResolver) ResolveMethodWithGenerics(className, methodName string, typeArguments []string) (analyse.ResolvedMethod, bool) {
+	if r.project != nil {
+		if method, ok := r.project.ResolveMethodWithGenerics(className, methodName, typeArguments); ok {
+			return method, true
+		}
+	}
+	return r.fallback.ResolveMethodWithGenerics(className, methodName, typeArguments)
 }
 
 func (r projectFallbackResolver) ResolveOwnMethod(className, methodName string) (analyse.ResolvedMethod, bool) {
@@ -258,6 +259,21 @@ func (r workspaceSymbolResolver) ResolveClass(name string) (analyse.ResolvedClas
 
 func (r workspaceSymbolResolver) ResolveMethod(className, methodName string) (analyse.ResolvedMethod, bool) {
 	return r.resolveMethodWithTemplates(className, methodName, nil, make(map[string]struct{}))
+}
+
+func (r workspaceSymbolResolver) ResolveMethodWithGenerics(className, methodName string, typeArguments []string) (analyse.ResolvedMethod, bool) {
+	classSym, ok := r.resolveClassSymbol(className)
+	if !ok {
+		return analyse.ResolvedMethod{}, false
+	}
+	bindings := make(map[string]string, len(classSym.Templates))
+	for i, template := range classSym.Templates {
+		if i >= len(typeArguments) {
+			break
+		}
+		bindings[template] = typeArguments[i]
+	}
+	return r.resolveMethodWithTemplates(className, methodName, bindings, make(map[string]struct{}))
 }
 
 func (r workspaceSymbolResolver) ResolveOwnMethod(className, methodName string) (analyse.ResolvedMethod, bool) {
