@@ -1481,6 +1481,29 @@ class GenerateCoverageTodoCommand
 	}
 }
 
+func TestDiagnosticsProvider_DoesNotReportUnreachableAfterIfReturnWithTrailingComment(t *testing.T) {
+	p := &DiagnosticsProvider{}
+	diags := p.Analyse("file:///test.php", `<?php
+class TaskAuditService
+{
+    public function __construct(private readonly EntityManagerInterface $entityManager) {}
+
+    public function recordStatusChange(Task $task, object $actor, string $oldStatus, string $newStatus): void
+    {
+        if ($oldStatus === $newStatus) {
+            return; // no change
+        }
+        $this->persist(new TaskAudit($task, $actor, TaskAuditChangeType::STATUS, $oldStatus, $newStatus));
+    }
+}
+`)
+	for _, diag := range diags {
+		if code, ok := diag.Code.(string); ok && code == "Generic.CodeAnalysis.UnreachableCode" {
+			t.Fatalf("unexpected unreachable diagnostic after return with trailing comment: %+v", diag)
+		}
+	}
+}
+
 func TestDiagnosticsProvider_DoesNotReportUnreachableAfterIfReturnWithNullsafeCall(t *testing.T) {
 	p := &DiagnosticsProvider{}
 	diags := p.Analyse("file:///test.php", `<?php
