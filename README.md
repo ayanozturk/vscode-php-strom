@@ -41,6 +41,8 @@ make test-ext
 make test-editor-latency  # synthetic editor-path regression gate
 ```
 
+Local extension JavaScript is always `dist/extension.js` (webpack via `make build-ext` or `npm run package`); `out/` is only the test harness.
+
 To build against a local parser checkout:
 
 ```sh

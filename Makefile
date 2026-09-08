@@ -32,7 +32,7 @@ deps:
 		$(NPM) ci; \
 	fi
 
-## build: compile Go server + TypeScript extension
+## build: compile Go server + webpack-bundled extension client
 build: build-server build-ext
 
 ## prepare-go-work: generate a temporary Go workspace for explicit sibling-parser development
@@ -77,10 +77,10 @@ build-server-dev: prepare-go-work
 	@mkdir -p $(BIN_DIR)
 	cd $(SERVER_DIR) && GOWORK="$(GO_WORK_FILE)" $(GO) build $(GOFLAGS) -o ../$(BINARY) .
 
-## build-ext: compile the TypeScript extension
+## build-ext: bundle the extension client to dist/
 build-ext: deps
-	@echo "==> Compiling TypeScript extension..."
-	npm run compile
+	@echo "==> Bundling extension client to dist/..."
+	npm run package
 
 ## install: build everything, package the VSIX, and install it in VS Code
 install: build
@@ -160,7 +160,7 @@ clean:
 	rm -rf $(BIN_DIR)/darwin-arm64 $(BIN_DIR)/darwin-x64 $(BIN_DIR)/linux-arm64 $(BIN_DIR)/linux-x64 $(BIN_DIR)/win32-arm64 $(BIN_DIR)/win32-x64
 	rm -rf $(CACHE_DIR) dist out
 
-## dev: watch-compile TypeScript (for development)
+## dev: watch webpack bundle for the extension client (for development)
 dev:
-	@echo "==> Watching TypeScript (Ctrl-C to stop)..."
+	@echo "==> Watching extension webpack bundle (Ctrl-C to stop)..."
 	npm run watch
