@@ -619,6 +619,7 @@ func (h *Handler) indexWorkspace() {
 	h.workspaceIndexMu.Lock()
 	defer h.workspaceIndexMu.Unlock()
 	h.idx.IndexWorkspace()
+	releaseUnusedMemory()
 	h.trace.record(EditorTraceEvent{
 		Operation: "workspace_index", Outcome: "completed", DurationMicros: time.Since(started).Microseconds(),
 	})
@@ -700,6 +701,8 @@ func (h *Handler) notifyWorkspaceDiagnosticsFinished(scan *workspaceDiagnosticsS
 		Capped:               scan.capped(),
 		Applied:              applied,
 	})
+	releaseUnusedMemory()
+	log.Printf("[phpstrom] released unused memory after workspace work")
 }
 
 func workspaceDiagnosticsFingerprint(cfg *Config) []byte {

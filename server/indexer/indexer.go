@@ -498,12 +498,23 @@ func (wi *WorkspaceIndexer) rebuildProjectIndexLocked() {
 	wi.recordSemanticChangesLocked(analyse.ProjectIndexChanges{Complete: false})
 }
 
+func (wi *WorkspaceIndexer) isStubIndexPathLocked(path string) bool {
+	for _, uri := range wi.stubURIs {
+		if projectIndexKey(uri) == path {
+			return true
+		}
+	}
+	return false
+}
+
 func (wi *WorkspaceIndexer) compactRetainedTreesLocked() {
 	if wi.project != nil {
-		wi.project.DropRetainedTrees(isVendoredIndexPath)
+		wi.project.DropRetainedTrees(func(path string) bool {
+			return !wi.isStubIndexPathLocked(path)
+		})
 	}
 	for key := range wi.projectNodes {
-		if isVendoredIndexPath(key) {
+		if !wi.isStubIndexPathLocked(key) {
 			delete(wi.projectNodes, key)
 		}
 	}

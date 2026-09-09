@@ -576,11 +576,59 @@ class App {
 	if _, ok := wi.projectNodes[vendorURI]; ok {
 		t.Fatal("expected vendor AST to be dropped from the live node map")
 	}
-	if _, ok := wi.projectNodes[appURI]; !ok {
-		t.Fatal("expected application AST to remain")
+	if _, ok := wi.projectNodes[appURI]; ok {
+		t.Fatal("expected application AST to be dropped from the live node map")
 	}
 	if _, ok := wi.ProjectIndex().ResolveMethod(`Symfony\Bundle\FrameworkBundle\Test\WebTestCase`, "assertResponseIsSuccessful"); !ok {
 		t.Fatal("expected vendor method symbols to remain after dropping ASTs")
+	}
+	if _, ok := wi.ProjectIndex().ResolveMethod("App", "run"); !ok {
+		t.Fatal("expected application method symbols to remain after dropping ASTs")
+	}
+}
+
+func TestPutProjectNodesAfterCompactKeepsOtherFileSymbols(t *testing.T) {
+	wi := New(Config{})
+	appURI := "file:///workspace/src/App.php"
+	otherURI := "file:///workspace/src/Other.php"
+	app := ParseSourceForIndex(appURI, `<?php
+class App {
+    public function run(): void {}
+}
+`)
+	other := ParseSourceForIndex(otherURI, `<?php
+class Other {
+    public function work(): void {}
+}
+`)
+	wi.replaceWorkspaceProjectNodes(map[string][]ast.Node{
+		appURI:   app.Nodes,
+		otherURI: other.Nodes,
+	}, map[string]uint64{
+		appURI:   sourceHash(app.Text),
+		otherURI: sourceHash(other.Text),
+	})
+
+	if _, ok := wi.projectNodes[appURI]; ok {
+		t.Fatal("expected App.php AST to be dropped from the live node map")
+	}
+	if _, ok := wi.projectNodes[otherURI]; ok {
+		t.Fatal("expected Other.php AST to be dropped from the live node map")
+	}
+
+	updatedApp := ParseSourceForIndex(appURI, `<?php
+class App {
+    public function run(): void {}
+    public function extra(): void {}
+}
+`)
+	wi.putProjectNodes(appURI, updatedApp.Nodes, sourceHash(updatedApp.Text))
+
+	if _, ok := wi.ProjectIndex().ResolveClass("App"); !ok {
+		t.Fatal("expected App class to remain resolvable after reparsing App.php")
+	}
+	if _, ok := wi.ProjectIndex().ResolveClass("Other"); !ok {
+		t.Fatal("expected Other class to remain resolvable after reparsing App.php")
 	}
 }
 

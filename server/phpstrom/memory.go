@@ -37,6 +37,10 @@ func startMemoryWatchdog() {
 	})
 }
 
+func releaseUnusedMemory() {
+	debug.FreeOSMemory()
+}
+
 func memoryLimitBytes() int64 {
 	raw := strings.TrimSpace(os.Getenv("PHPSTROM_GOMEMLIMIT"))
 	if raw == "" {
