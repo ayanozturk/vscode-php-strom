@@ -2,7 +2,7 @@
 
 All notable changes to PHP Strom are documented in this file.
 
-## Unreleased
+## 0.1.38 - 2026-09-08
 
 ### Fixed
 
