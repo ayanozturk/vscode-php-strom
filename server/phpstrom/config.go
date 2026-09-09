@@ -73,7 +73,7 @@ func DefaultConfig() *Config {
 	c.Files.MaxSize = 1_000_000
 	c.Stubs = []string{"Core", "SPL", "Reflection"}
 	c.Diagnostics.Enable = true
-	c.Diagnostics.Run = "onType"
+	c.Diagnostics.Run = "onSave"
 	c.Diagnostics.WorkspaceScanOnStart = false
 	c.Diagnostics.Analysis = DefaultAnalysisToggles()
 	c.Diagnostics.Exclude = map[string][]string{}

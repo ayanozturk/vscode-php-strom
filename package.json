@@ -306,7 +306,7 @@
           },
           "phpstrom.diagnostics.run": {
             "type": "string",
-            "default": "onType",
+            "default": "onSave",
             "order": 2,
             "scope": "resource",
             "enum": [

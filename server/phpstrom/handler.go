@@ -305,8 +305,6 @@ func (h *Handler) HandleNotification(method string, raw json.RawMessage) {
 		doc := h.documents.Change(p.TextDocument.URI, p.TextDocument.Version, p.ContentChanges)
 		if h.cfg.Diagnostics.Run == "onType" {
 			h.scheduleDocumentAnalysis(doc.URI, doc.Version, onTypeAnalysisDelay)
-		} else {
-			h.scheduleDocumentIndex(doc.URI, doc.Version, onTypeAnalysisDelay)
 		}
 
 	case "textDocument/didSave":

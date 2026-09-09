@@ -234,6 +234,7 @@ func TestDidChangeDebouncesOnTypeAnalysis(t *testing.T) {
 	var out synchronizedBuffer
 	srv := &Server{out: &out}
 	h := NewHandler(srv)
+	h.cfg.Diagnostics.Run = "onType"
 
 	uri := "file:///debounce.php"
 	h.documents.Open(lsp.TextDocumentItem{
@@ -283,6 +284,45 @@ func TestDidChangeDebouncesOnTypeAnalysis(t *testing.T) {
 	}
 	if strings.Contains(out.String(), "Bad_Class") {
 		t.Fatalf("expected debounced analysis to skip stale diagnostics, got %q", out.String())
+	}
+}
+
+func TestDidChangeDoesNotIndexOnSave(t *testing.T) {
+	var out synchronizedBuffer
+	srv := &Server{out: &out}
+	h := NewHandler(srv)
+	h.cfg.Diagnostics.Run = "onSave"
+
+	uri := "file:///onsave.php"
+	h.documents.Open(lsp.TextDocumentItem{
+		URI:        uri,
+		LanguageID: "php",
+		Version:    1,
+		Text:       "<?php\nclass InitialClass {}\n",
+	})
+
+	changeParams, err := json.Marshal(lsp.DidChangeTextDocumentParams{
+		TextDocument: lsp.VersionedTextDocumentIdentifier{URI: uri, Version: 2},
+		ContentChanges: []lsp.TextDocumentContentChangeEvent{{
+			Range: nil,
+			Text:  "<?php\nclass Bad_Class {}\n",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("marshal didChange: %v", err)
+	}
+	h.HandleNotification("textDocument/didChange", changeParams)
+
+	time.Sleep(200 * time.Millisecond)
+
+	if got := h.idx.GetIndex().GetByFQN(`\Bad_Class`); got != nil {
+		t.Fatalf("expected onSave mode not to index on keystroke, got %+v", got)
+	}
+	if strings.Contains(out.String(), "Bad_Class") {
+		t.Fatalf("expected onSave mode not to publish diagnostics on change, got %q", out.String())
+	}
+	if strings.Contains(out.String(), `"method":"textDocument/publishDiagnostics"`) {
+		t.Fatalf("expected no diagnostics notification on change in onSave mode, got %q", out.String())
 	}
 }
 

@@ -274,7 +274,7 @@ Symbols reported:
 ### 2.9 Diagnostics
 
 **LSP method:** `textDocument/publishDiagnostics`  
-**Run:** `onType` (default) or `onSave`
+**Run:** `onSave` (default) or `onType`
 
 #### Syntax errors
 
@@ -774,7 +774,7 @@ AI completions are opt-in, privacy-preserving (local models supported), and neve
 | `phpstrom.completion.triggerParameterHints` | boolean | `true` | Trigger signature help after completing a call |
 | `phpstrom.completion.maxItems` | number | `100` | Max completion items per request |
 | `phpstrom.diagnostics.enable` | boolean | `true` | Enable diagnostics |
-| `phpstrom.diagnostics.run` | enum | `"onType"` | `"onType"` or `"onSave"` |
+| `phpstrom.diagnostics.run` | enum | `"onSave"` | `"onType"` or `"onSave"` |
 | `phpstrom.diagnostics.workspaceScanOnStart` | boolean | `false` | Full-project diagnostics scan on startup |
 | `phpstrom.diagnostics.analysis.syntaxErrors` | boolean | `true` | Parser / syntax errors |
 | `phpstrom.diagnostics.analysis.undefinedSymbols` | boolean | `true` | Unknown classes, functions, constants, methods |

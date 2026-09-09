@@ -477,7 +477,7 @@ function getConfiguration(): Record<string, unknown> {
     stubs: config.get<string[]>('stubs', []),
     diagnostics: {
       enable: config.get<boolean>('diagnostics.enable', true),
-      run: config.get<string>('diagnostics.run', 'onType'),
+      run: config.get<string>('diagnostics.run', 'onSave'),
       workspaceScanOnStart: config.get<boolean>('diagnostics.workspaceScanOnStart', false),
       undefinedSymbols,
       undefinedVariables,
