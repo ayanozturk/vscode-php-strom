@@ -83,6 +83,33 @@ $populated = new EntryPage(entries: [new Entry()], page: 2);`
 	}
 }
 
+func TestDiagnosticsProviderRetainsIterablePHPDocOnEnumMethodsAndPromotedParameters(t *testing.T) {
+	source := `<?php
+enum Language: string
+{
+    case Primary = 'primary';
+
+    /** @return array<string> */
+    public static function values(): array
+    {
+        return [self::Primary->value];
+    }
+}
+
+final class Batch
+{
+    public function __construct(
+        /** @var list<string> */
+        public array $items,
+    ) {
+    }
+}`
+	diagnostics := (&DiagnosticsProvider{}).Analyse("file:///documented-iterables.php", source)
+	if hasDiagnosticCode(diagnostics, "Level6.MissingIterableValueType") {
+		t.Fatalf("expected declaration PHPDoc to supply iterable value types, got %#v", diagnostics)
+	}
+}
+
 func TestDiagnosticsProvider_StyleIssue(t *testing.T) {
 	p := &DiagnosticsProvider{}
 	// PSR-12: method visibility must be declared; method name should be camelCase
