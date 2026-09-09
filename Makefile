@@ -1,4 +1,4 @@
-.PHONY: all deps prepare-go-work build build-server build-server-local build-server-dev build-ext install package publish release clean test test-server test-server-dev test-editor-latency
+.PHONY: all deps prepare-go-work build build-server build-server-local build-server-dev build-ext install package publish publish-marketplace publish-open-vsx publish-all release clean test test-server test-server-dev test-editor-latency
 
 BINARY_NAME := phpstrom
 BIN_DIR     := bin
@@ -120,15 +120,40 @@ package: build deps
 	npx vsce package --no-dependencies -o $(VSIX)
 	@echo "    Package: $(VSIX)"
 
-## publish: build, package, and publish the VSIX to the VS Code Marketplace
-publish: package
+## publish: backwards-compatible alias for publishing to the VS Code Marketplace
+publish: publish-marketplace
+
+## publish-marketplace: build, package, and publish the VSIX to the VS Code Marketplace
+publish-marketplace: package
 	@if [ -z "$$VSCE_PAT" ]; then \
-		echo "ERROR: VSCE_PAT is not set. Export your Marketplace token and re-run make publish."; \
+		echo "ERROR: VSCE_PAT is not set. Export your Marketplace token and re-run make publish-marketplace."; \
 		exit 1; \
 	fi
 	@echo "==> Publishing extension to Marketplace..."
 	npx vsce publish --packagePath $(VSIX)
 	@echo "==> Published $(VSIX)"
+
+## publish-open-vsx: build, package, and publish the VSIX to Open VSX
+publish-open-vsx: package
+	@if [ -z "$$OVSX_PAT" ]; then \
+		echo "ERROR: OVSX_PAT is not set. Export your Open VSX token and re-run make publish-open-vsx."; \
+		exit 1; \
+	fi
+	@echo "==> Publishing extension to Open VSX..."
+	npx --yes ovsx@1.1.1 publish $(VSIX)
+	@echo "==> Published $(VSIX)"
+
+## publish-all: build one VSIX and publish that exact package to both registries
+publish-all: package
+	@if [ -z "$$VSCE_PAT" ] || [ -z "$$OVSX_PAT" ]; then \
+		echo "ERROR: VSCE_PAT and OVSX_PAT must both be set before publishing."; \
+		exit 1; \
+	fi
+	@echo "==> Publishing $(VSIX) to the VS Code Marketplace..."
+	npx vsce publish --packagePath $(VSIX)
+	@echo "==> Publishing $(VSIX) to Open VSX..."
+	npx --yes ovsx@1.1.1 publish $(VSIX)
+	@echo "==> Published $(VSIX) to both registries"
 
 ## test-server: run Go unit tests against the parser version pinned in server/go.mod
 test-server:

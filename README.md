@@ -29,6 +29,18 @@ make package    # VSIX only
 
 Needs Go 1.23+, Node.js, and the `code` CLI on `PATH` for `make install`.
 
+## Release
+
+Move the entries under `Unreleased` in [CHANGELOG.md](CHANGELOG.md) into the new version, then bump and validate the extension with `make release`. After the version commit is on `main`, run the **Publish extension** GitHub Actions workflow. It packages one VSIX and publishes that exact file to both the VS Code Marketplace and Open VSX.
+
+The workflow requires repository Actions secrets named `VSCE_PAT` and `OVSX_PAT`. The equivalent local command is:
+
+```sh
+VSCE_PAT=... OVSX_PAT=... make publish-all
+```
+
+Use `make publish-marketplace` or `make publish-open-vsx` when intentionally publishing to only one registry. `make publish` remains an alias for the VS Code Marketplace target.
+
 ## Develop
 
 Release and local builds use the parser revision pinned in `server/go.mod`. They do not require a sibling checkout.
