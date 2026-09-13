@@ -10,6 +10,37 @@ import (
 	"github.com/ayanozturk/vscode-php-strom/lsp"
 )
 
+func TestInitializeAdvertisesFormatRenameReferences(t *testing.T) {
+	srv := &Server{out: io.Discard}
+	h := NewHandler(srv)
+
+	raw, err := json.Marshal(lsp.InitializeParams{})
+	if err != nil {
+		t.Fatalf("marshal initialize: %v", err)
+	}
+	result, respErr := h.initialize(raw)
+	if respErr != nil {
+		t.Fatalf("initialize returned error: %+v", respErr)
+	}
+	init, ok := result.(lsp.InitializeResult)
+	if !ok {
+		t.Fatalf("unexpected initialize result type %T", result)
+	}
+	caps := init.Capabilities
+	if !caps.DocumentFormattingProvider {
+		t.Fatal("expected documentFormattingProvider")
+	}
+	if !caps.DocumentRangeFormattingProvider {
+		t.Fatal("expected documentRangeFormattingProvider")
+	}
+	if !caps.ReferencesProvider {
+		t.Fatal("expected referencesProvider")
+	}
+	if caps.RenameProvider == nil || !caps.RenameProvider.PrepareProvider {
+		t.Fatalf("expected renameProvider with prepareProvider, got %+v", caps.RenameProvider)
+	}
+}
+
 func TestInitializeAppliesDiagnosticsOverridesToProvider(t *testing.T) {
 	srv := &Server{out: io.Discard}
 	h := NewHandler(srv)
