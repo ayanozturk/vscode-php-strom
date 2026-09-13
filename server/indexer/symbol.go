@@ -70,12 +70,21 @@ type Symbol struct {
 	Type       string
 	Params     []SymbolParam
 
+	// Lossless-syntax cutover fields. TypeFQN is the resolved class-like FQN
+	// when known; SyntaxNodeID ties the symbol to a binder usage / red node.
+	// Type string remains a display fallback during migration.
+	TypeFQN       string
+	SyntaxNodeID  int
+	TypeSpanStart int
+	TypeSpanEnd   int
+
 	// Visibility & modifiers
-	IsStatic   bool
-	IsAbstract bool
-	IsFinal    bool
-	IsReadonly bool
-	Visibility string // "public" | "protected" | "private"
+	IsStatic      bool
+	IsAbstract    bool
+	IsFinal       bool
+	IsReadonly    bool
+	Visibility    string // "public" | "protected" | "private"
+	SetVisibility string // PHP 8.4 asymmetric write visibility, or ""
 }
 
 // GenericParent records the type arguments supplied to an inherited class or
@@ -89,6 +98,7 @@ type GenericParent struct {
 type SymbolParam struct {
 	Name        string
 	Type        string
+	TypeFQN     string
 	HasDefault  bool
 	IsVariadic  bool
 	IsPassByRef bool

@@ -6,12 +6,14 @@ package providers
 
 import (
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/ayanozturk/go-php-parser/analyse"
 	"github.com/ayanozturk/go-php-parser/ast"
 	goplexer "github.com/ayanozturk/go-php-parser/lexer"
 	goparser "github.com/ayanozturk/go-php-parser/parser"
+	"github.com/ayanozturk/go-php-parser/syntax"
 
 	"github.com/ayanozturk/vscode-php-strom/indexer"
 	"github.com/ayanozturk/vscode-php-strom/lsp"
@@ -191,11 +193,101 @@ func (p *ReferencesProvider) Provide(uri, text string, pos lsp.Position, include
 	if word == "" {
 		return nil
 	}
-	// Simple: return definition location as placeholder
-	syms := p.idx.GetIndex().Search(word)
+	seen := map[string]struct{}{}
+	var out []lsp.Location
+	add := func(loc lsp.Location) {
+		key := loc.URI + ":" + strconv.FormatUint(uint64(loc.Range.Start.Line), 10) + ":" +
+			strconv.FormatUint(uint64(loc.Range.Start.Character), 10)
+		if _, ok := seen[key]; ok {
+			return
+		}
+		seen[key] = struct{}{}
+		out = append(out, loc)
+	}
+	// Prefer project-scoped binder UsageGraph when the indexer has one.
+	if p.idx != nil {
+		if g := p.idx.UsageGraph(); g != nil {
+			for _, use := range g.FindByName(word) {
+				add(nameUseToLocation(use, text, uri))
+			}
+		}
+	}
+	for _, loc := range sameFileNameUses(uri, text, word) {
+		add(loc)
+	}
+	for _, s := range prioritizeDefinitionMatches(p.idx.GetIndex().GetByName(word), word) {
+		add(symToLocation(s))
+	}
+	if len(out) > 0 {
+		return out
+	}
+	for _, s := range p.idx.GetIndex().Search(word) {
+		add(symToLocation(s))
+	}
+	return out
+}
+
+func nameUseToLocation(use analyse.NameUse, openText, openURI string) lsp.Location {
+	uri := use.URI
+	if uri == "" {
+		uri = openURI
+	}
+	start := lsp.Position{Line: uint32(use.StartLine), Character: uint32(use.StartChar)}
+	end := lsp.Position{Line: uint32(use.EndLine), Character: uint32(use.EndChar)}
+	if uri == openURI && (use.EndLine == 0 && use.EndChar == 0 && use.Span.End > use.Span.Start) {
+		start = offsetToPosition(openText, use.Span.Start)
+		end = offsetToPosition(openText, use.Span.End)
+	}
+	return lsp.Location{
+		URI: uri,
+		Range: lsp.Range{
+			Start: start,
+			End:   end,
+		},
+	}
+}
+
+func sameFileNameUses(uri, text, word string) []lsp.Location {
+	res := syntax.Parse([]byte(text))
+	if res == nil || res.File == nil || res.File.Root == nil {
+		return nil
+	}
+	b := analyse.NewBinder("", nil)
+	var walk func(*syntax.RedNode)
+	walk = func(n *syntax.RedNode) {
+		if n == nil {
+			return
+		}
+		switch n.Kind() {
+		case syntax.KindUnqualifiedName, syntax.KindQualifiedName,
+			syntax.KindFullyQualifiedName, syntax.KindRelativeName:
+			b.BindName(n, "name")
+		}
+		for _, c := range n.Children() {
+			walk(c)
+		}
+	}
+	walk(res.File.Root)
+
 	var locs []lsp.Location
-	for _, s := range syms {
-		locs = append(locs, symToLocation(s))
+	lower := strings.ToLower(word)
+	for _, use := range b.Graph.Uses {
+		written := use.Written
+		if i := strings.LastIndexByte(written, '\\'); i >= 0 {
+			written = written[i+1:]
+		}
+		if !strings.EqualFold(written, word) && strings.ToLower(use.Resolved) != lower {
+			continue
+		}
+		start := offsetToPosition(text, use.Span.Start)
+		end := offsetToPosition(text, use.Span.End)
+		locs = append(locs, lsp.Location{
+			URI: uri,
+			Range: lsp.Range{
+				Start: start,
+				End:   end,
+			},
+		})
 	}
 	return locs
 }
@@ -255,11 +347,42 @@ type SignatureHelpProvider struct{ idx *indexer.WorkspaceIndexer }
 type FormattingProvider struct{ cfg Config }
 
 func (p *FormattingProvider) Format(uri, text string, opts lsp.FormattingOptions) []lsp.TextEdit {
-	return nil
+	// Identity reprint from the lossless token/green tree. Style rewrites come later.
+	src := []byte(text)
+	file := syntax.ParseTokens(src)
+	printed := syntax.Print(file.Root)
+	if printed == text {
+		return nil
+	}
+	end := offsetToPosition(text, len(text))
+	return []lsp.TextEdit{{
+		Range: lsp.Range{
+			Start: lsp.Position{Line: 0, Character: 0},
+			End:   end,
+		},
+		NewText: printed,
+	}}
 }
 
 func (p *FormattingProvider) FormatRange(uri, text string, r lsp.Range, opts lsp.FormattingOptions) []lsp.TextEdit {
-	return nil
+	// Range formatting falls back to full-file identity until trivia edits exist.
+	return p.Format(uri, text, opts)
+}
+
+func offsetToPosition(text string, offset int) lsp.Position {
+	if offset > len(text) {
+		offset = len(text)
+	}
+	line, col := 0, 0
+	for i := 0; i < offset; i++ {
+		if text[i] == '\n' {
+			line++
+			col = 0
+			continue
+		}
+		col++
+	}
+	return lsp.Position{Line: uint32(line), Character: uint32(col)}
 }
 
 // ─── Rename ───────────────────────────────────────────────────────────────────
@@ -267,11 +390,74 @@ func (p *FormattingProvider) FormatRange(uri, text string, r lsp.Range, opts lsp
 type RenameProvider struct{ idx *indexer.WorkspaceIndexer }
 
 func (p *RenameProvider) Provide(uri, text string, pos lsp.Position, newName string) *lsp.WorkspaceEdit {
-	return nil
+	word := wordAt(text, pos)
+	if word == "" || newName == "" {
+		return nil
+	}
+	changes := map[string][]lsp.TextEdit{}
+	addEdit := func(loc lsp.Location) {
+		changes[loc.URI] = append(changes[loc.URI], lsp.TextEdit{Range: loc.Range, NewText: newName})
+	}
+	if p.idx != nil {
+		if g := p.idx.UsageGraph(); g != nil {
+			for _, use := range g.FindByName(word) {
+				addEdit(nameUseToLocation(use, text, uri))
+			}
+		}
+	}
+	for _, loc := range sameFileNameUses(uri, text, word) {
+		addEdit(loc)
+	}
+	for _, s := range prioritizeDefinitionMatches(p.idx.GetIndex().GetByName(word), word) {
+		addEdit(symToLocation(s))
+	}
+	if len(changes) == 0 {
+		return nil
+	}
+	return &lsp.WorkspaceEdit{Changes: changes}
 }
 
 func (p *RenameProvider) Prepare(uri, text string, pos lsp.Position) *lsp.Range {
-	return nil
+	word, start, end := wordSpanAt(text, pos)
+	if word == "" {
+		return nil
+	}
+	_ = uri
+	s := offsetToPosition(text, start)
+	e := offsetToPosition(text, end)
+	return &lsp.Range{Start: s, End: e}
+}
+
+func wordSpanAt(text string, pos lsp.Position) (string, int, int) {
+	offset := 0
+	line, col := 0, 0
+	for i := 0; i < len(text); i++ {
+		if line == int(pos.Line) && col == int(pos.Character) {
+			offset = i
+			break
+		}
+		if text[i] == '\n' {
+			line++
+			col = 0
+			continue
+		}
+		col++
+		offset = i + 1
+	}
+	isIdent := func(c byte) bool {
+		return c == '_' || c == '\\' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
+	}
+	start, end := offset, offset
+	for start > 0 && isIdent(text[start-1]) {
+		start--
+	}
+	for end < len(text) && isIdent(text[end]) {
+		end++
+	}
+	if start == end {
+		return "", 0, 0
+	}
+	return text[start:end], start, end
 }
 
 // ─── FoldingRange ─────────────────────────────────────────────────────────────

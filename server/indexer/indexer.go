@@ -24,12 +24,14 @@ import (
 	"github.com/ayanozturk/go-php-parser/ast"
 	goplexer "github.com/ayanozturk/go-php-parser/lexer"
 	goparser "github.com/ayanozturk/go-php-parser/parser"
+	"github.com/ayanozturk/go-php-parser/syntax"
 )
 
 // WorkspaceIndexer discovers and indexes PHP files in workspace folders.
 type WorkspaceIndexer struct {
 	cfg              Config
 	index            *Index
+	usage            *analyse.ProjectUsageGraph
 	project          *analyse.ProjectIndex
 	projectNodes     map[string][]ast.Node
 	projectHashes    map[string]uint64
@@ -125,6 +127,7 @@ func New(cfg Config) *WorkspaceIndexer {
 	wi := &WorkspaceIndexer{
 		cfg:              cfg,
 		index:            newIndex(),
+		usage:            analyse.NewProjectUsageGraph(),
 		project:          analyse.NewProjectIndexForVersion(cfg.PHPVersion),
 		projectNodes:     make(map[string][]ast.Node),
 		projectHashes:    make(map[string]uint64),
@@ -345,6 +348,7 @@ func (wi *WorkspaceIndexer) IndexDocument(uri, text string) {
 
 	parsed := ParseSource(uri, text)
 	wi.index.PutFile(uri, parsed.Symbols)
+	wi.putUsageGraph(uri, text, parsed.Nodes)
 	wi.putProjectNodes(uri, parsed.Nodes, hash)
 	wi.trackWorkspaceURI(uri)
 }
@@ -352,6 +356,9 @@ func (wi *WorkspaceIndexer) IndexDocument(uri, text string) {
 // RemoveDocument removes all symbols for a document URI from the index.
 func (wi *WorkspaceIndexer) RemoveDocument(uri string) {
 	wi.index.RemoveFile(uri)
+	if wi.usage != nil {
+		wi.usage.RemoveFile(uri)
+	}
 	wi.removeProjectNodes(uri)
 	wi.untrackWorkspaceURI(uri)
 }
@@ -378,6 +385,11 @@ func (wi *WorkspaceIndexer) WorkspaceFileURIs() []string {
 
 // GetIndex returns the underlying symbol index for provider use.
 func (wi *WorkspaceIndexer) GetIndex() *Index { return wi.index }
+
+// UsageGraph returns the project-scoped binder usage graph for references/rename.
+func (wi *WorkspaceIndexer) UsageGraph() *analyse.ProjectUsageGraph {
+	return wi.usage
+}
 
 // ProjectIndex returns the parser-native project index used by analysis rules.
 func (wi *WorkspaceIndexer) ProjectIndex() *analyse.ProjectIndex {
@@ -752,6 +764,7 @@ func (wi *WorkspaceIndexer) indexFile(path string, skipFunctionBodies bool, visi
 	}
 
 	wi.index.PutFile(parsed.URI, parsed.Symbols)
+	wi.putUsageGraph(parsed.URI, parsed.Text, parsed.Nodes)
 	if projectCollector != nil {
 		projectCollector(parsed)
 	}
@@ -926,110 +939,12 @@ func parseSource(ctx context.Context, uri, src string, skipFunctionBodies bool) 
 	}
 }
 
+// recoverMissingMemberPHPDocs is a no-op: trivia-on-token attachment plus
+// parser consumeCurrentDoc now binds PHPDoc to declarations. Kept as a named
+// hook so call sites stay stable during the lossless cutover.
 func recoverMissingMemberPHPDocs(nodes []ast.Node, src string) {
-	for _, node := range nodes {
-		switch n := node.(type) {
-		case *ast.NamespaceNode:
-			recoverMissingMemberPHPDocs(n.Body, src)
-		case *ast.ClassNode:
-			for _, methodNode := range n.Methods {
-				if method, ok := methodNode.(*ast.FunctionNode); ok {
-					if method.PHPDoc == nil {
-						method.PHPDoc = phpDocImmediatelyBefore(src, method.GetPos().Offset)
-					}
-					repairGenericPHPDocTypes(method.PHPDoc)
-				}
-			}
-		case *ast.InterfaceNode:
-			for _, member := range n.Members {
-				if method, ok := member.(*ast.InterfaceMethodNode); ok {
-					if method.PHPDoc == nil {
-						method.PHPDoc = phpDocImmediatelyBefore(src, method.GetPos().Offset)
-					}
-					repairGenericPHPDocTypes(method.PHPDoc)
-				}
-			}
-		}
-	}
-}
-
-func repairGenericPHPDocTypes(doc *ast.PHPDocNode) {
-	if doc == nil {
-		return
-	}
-	for _, rawLine := range strings.Split(doc.RawContent, "\n") {
-		line := strings.TrimSpace(rawLine)
-		line = strings.TrimSpace(strings.TrimPrefix(line, "/**"))
-		line = strings.TrimSpace(strings.TrimSuffix(line, "*/"))
-		line = strings.TrimSpace(strings.TrimPrefix(line, "*"))
-		switch {
-		case strings.HasPrefix(line, "@return"):
-			typeName, _ := phpDocTypeAndRest(strings.TrimSpace(strings.TrimPrefix(line, "@return")))
-			doc.ReturnType = typeName
-		case strings.HasPrefix(line, "@var"):
-			typeName, _ := phpDocTypeAndRest(strings.TrimSpace(strings.TrimPrefix(line, "@var")))
-			doc.VarType = typeName
-		case strings.HasPrefix(line, "@param"):
-			typeName, remainder := phpDocTypeAndRest(strings.TrimSpace(strings.TrimPrefix(line, "@param")))
-			fields := strings.Fields(remainder)
-			if typeName == "" || len(fields) == 0 {
-				continue
-			}
-			name := strings.TrimPrefix(fields[0], "$")
-			for paramIdx := range doc.Params {
-				if doc.Params[paramIdx].Name == name {
-					doc.Params[paramIdx].Type = typeName
-					break
-				}
-			}
-		}
-	}
-}
-
-func phpDocTypeAndRest(value string) (string, string) {
-	value = strings.TrimSpace(value)
-	depth := 0
-	for idx, r := range value {
-		switch r {
-		case '<', '(', '{', '[':
-			depth++
-		case '>', ')', '}', ']':
-			if depth > 0 {
-				depth--
-			}
-		case ' ', '\t':
-			if depth == 0 {
-				return strings.TrimSpace(value[:idx]), strings.TrimSpace(value[idx:])
-			}
-		}
-	}
-	return strings.TrimSpace(value), ""
-}
-
-func phpDocImmediatelyBefore(src string, offset int) *ast.PHPDocNode {
-	if offset <= 0 || offset > len(src) {
-		return nil
-	}
-	prefix := src[:offset]
-	end := strings.LastIndex(prefix, "*/")
-	if end < 0 {
-		return nil
-	}
-	start := strings.LastIndex(prefix[:end], "/**")
-	if start < 0 {
-		return nil
-	}
-	if strings.Contains(prefix[start:end], "*/") {
-		return nil
-	}
-	for _, field := range strings.Fields(prefix[end+2:]) {
-		switch strings.ToLower(field) {
-		case "public", "protected", "private", "static", "final", "abstract", "readonly", "&":
-		default:
-			return nil
-		}
-	}
-	return ast.ExtractPHPDocFromComment(prefix[start : end+2])
+	_ = nodes
+	_ = src
 }
 
 // extractSymbols parses PHP source and extracts top-level declarations.
@@ -1042,8 +957,129 @@ func extractSymbolsFromNodes(uri string, nodes []ast.Node) []*Symbol {
 	extractFromNodes(nodes, uri, extractionContext{aliases: make(map[string]string)}, &syms)
 	for _, sym := range syms {
 		populateLSPRange(sym)
+		enrichLosslessFields(sym)
 	}
 	return syms
+}
+
+// putUsageGraph binds syntax names for uri into the project usage graph and
+// stamps SyntaxNodeID onto matching declaration symbols.
+func (wi *WorkspaceIndexer) putUsageGraph(uri, text string, nodes []ast.Node) {
+	if wi == nil || wi.usage == nil || text == "" {
+		return
+	}
+	// Prefer syntax-tree namespace/aliases (covers group-use); fall back to AST.
+	var ns string
+	var aliases map[string]string
+	if res := syntax.Parse([]byte(text)); res != nil && res.File != nil {
+		ns, aliases = syntax.NamespaceAndAliases(res.File)
+	}
+	if ns == "" || len(aliases) == 0 {
+		astNS, astAliases := namespaceAndAliases(nodes)
+		if ns == "" {
+			ns = astNS
+		}
+		if len(aliases) == 0 {
+			aliases = astAliases
+		} else {
+			for k, v := range astAliases {
+				if _, ok := aliases[k]; !ok {
+					aliases[k] = v
+				}
+			}
+		}
+	}
+	graph := analyse.BindSyntaxFile(uri, []byte(text), ns, aliases)
+	wi.usage.PutFile(uri, graph.Uses)
+	stampSyntaxNodeIDs(wi.index.GetByURI(uri), graph.Uses)
+}
+
+func namespaceAndAliases(nodes []ast.Node) (string, map[string]string) {
+	ns := ""
+	aliases := map[string]string{}
+	var walk func([]ast.Node)
+	walk = func(list []ast.Node) {
+		for _, n := range list {
+			switch t := n.(type) {
+			case *ast.NamespaceNode:
+				if t.Name != "" {
+					ns = t.Name
+				}
+				if len(t.Body) > 0 {
+					walk(t.Body)
+				}
+			case *ast.UseNode:
+				alias := t.Alias
+				if alias == "" {
+					parts := strings.Split(strings.Trim(t.Path, `\`), `\`)
+					alias = parts[len(parts)-1]
+				}
+				aliases[strings.ToLower(alias)] = strings.TrimPrefix(t.Path, `\`)
+			}
+		}
+	}
+	walk(nodes)
+	return ns, aliases
+}
+
+func stampSyntaxNodeIDs(syms []*Symbol, uses []analyse.NameUse) {
+	if len(syms) == 0 || len(uses) == 0 {
+		return
+	}
+	byName := map[string][]*Symbol{}
+	for _, s := range syms {
+		byName[strings.ToLower(s.Name)] = append(byName[strings.ToLower(s.Name)], s)
+	}
+	for _, u := range uses {
+		if u.Kind != "class" && u.Kind != "function" {
+			continue
+		}
+		w := u.Written
+		if i := strings.LastIndexByte(w, '\\'); i >= 0 {
+			w = w[i+1:]
+		}
+		cands := byName[strings.ToLower(w)]
+		for _, s := range cands {
+			if s.SyntaxNodeID != 0 {
+				continue
+			}
+			s.SyntaxNodeID = u.NodeID
+			break
+		}
+	}
+}
+
+func enrichLosslessFields(sym *Symbol) {
+	if sym == nil {
+		return
+	}
+	if sym.TypeFQN == "" {
+		if fqn := simpleClassFQN(sym.Type); fqn != "" {
+			sym.TypeFQN = fqn
+		} else if fqn := simpleClassFQN(sym.ReturnType); fqn != "" {
+			sym.TypeFQN = fqn
+		}
+	}
+	for i := range sym.Params {
+		if sym.Params[i].TypeFQN == "" {
+			sym.Params[i].TypeFQN = simpleClassFQN(sym.Params[i].Type)
+		}
+	}
+}
+
+func simpleClassFQN(resolved string) string {
+	resolved = strings.TrimSpace(resolved)
+	if resolved == "" || strings.ContainsAny(resolved, "|?&<>()[]") {
+		return ""
+	}
+	lower := strings.ToLower(resolved)
+	switch lower {
+	case "int", "float", "string", "bool", "array", "object", "iterable",
+		"void", "mixed", "never", "null", "false", "true", "callable",
+		"self", "static", "parent":
+		return ""
+	}
+	return strings.TrimPrefix(resolved, `\`)
 }
 
 type extractionContext struct {
@@ -1111,8 +1147,9 @@ func extractFromNodes(nodes []ast.Node, uri string, ctx extractionContext, syms 
 				DocComment:     docRaw(n.PHPDoc),
 				Templates:      templates,
 				GenericParents: genericParents,
-				IsFinal:        hasModifier(n.Modifier, "final"),
-				IsAbstract:     hasModifier(n.Modifier, "abstract"),
+				IsFinal:        n.Modifiers.HasName("final"),
+				IsAbstract:     n.Modifiers.HasName("abstract"),
+				IsReadonly:     n.Modifiers.HasName("readonly"),
 				Visibility:     "public",
 			}
 			if n.Extends != "" {
@@ -1190,7 +1227,7 @@ func extractFromNodes(nodes []ast.Node, uri string, ctx extractionContext, syms 
 				URI:        uri,
 				Range:      positionRange(n.GetPos()),
 				DocComment: docRaw(n.PHPDoc),
-				ReturnType: resolveTypeHint(ctx, n.ReturnType),
+				ReturnType: resolveTypeHint(ctx, typeNodeToString(n.ReturnType)),
 				Visibility: "public",
 				Params:     extractParams(ctx, n.Params),
 			})
@@ -1204,7 +1241,7 @@ func extractFromNodes(nodes []ast.Node, uri string, ctx extractionContext, syms 
 				Namespace:  ctx.namespace,
 				URI:        uri,
 				Range:      positionRange(n.GetPos()),
-				Visibility: defaultVisibility(n.Visibility),
+				Visibility: n.Modifiers.DefaultVisibility(),
 			})
 		}
 	}
@@ -1430,8 +1467,8 @@ func extractClassMembers(class *ast.ClassNode, uri, classFQN string, ctx extract
 		if !ok {
 			continue
 		}
-		visibility := visibilityFromModifiers(method.Visibility, method.Modifiers)
-		returnType := method.ReturnType
+		visibility := method.Modifiers.DefaultVisibility()
+		returnType := typeNodeToString(method.ReturnType)
 		if method.PHPDoc != nil && method.PHPDoc.ReturnType != "" {
 			returnType = method.PHPDoc.ReturnType
 		}
@@ -1443,9 +1480,9 @@ func extractClassMembers(class *ast.ClassNode, uri, classFQN string, ctx extract
 			Range:      positionRange(method.GetPos()),
 			DocComment: docRaw(method.PHPDoc),
 			ReturnType: resolveTypeHintWithTemplates(ctx, returnType, templates),
-			IsStatic:   hasModifierList(method.Modifiers, "static"),
-			IsAbstract: hasModifierList(method.Modifiers, "abstract"),
-			IsFinal:    hasModifierList(method.Modifiers, "final"),
+			IsStatic:   method.Modifiers.HasName("static"),
+			IsAbstract: method.Modifiers.HasName("abstract"),
+			IsFinal:    method.Modifiers.HasName("final"),
 			Visibility: visibility,
 			Params:     extractParamsWithPHPDoc(ctx, method.Params, method.PHPDoc, templates),
 		})
@@ -1457,15 +1494,16 @@ func extractClassMembers(class *ast.ClassNode, uri, classFQN string, ctx extract
 			continue
 		}
 		*syms = append(*syms, &Symbol{
-			FQN:        classFQN + "::$" + property.Name,
-			Name:       property.Name,
-			Kind:       KindProperty,
-			URI:        uri,
-			Range:      positionRange(property.GetPos()),
-			Type:       resolveTypeHint(ctx, property.TypeHint),
-			IsStatic:   property.IsStatic,
-			IsReadonly: property.IsReadonly,
-			Visibility: defaultVisibility(property.Visibility),
+			FQN:           classFQN + "::$" + property.Name,
+			Name:          property.Name,
+			Kind:          KindProperty,
+			URI:           uri,
+			Range:         positionRange(property.GetPos()),
+			Type:          resolveTypeHint(ctx, typeNodeToString(property.TypeHint)),
+			IsStatic:      property.IsStatic,
+			IsReadonly:    property.IsReadonly,
+			Visibility:    property.Modifiers.DefaultVisibility(),
+			SetVisibility: property.Modifiers.SetVisibility(),
 		})
 	}
 
@@ -1480,7 +1518,7 @@ func extractClassMembers(class *ast.ClassNode, uri, classFQN string, ctx extract
 			Kind:       KindConstant,
 			URI:        uri,
 			Range:      positionRange(constant.GetPos()),
-			Visibility: defaultVisibility(constant.Visibility),
+			Visibility: constant.Modifiers.DefaultVisibility(),
 		})
 	}
 }
@@ -1593,18 +1631,16 @@ func promotedPropertySymbols(class *ast.ClassNode, uri, classFQN string, ctx ext
 			if !ok || !param.IsPromoted {
 				continue
 			}
-			typeHint := param.TypeHint
-			if typeHint == "" && param.UnionType != nil {
-				typeHint = param.UnionType.TokenLiteral()
-			}
+			typeHint := typeNodeToString(param.TypeHint)
 			symbols = append(symbols, &Symbol{
-				FQN:        classFQN + "::$" + param.Name,
-				Name:       param.Name,
-				Kind:       KindProperty,
-				URI:        uri,
-				Range:      positionRange(param.GetPos()),
-				Type:       resolveTypeHint(ctx, typeHint),
-				Visibility: defaultVisibility(param.Visibility),
+				FQN:           classFQN + "::$" + param.Name,
+				Name:          param.Name,
+				Kind:          KindProperty,
+				URI:           uri,
+				Range:         positionRange(param.GetPos()),
+				Type:          resolveTypeHint(ctx, typeHint),
+				Visibility:    param.Modifiers.DefaultVisibility(),
+				SetVisibility: param.Modifiers.SetVisibility(),
 			})
 		}
 	}
@@ -1615,7 +1651,7 @@ func extractTraitMembers(members []ast.Node, uri, traitFQN string, ctx extractio
 	for _, member := range members {
 		switch n := member.(type) {
 		case *ast.FunctionNode:
-			visibility := visibilityFromModifiers(n.Visibility, n.Modifiers)
+			visibility := n.Modifiers.DefaultVisibility()
 			*syms = append(*syms, &Symbol{
 				FQN:        traitFQN + "::" + n.Name,
 				Name:       n.Name,
@@ -1623,10 +1659,10 @@ func extractTraitMembers(members []ast.Node, uri, traitFQN string, ctx extractio
 				URI:        uri,
 				Range:      positionRange(n.GetPos()),
 				DocComment: docRaw(n.PHPDoc),
-				ReturnType: resolveTypeHint(ctx, n.ReturnType),
-				IsStatic:   hasModifierList(n.Modifiers, "static"),
-				IsAbstract: hasModifierList(n.Modifiers, "abstract"),
-				IsFinal:    hasModifierList(n.Modifiers, "final"),
+				ReturnType: resolveTypeHint(ctx, typeNodeToString(n.ReturnType)),
+				IsStatic:   n.Modifiers.HasName("static"),
+				IsAbstract: n.Modifiers.HasName("abstract"),
+				IsFinal:    n.Modifiers.HasName("final"),
 				Visibility: visibility,
 				Params:     extractParams(ctx, n.Params),
 			})
@@ -1637,7 +1673,7 @@ func extractTraitMembers(members []ast.Node, uri, traitFQN string, ctx extractio
 				Kind:       KindConstant,
 				URI:        uri,
 				Range:      positionRange(n.GetPos()),
-				Visibility: defaultVisibility(n.Visibility),
+				Visibility: n.Modifiers.DefaultVisibility(),
 			})
 		}
 	}
@@ -1659,7 +1695,7 @@ func extractInterfaceMembers(members []ast.Node, uri, interfaceFQN string, ctx e
 				Range:      positionRange(n.GetPos()),
 				DocComment: docRaw(n.PHPDoc),
 				ReturnType: resolveTypeHintWithTemplates(ctx, returnType, templates),
-				Visibility: defaultVisibility(n.Visibility),
+				Visibility: n.Modifiers.DefaultVisibility(),
 				Params:     extractParamsWithPHPDoc(ctx, n.Params, n.PHPDoc, templates),
 			})
 		case *ast.ConstantNode:
@@ -1669,7 +1705,7 @@ func extractInterfaceMembers(members []ast.Node, uri, interfaceFQN string, ctx e
 				Kind:       KindConstant,
 				URI:        uri,
 				Range:      positionRange(n.GetPos()),
-				Visibility: defaultVisibility(n.Visibility),
+				Visibility: n.Modifiers.DefaultVisibility(),
 			})
 		}
 	}
@@ -1705,8 +1741,8 @@ func extractEnumMembers(enum *ast.EnumNode, uri, enumFQN string, ctx extractionC
 		if !ok {
 			continue
 		}
-		visibility := visibilityFromModifiers(method.Visibility, method.Modifiers)
-		returnType := method.ReturnType
+		visibility := method.Modifiers.DefaultVisibility()
+		returnType := typeNodeToString(method.ReturnType)
 		if method.PHPDoc != nil && method.PHPDoc.ReturnType != "" {
 			returnType = method.PHPDoc.ReturnType
 		}
@@ -1718,7 +1754,7 @@ func extractEnumMembers(enum *ast.EnumNode, uri, enumFQN string, ctx extractionC
 			Range:      positionRange(method.GetPos()),
 			DocComment: docRaw(method.PHPDoc),
 			ReturnType: resolveTypeHint(ctx, returnType),
-			IsStatic:   hasModifierList(method.Modifiers, "static"),
+			IsStatic:   method.Modifiers.HasName("static"),
 			Visibility: visibility,
 			Params:     extractParamsWithPHPDoc(ctx, method.Params, method.PHPDoc, nil),
 		})
@@ -1771,29 +1807,11 @@ func paramTypeToString(param *ast.ParamNode) string {
 	if param == nil {
 		return ""
 	}
-	if param.TypeHint != "" {
-		return param.TypeHint
-	}
-	if param.UnionType != nil {
-		return param.UnionType.TokenLiteral()
-	}
-	return ""
+	return typeNodeToString(param.TypeHint)
 }
 
 func typeNodeToString(node ast.Node) string {
-	if node == nil {
-		return ""
-	}
-	switch n := node.(type) {
-	case *ast.IdentifierNode:
-		return n.Value
-	case *ast.UnionTypeNode:
-		return strings.Join(n.Types, "|")
-	case *ast.IntersectionTypeNode:
-		return strings.Join(n.Types, "&")
-	default:
-		return node.TokenLiteral()
-	}
+	return ast.TypeText(node)
 }
 
 func positionRange(pos ast.Position) Range {
@@ -1831,27 +1849,6 @@ func docRaw(doc *ast.PHPDocNode) string {
 		return ""
 	}
 	return doc.RawContent
-}
-
-func hasModifier(modifier, want string) bool {
-	return modifier == want
-}
-
-func hasModifierList(modifiers []string, want string) bool {
-	return slices.Contains(modifiers, want)
-}
-
-func visibilityFromModifiers(legacy string, modifiers []string) string {
-	if legacy != "" {
-		return legacy
-	}
-	for _, modifier := range modifiers {
-		switch modifier {
-		case "private", "protected", "public":
-			return modifier
-		}
-	}
-	return "public"
 }
 
 func defaultVisibility(visibility string) string {
