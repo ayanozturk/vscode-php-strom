@@ -971,7 +971,7 @@ func (wi *WorkspaceIndexer) putUsageGraph(uri, text string, nodes []ast.Node) {
 	// Prefer syntax-tree namespace/aliases (covers group-use); fall back to AST.
 	var ns string
 	var aliases map[string]string
-	if res := syntax.Parse([]byte(text)); res != nil && res.File != nil {
+	if res := syntax.ParseForIndex([]byte(text)); res != nil && res.File != nil {
 		ns, aliases = syntax.NamespaceAndAliases(res.File)
 	}
 	if ns == "" || len(aliases) == 0 {
@@ -989,7 +989,7 @@ func (wi *WorkspaceIndexer) putUsageGraph(uri, text string, nodes []ast.Node) {
 			}
 		}
 	}
-	graph := analyse.BindSyntaxFile(uri, []byte(text), ns, aliases)
+	graph := analyse.BindSyntaxFileForIndex(uri, []byte(text), ns, aliases)
 	wi.usage.PutFile(uri, graph.Uses)
 	stampSyntaxNodeIDs(wi.index.GetByURI(uri), graph.Uses)
 }
