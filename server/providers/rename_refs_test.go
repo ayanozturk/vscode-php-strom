@@ -1,6 +1,7 @@
 package providers
 
 import (
+	"os"
 	"testing"
 
 	"github.com/ayanozturk/vscode-php-strom/indexer"
@@ -45,6 +46,41 @@ func TestReferencesUsesBoundSymbol(t *testing.T) {
 		if loc.URI == "file:///workspace/B.php" {
 			t.Fatalf("refs must not include B\\Foo: %+v", locs)
 		}
+	}
+}
+
+func TestUpgradeMatchingFilesSeesBodyRef(t *testing.T) {
+	dir := t.TempDir()
+	declPath := dir + "/Foo.php"
+	declURI := "file://" + declPath
+	if err := os.WriteFile(declPath, []byte("<?php\nclass Foo {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	idx := indexer.New(indexer.Config{MaxSize: 1 << 20})
+	idx.IndexDocument(declURI, "<?php\nclass Foo {}\n")
+
+	// Signature + body uses: declaration-tier keeps the type hint; upgrade fills body.
+	hintPath := dir + "/Hint.php"
+	hintURI := "file://" + hintPath
+	hintSrc := "<?php\nfunction g(Foo $x) { return new Foo(); }\n"
+	if err := os.WriteFile(hintPath, []byte(hintSrc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	idx.IndexDocument(hintURI, hintSrc)
+
+	provider := &ReferencesProvider{idx: idx}
+	open := "<?php\nfunction h(Foo $x) {}\n"
+	pos := lsp.Position{Line: 1, Character: 12}
+	locs := provider.Provide("file:///open.php", open, pos, true)
+	hintHits := 0
+	for _, loc := range locs {
+		if loc.URI == hintURI {
+			hintHits++
+		}
+	}
+	if hintHits < 2 {
+		t.Fatalf("expected ≥2 Foo uses in Hint.php after body upgrade (type hint + new Foo); got %d in %+v", hintHits, locs)
 	}
 }
 

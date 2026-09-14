@@ -393,12 +393,67 @@ func (wi *WorkspaceIndexer) UsageGraph() *analyse.ProjectUsageGraph {
 
 // BindFileForReferences fully parses+binds uri (R3 reference mode) and replaces
 // that file's declaration-tier uses. Call before project-wide rename/refs.
-func (wi *WorkspaceIndexer) BindFileForReferences(uri, text string) {
+// Returns the bound graph so callers can reuse it (avoid a second full parse).
+func (wi *WorkspaceIndexer) BindFileForReferences(uri, text string) analyse.UsageGraph {
 	if wi == nil || wi.usage == nil || text == "" {
-		return
+		return analyse.UsageGraph{}
 	}
 	graph := analyse.BindFile(uri, []byte(text), analyse.BindModeReferences)
 	wi.usage.PutFile(uri, graph.Uses)
+	return graph
+}
+
+// UpgradeMatchingFilesForReferences rebinds files that already have declaration-tier
+// uses of needle.Resolved (full parse+bind). Open-buffer text is used for openURI
+// when provided; other candidates are read from disk. Files that only mention the
+// symbol inside skipped function bodies remain invisible until a fuller workspace rebind.
+//
+// If openURI was already bound via BindFileForReferences, pass openText="" to skip
+// rebinding the open buffer (openURI is still excluded from disk upgrades).
+func (wi *WorkspaceIndexer) UpgradeMatchingFilesForReferences(needle analyse.NameUse, openURI, openText string) analyse.UsageGraph {
+	var openGraph analyse.UsageGraph
+	if openURI != "" && openText != "" {
+		openGraph = wi.BindFileForReferences(openURI, openText)
+	}
+	if wi == nil || wi.usage == nil || needle.Resolved == "" {
+		return openGraph
+	}
+	seen := map[string]struct{}{}
+	if openURI != "" {
+		seen[openURI] = struct{}{}
+	}
+	for _, u := range wi.usage.FindByResolved(needle.Resolved) {
+		if u.URI == "" {
+			continue
+		}
+		if _, ok := seen[u.URI]; ok {
+			continue
+		}
+		seen[u.URI] = struct{}{}
+		text, ok := wi.readURISource(u.URI)
+		if !ok || text == "" {
+			continue
+		}
+		wi.BindFileForReferences(u.URI, text)
+	}
+	return openGraph
+}
+
+// readURISource loads file bytes for a workspace URI (disk). Returns false on skip/error.
+func (wi *WorkspaceIndexer) readURISource(uri string) (string, bool) {
+	path := uriToPath(uri)
+	if path == "" {
+		return "", false
+	}
+	maxSize := wi.cfg.MaxSize
+	if maxSize <= 0 {
+		maxSize = 2 << 20 // 2MiB default, matches typical indexer limits
+	}
+	data, _, oversized, err := ReadFileWithinLimit(path, maxSize)
+	if err != nil || oversized || len(data) == 0 {
+		return "", false
+	}
+	return string(data), true
 }
 
 
@@ -973,66 +1028,22 @@ func extractSymbolsFromNodes(uri string, nodes []ast.Node) []*Symbol {
 	return syms
 }
 
-// putUsageGraph binds syntax names for uri using declaration-tier parse
-// (SkipFunctionBodies — R3 symbol discovery). Rename/refs must call
-// BindFileForReferences for full body coverage.
-// Also stamps SyntaxNodeID onto matching declaration symbols.
+// putUsageGraph binds syntax names for uri using one declaration-tier syntax parse
+// (SkipFunctionBodies — R3 symbol discovery). Formerly dual-lexed: a redundant
+// ParseForIndex for ns/aliases plus BindSyntaxFileForIndex which re-parsed.
+// Binder owns per-namespace scopes; ns/aliases args were ignored (R2).
+// Symbols still come from the legacy AST path (separate parse) until syntax
+// symbol extraction lands — this only collapses the usage-graph syntax dual-parse.
+// Rename/refs must call BindFileForReferences / UpgradeMatchingFilesForReferences.
 func (wi *WorkspaceIndexer) putUsageGraph(uri, text string, nodes []ast.Node) {
 	if wi == nil || wi.usage == nil || text == "" {
 		return
 	}
-	// Prefer syntax-tree namespace/aliases (covers group-use); fall back to AST.
-	var ns string
-	var aliases map[string]string
-	if res := syntax.ParseForIndex([]byte(text)); res != nil && res.File != nil {
-		ns, aliases = syntax.NamespaceAndAliases(res.File)
-	}
-	if ns == "" || len(aliases) == 0 {
-		astNS, astAliases := namespaceAndAliases(nodes)
-		if ns == "" {
-			ns = astNS
-		}
-		if len(aliases) == 0 {
-			aliases = astAliases
-		} else {
-			for k, v := range astAliases {
-				if _, ok := aliases[k]; !ok {
-					aliases[k] = v
-				}
-			}
-		}
-	}
-	graph := analyse.BindSyntaxFileForIndex(uri, []byte(text), ns, aliases)
+	_ = nodes // reserved: legacy AST still drives symbol extract / project index
+	res := syntax.ParseForIndex([]byte(text))
+	graph := analyse.BindSyntaxResult(uri, res)
 	wi.usage.PutFile(uri, graph.Uses)
 	stampSyntaxNodeIDs(wi.index.GetByURI(uri), graph.Uses)
-}
-
-func namespaceAndAliases(nodes []ast.Node) (string, map[string]string) {
-	ns := ""
-	aliases := map[string]string{}
-	var walk func([]ast.Node)
-	walk = func(list []ast.Node) {
-		for _, n := range list {
-			switch t := n.(type) {
-			case *ast.NamespaceNode:
-				if t.Name != "" {
-					ns = t.Name
-				}
-				if len(t.Body) > 0 {
-					walk(t.Body)
-				}
-			case *ast.UseNode:
-				alias := t.Alias
-				if alias == "" {
-					parts := strings.Split(strings.Trim(t.Path, `\`), `\`)
-					alias = parts[len(parts)-1]
-				}
-				aliases[strings.ToLower(alias)] = strings.TrimPrefix(t.Path, `\`)
-			}
-		}
-	}
-	walk(nodes)
-	return ns, aliases
 }
 
 func stampSyntaxNodeIDs(syms []*Symbol, uses []analyse.NameUse) {

@@ -1,4 +1,4 @@
-.PHONY: all deps prepare-go-work build build-server build-server-local build-server-dev build-ext install package publish publish-marketplace publish-open-vsx publish-all release clean test test-server test-server-dev test-editor-latency
+.PHONY: all deps prepare-go-work build build-server build-server-local build-server-dev build-ext install package publish publish-marketplace publish-open-vsx publish-all release clean test test-server test-server-dev test-editor-latency pin-parser-checklist
 
 BINARY_NAME := phpstrom
 BIN_DIR     := bin
@@ -36,6 +36,7 @@ deps:
 build: build-server build-ext
 
 ## prepare-go-work: generate a temporary Go workspace for explicit sibling-parser development
+## (required while server/go.mod pins a pre-syntax parser; see pin-parser-checklist)
 prepare-go-work:
 	@if [ ! -f "$(LOCAL_PHP_PARSER_DIR)/go.mod" ]; then \
 		echo "ERROR: local parser module not found at $(LOCAL_PHP_PARSER_DIR)."; \
@@ -43,6 +44,17 @@ prepare-go-work:
 	fi
 	@mkdir -p $(CACHE_DIR)
 	@printf 'go 1.23\n\nuse (\n\t%s\n\t%s\n)\n' "$(abspath $(SERVER_DIR))" "$(abspath $(LOCAL_PHP_PARSER_DIR))" > "$(GO_WORK_FILE)"
+
+## pin-parser-checklist: print steps to bump server/go.mod after go-php-parser+syntax is pushed
+pin-parser-checklist:
+	@echo "==> go-php-parser pin checklist (do NOT invent a fake remote commit)"
+	@echo "    Current pin in server/go.mod is pre-syntax; GOWORK=off builds need an update."
+	@echo "    1. Confirm origin/main (or tag) of $(LOCAL_PHP_PARSER_DIR) contains the syntax/ package."
+	@echo "    2. Note the real pushed commit SHA (git -C $(LOCAL_PHP_PARSER_DIR) rev-parse origin/main)."
+	@echo "    3. cd $(SERVER_DIR) && GOWORK=off go get github.com/ayanozturk/go-php-parser@<SHA>"
+	@echo "    4. cd $(SERVER_DIR) && GOWORK=off go mod tidy"
+	@echo "    5. Validate: make test-server   # GOWORK=off against the new pin"
+	@echo "    Until then: make test-server-dev / build-server-dev (GOWORK → sibling checkout)."
 
 ## build-server: compile the Go language server binaries for all marketplace targets
 build-server:
