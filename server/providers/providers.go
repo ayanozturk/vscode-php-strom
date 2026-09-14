@@ -346,22 +346,21 @@ type SignatureHelpProvider struct{ idx *indexer.WorkspaceIndexer }
 
 type FormattingProvider struct{ cfg Config }
 
+// identityFormatEdits returns edits only when print(parse(src)) == src.
+// Identity mismatch → no edits (fail closed); style formatter later.
+func identityFormatEdits(text, printed string) []lsp.TextEdit {
+	if printed == text {
+		return nil
+	}
+	return nil
+}
+
 func (p *FormattingProvider) Format(uri, text string, opts lsp.FormattingOptions) []lsp.TextEdit {
 	// Identity reprint from the lossless token/green tree. Style rewrites come later.
 	src := []byte(text)
 	file := syntax.ParseTokens(src)
 	printed := syntax.Print(file.Root)
-	if printed == text {
-		return nil
-	}
-	end := offsetToPosition(text, len(text))
-	return []lsp.TextEdit{{
-		Range: lsp.Range{
-			Start: lsp.Position{Line: 0, Character: 0},
-			End:   end,
-		},
-		NewText: printed,
-	}}
+	return identityFormatEdits(text, printed)
 }
 
 func (p *FormattingProvider) FormatRange(uri, text string, r lsp.Range, opts lsp.FormattingOptions) []lsp.TextEdit {
