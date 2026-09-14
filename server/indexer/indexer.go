@@ -346,9 +346,12 @@ func (wi *WorkspaceIndexer) IndexDocument(uri, text string) {
 		return
 	}
 
+	// Declaration-tier syntax: symbols + usage graph share one ParseForIndex (R4).
+	syntaxSyms := wi.putDeclarationTier(uri, text)
+	// Legacy AST still feeds project analyse until that migrates off *ast.Node.
 	parsed := ParseSource(uri, text)
-	wi.index.PutFile(uri, parsed.Symbols)
-	wi.putUsageGraph(uri, text, parsed.Nodes)
+	wi.index.PutFile(uri, mergeSymbolsPreferSyntax(syntaxSyms, parsed.Symbols))
+	stampSyntaxNodeIDs(wi.index.GetByURI(uri), wi.usageUses(uri))
 	wi.putProjectNodes(uri, parsed.Nodes, hash)
 	wi.trackWorkspaceURI(uri)
 }
@@ -405,8 +408,11 @@ func (wi *WorkspaceIndexer) BindFileForReferences(uri, text string) analyse.Usag
 
 // UpgradeMatchingFilesForReferences rebinds files that already have declaration-tier
 // uses of needle.Resolved (full parse+bind). Open-buffer text is used for openURI
-// when provided; other candidates are read from disk. Files that only mention the
-// symbol inside skipped function bodies remain invisible until a fuller workspace rebind.
+// when provided; other candidates are read from disk.
+//
+// When declaration-tier indexing missed a file (body-only mention inside a skipped
+// function body), a capped short-name scan upgrades those peers safely: substring
+// filter + full bind; FindMatching still requires Resolved/Kind/Owner identity.
 //
 // If openURI was already bound via BindFileForReferences, pass openText="" to skip
 // rebinding the open buffer (openURI is still excluded from disk upgrades).
@@ -436,7 +442,47 @@ func (wi *WorkspaceIndexer) UpgradeMatchingFilesForReferences(needle analyse.Nam
 		}
 		wi.BindFileForReferences(u.URI, text)
 	}
+	wi.upgradeBodyOnlyReferenceCandidates(needle, seen)
 	return openGraph
+}
+
+const (
+	bodyOnlyRefCandidateCap = 32
+	bodyOnlyRefMinNameLen   = 3
+)
+
+// upgradeBodyOnlyReferenceCandidates finds workspace files with no declaration-tier
+// FQN hit that still mention needle's short name, then full-binds them (R3 body-only gap).
+func (wi *WorkspaceIndexer) upgradeBodyOnlyReferenceCandidates(needle analyse.NameUse, seen map[string]struct{}) {
+	if wi == nil || wi.usage == nil || needle.Resolved == "" {
+		return
+	}
+	short := needle.Resolved
+	if i := strings.LastIndexByte(short, '\\'); i >= 0 {
+		short = short[i+1:]
+	}
+	if len(short) < bodyOnlyRefMinNameLen {
+		return
+	}
+	upgraded := 0
+	for _, uri := range wi.WorkspaceFileURIs() {
+		if upgraded >= bodyOnlyRefCandidateCap {
+			break
+		}
+		if uri == "" {
+			continue
+		}
+		if _, ok := seen[uri]; ok {
+			continue
+		}
+		text, ok := wi.readURISource(uri)
+		if !ok || text == "" || !strings.Contains(text, short) {
+			continue
+		}
+		seen[uri] = struct{}{}
+		wi.BindFileForReferences(uri, text)
+		upgraded++
+	}
 }
 
 // readURISource loads file bytes for a workspace URI (disk). Returns false on skip/error.
@@ -829,8 +875,9 @@ func (wi *WorkspaceIndexer) indexFile(path string, skipFunctionBodies bool, visi
 		return 0, 0, false
 	}
 
-	wi.index.PutFile(parsed.URI, parsed.Symbols)
-	wi.putUsageGraph(parsed.URI, parsed.Text, parsed.Nodes)
+	syntaxSyms := wi.putDeclarationTier(parsed.URI, parsed.Text)
+	wi.index.PutFile(parsed.URI, mergeSymbolsPreferSyntax(syntaxSyms, parsed.Symbols))
+	stampSyntaxNodeIDs(wi.index.GetByURI(parsed.URI), wi.usageUses(parsed.URI))
 	if projectCollector != nil {
 		projectCollector(parsed)
 	}
@@ -1028,22 +1075,30 @@ func extractSymbolsFromNodes(uri string, nodes []ast.Node) []*Symbol {
 	return syms
 }
 
-// putUsageGraph binds syntax names for uri using one declaration-tier syntax parse
-// (SkipFunctionBodies — R3 symbol discovery). Formerly dual-lexed: a redundant
-// ParseForIndex for ns/aliases plus BindSyntaxFileForIndex which re-parsed.
-// Binder owns per-namespace scopes; ns/aliases args were ignored (R2).
-// Symbols still come from the legacy AST path (separate parse) until syntax
-// symbol extraction lands — this only collapses the usage-graph syntax dual-parse.
+// putDeclarationTier runs one declaration-tier syntax parse (SkipFunctionBodies)
+// shared by symbol extraction and usage-graph binding (R3/R4 vertical slice).
+// Returns syntax-derived symbols; caller merges PHPDoc-only AST symbols and stamps IDs.
 // Rename/refs must call BindFileForReferences / UpgradeMatchingFilesForReferences.
-func (wi *WorkspaceIndexer) putUsageGraph(uri, text string, nodes []ast.Node) {
-	if wi == nil || wi.usage == nil || text == "" {
-		return
+func (wi *WorkspaceIndexer) putDeclarationTier(uri, text string) []*Symbol {
+	if text == "" {
+		return nil
 	}
-	_ = nodes // reserved: legacy AST still drives symbol extract / project index
 	res := syntax.ParseForIndex([]byte(text))
-	graph := analyse.BindSyntaxResult(uri, res)
-	wi.usage.PutFile(uri, graph.Uses)
-	stampSyntaxNodeIDs(wi.index.GetByURI(uri), graph.Uses)
+	syms := extractSymbolsFromSyntax(uri, res)
+	if wi != nil && wi.usage != nil {
+		graph := analyse.BindSyntaxResult(uri, res)
+		wi.usage.PutFile(uri, graph.Uses)
+		stampSyntaxNodeIDs(syms, graph.Uses)
+	}
+	return syms
+}
+
+// usageUses returns a copy of declaration/reference-tier uses currently stored for uri.
+func (wi *WorkspaceIndexer) usageUses(uri string) []analyse.NameUse {
+	if wi == nil || wi.usage == nil {
+		return nil
+	}
+	return wi.usage.UsesForURI(uri)
 }
 
 func stampSyntaxNodeIDs(syms []*Symbol, uses []analyse.NameUse) {
