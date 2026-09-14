@@ -5,6 +5,7 @@ package providers
 // Real logic will be added incrementally.
 
 import (
+	"errors"
 	"sort"
 	"strconv"
 	"strings"
@@ -189,9 +190,14 @@ func (p *ImplementationProvider) Provide(uri, text string, pos lsp.Position) []l
 type ReferencesProvider struct{ idx *indexer.WorkspaceIndexer }
 
 func (p *ReferencesProvider) Provide(uri, text string, pos lsp.Position, includeDecl bool) []lsp.Location {
-	word := wordAt(text, pos)
-	if word == "" {
+	cursor, ok := boundSymbolAt(uri, text, pos)
+	if !ok {
 		return nil
+	}
+	_ = includeDecl
+	// R3: ensure the open file is reference-bound before project lookup.
+	if p.idx != nil {
+		p.idx.BindFileForReferences(uri, text)
 	}
 	seen := map[string]struct{}{}
 	var out []lsp.Location
@@ -204,25 +210,15 @@ func (p *ReferencesProvider) Provide(uri, text string, pos lsp.Position, include
 		seen[key] = struct{}{}
 		out = append(out, loc)
 	}
-	// Prefer project-scoped binder UsageGraph when the indexer has one.
 	if p.idx != nil {
 		if g := p.idx.UsageGraph(); g != nil {
-			for _, use := range g.FindByName(word) {
+			for _, use := range g.FindMatching(cursor) {
 				add(nameUseToLocation(use, text, uri))
 			}
 		}
 	}
-	for _, loc := range sameFileNameUses(uri, text, word) {
+	for _, loc := range sameFileMatchingUses(uri, text, cursor) {
 		add(loc)
-	}
-	for _, s := range prioritizeDefinitionMatches(p.idx.GetIndex().GetByName(word), word) {
-		add(symToLocation(s))
-	}
-	if len(out) > 0 {
-		return out
-	}
-	for _, s := range p.idx.GetIndex().Search(word) {
-		add(symToLocation(s))
 	}
 	return out
 }
@@ -234,7 +230,8 @@ func nameUseToLocation(use analyse.NameUse, openText, openURI string) lsp.Locati
 	}
 	start := lsp.Position{Line: uint32(use.StartLine), Character: uint32(use.StartChar)}
 	end := lsp.Position{Line: uint32(use.EndLine), Character: uint32(use.EndChar)}
-	if uri == openURI && (use.EndLine == 0 && use.EndChar == 0 && use.Span.End > use.Span.Start) {
+	// Prefer exact byte-span → UTF-16 conversion when we have open buffer text.
+	if uri == openURI && use.Span.End > use.Span.Start && openText != "" {
 		start = offsetToPosition(openText, use.Span.Start)
 		end = offsetToPosition(openText, use.Span.End)
 	}
@@ -247,36 +244,11 @@ func nameUseToLocation(use analyse.NameUse, openText, openURI string) lsp.Locati
 	}
 }
 
-func sameFileNameUses(uri, text, word string) []lsp.Location {
-	res := syntax.Parse([]byte(text))
-	if res == nil || res.File == nil || res.File.Root == nil {
-		return nil
-	}
-	b := analyse.NewBinder("", nil)
-	var walk func(*syntax.RedNode)
-	walk = func(n *syntax.RedNode) {
-		if n == nil {
-			return
-		}
-		switch n.Kind() {
-		case syntax.KindUnqualifiedName, syntax.KindQualifiedName,
-			syntax.KindFullyQualifiedName, syntax.KindRelativeName:
-			b.BindName(n, "name")
-		}
-		for _, c := range n.Children() {
-			walk(c)
-		}
-	}
-	walk(res.File.Root)
-
+func sameFileMatchingUses(uri, text string, cursor analyse.NameUse) []lsp.Location {
+	graph := analyse.BindFile(uri, []byte(text), analyse.BindModeReferences)
 	var locs []lsp.Location
-	lower := strings.ToLower(word)
-	for _, use := range b.Graph.Uses {
-		written := use.Written
-		if i := strings.LastIndexByte(written, '\\'); i >= 0 {
-			written = written[i+1:]
-		}
-		if !strings.EqualFold(written, word) && strings.ToLower(use.Resolved) != lower {
+	for _, use := range graph.Uses {
+		if !nameUsesMatch(cursor, use) {
 			continue
 		}
 		start := offsetToPosition(text, use.Span.Start)
@@ -290,6 +262,37 @@ func sameFileNameUses(uri, text, word string) []lsp.Location {
 		})
 	}
 	return locs
+}
+
+func nameUsesMatch(needle, u analyse.NameUse) bool {
+	if strings.ToLower(strings.TrimPrefix(needle.Resolved, `\`)) !=
+		strings.ToLower(strings.TrimPrefix(u.Resolved, `\`)) {
+		return false
+	}
+	if needle.Owner != "" || u.Owner != "" {
+		if strings.ToLower(strings.TrimPrefix(needle.Owner, `\`)) !=
+			strings.ToLower(strings.TrimPrefix(u.Owner, `\`)) {
+			return false
+		}
+	}
+	if needle.Kind != "" && u.Kind != "" {
+		switch {
+		case needle.Kind == u.Kind:
+		case isClassLikeBindKind(needle.Kind) && isClassLikeBindKind(u.Kind):
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func isClassLikeBindKind(k string) bool {
+	switch k {
+	case "class", "interface", "trait", "enum", "type", "name", "attr":
+		return true
+	default:
+		return false
+	}
 }
 
 // ─── DocumentHighlight ────────────────────────────────────────────────────────
@@ -346,16 +349,21 @@ type SignatureHelpProvider struct{ idx *indexer.WorkspaceIndexer }
 
 type FormattingProvider struct{ cfg Config }
 
-// identityFormatEdits returns edits only when print(parse(src)) == src.
-// Identity mismatch → no edits (fail closed); style formatter later.
-func identityFormatEdits(text, printed string) []lsp.TextEdit {
+// ErrIdentityFormat is returned when print(parse(src)) != src (R6 fail-closed).
+var ErrIdentityFormat = errors.New("identity format failed: print(parse(src)) != src")
+
+// identityFormatEdits returns nil edits when identity holds.
+// On mismatch it returns ErrIdentityFormat and never replacement text (R6).
+func identityFormatEdits(text, printed string) ([]lsp.TextEdit, error) {
 	if printed == text {
-		return nil
+		return nil, nil
 	}
-	return nil
+	return nil, ErrIdentityFormat
 }
 
-func (p *FormattingProvider) Format(uri, text string, opts lsp.FormattingOptions) []lsp.TextEdit {
+func (p *FormattingProvider) Format(uri, text string, opts lsp.FormattingOptions) ([]lsp.TextEdit, error) {
+	_ = uri
+	_ = opts
 	// Identity reprint from the lossless token/green tree. Style rewrites come later.
 	src := []byte(text)
 	file := syntax.ParseTokens(src)
@@ -363,25 +371,25 @@ func (p *FormattingProvider) Format(uri, text string, opts lsp.FormattingOptions
 	return identityFormatEdits(text, printed)
 }
 
-func (p *FormattingProvider) FormatRange(uri, text string, r lsp.Range, opts lsp.FormattingOptions) []lsp.TextEdit {
+func (p *FormattingProvider) FormatRange(uri, text string, r lsp.Range, opts lsp.FormattingOptions) ([]lsp.TextEdit, error) {
+	_ = r
 	// Range formatting falls back to full-file identity until trivia edits exist.
 	return p.Format(uri, text, opts)
 }
 
 func offsetToPosition(text string, offset int) lsp.Position {
-	if offset > len(text) {
-		offset = len(text)
-	}
-	line, col := 0, 0
-	for i := 0; i < offset; i++ {
-		if text[i] == '\n' {
-			line++
-			col = 0
-			continue
-		}
-		col++
-	}
-	return lsp.Position{Line: uint32(line), Character: uint32(col)}
+	return newSourcePositionMapper(text).positionFromByteOffset(offset)
+}
+
+func positionToByteOffset(text string, pos lsp.Position) int {
+	return newSourcePositionMapper(text).byteOffsetFromPosition(pos)
+}
+
+// boundSymbolAt resolves the binder NameUse at the LSP cursor (not wordAt).
+func boundSymbolAt(uri, text string, pos lsp.Position) (analyse.NameUse, bool) {
+	offset := positionToByteOffset(text, pos)
+	graph := analyse.BindFile(uri, []byte(text), analyse.BindModeReferences)
+	return analyse.UseAtOffset(graph.Uses, offset)
 }
 
 // ─── Rename ───────────────────────────────────────────────────────────────────
@@ -389,9 +397,15 @@ func offsetToPosition(text string, offset int) lsp.Position {
 type RenameProvider struct{ idx *indexer.WorkspaceIndexer }
 
 func (p *RenameProvider) Provide(uri, text string, pos lsp.Position, newName string) *lsp.WorkspaceEdit {
-	word := wordAt(text, pos)
-	if word == "" || newName == "" {
+	if newName == "" {
 		return nil
+	}
+	cursor, ok := boundSymbolAt(uri, text, pos)
+	if !ok {
+		return nil
+	}
+	if p.idx != nil {
+		p.idx.BindFileForReferences(uri, text)
 	}
 	changes := map[string][]lsp.TextEdit{}
 	addEdit := func(loc lsp.Location) {
@@ -399,16 +413,13 @@ func (p *RenameProvider) Provide(uri, text string, pos lsp.Position, newName str
 	}
 	if p.idx != nil {
 		if g := p.idx.UsageGraph(); g != nil {
-			for _, use := range g.FindByName(word) {
+			for _, use := range g.FindMatching(cursor) {
 				addEdit(nameUseToLocation(use, text, uri))
 			}
 		}
 	}
-	for _, loc := range sameFileNameUses(uri, text, word) {
+	for _, loc := range sameFileMatchingUses(uri, text, cursor) {
 		addEdit(loc)
-	}
-	for _, s := range prioritizeDefinitionMatches(p.idx.GetIndex().GetByName(word), word) {
-		addEdit(symToLocation(s))
 	}
 	if len(changes) == 0 {
 		return nil
@@ -417,13 +428,13 @@ func (p *RenameProvider) Provide(uri, text string, pos lsp.Position, newName str
 }
 
 func (p *RenameProvider) Prepare(uri, text string, pos lsp.Position) *lsp.Range {
-	word, start, end := wordSpanAt(text, pos)
-	if word == "" {
+	cursor, ok := boundSymbolAt(uri, text, pos)
+	if !ok {
 		return nil
 	}
 	_ = uri
-	s := offsetToPosition(text, start)
-	e := offsetToPosition(text, end)
+	s := offsetToPosition(text, cursor.Span.Start)
+	e := offsetToPosition(text, cursor.Span.End)
 	return &lsp.Range{Start: s, End: e}
 }
 

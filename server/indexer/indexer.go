@@ -391,6 +391,17 @@ func (wi *WorkspaceIndexer) UsageGraph() *analyse.ProjectUsageGraph {
 	return wi.usage
 }
 
+// BindFileForReferences fully parses+binds uri (R3 reference mode) and replaces
+// that file's declaration-tier uses. Call before project-wide rename/refs.
+func (wi *WorkspaceIndexer) BindFileForReferences(uri, text string) {
+	if wi == nil || wi.usage == nil || text == "" {
+		return
+	}
+	graph := analyse.BindFile(uri, []byte(text), analyse.BindModeReferences)
+	wi.usage.PutFile(uri, graph.Uses)
+}
+
+
 // ProjectIndex returns the parser-native project index used by analysis rules.
 func (wi *WorkspaceIndexer) ProjectIndex() *analyse.ProjectIndex {
 	wi.mu.RLock()
@@ -962,8 +973,10 @@ func extractSymbolsFromNodes(uri string, nodes []ast.Node) []*Symbol {
 	return syms
 }
 
-// putUsageGraph binds syntax names for uri into the project usage graph and
-// stamps SyntaxNodeID onto matching declaration symbols.
+// putUsageGraph binds syntax names for uri using declaration-tier parse
+// (SkipFunctionBodies — R3 symbol discovery). Rename/refs must call
+// BindFileForReferences for full body coverage.
+// Also stamps SyntaxNodeID onto matching declaration symbols.
 func (wi *WorkspaceIndexer) putUsageGraph(uri, text string, nodes []ast.Node) {
 	if wi == nil || wi.usage == nil || text == "" {
 		return

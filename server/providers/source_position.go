@@ -73,3 +73,65 @@ func (m sourcePositionMapper) position(line, column int) (lsp.Position, bool) {
 func positionBefore(left, right lsp.Position) bool {
 	return left.Line < right.Line || (left.Line == right.Line && left.Character < right.Character)
 }
+
+func (m sourcePositionMapper) positionFromByteOffset(offset int) lsp.Position {
+	if offset < 0 {
+		offset = 0
+	}
+	if offset > len(m.source) {
+		offset = len(m.source)
+	}
+	line := 0
+	for i, start := range m.lineStarts {
+		if start > offset {
+			break
+		}
+		line = i
+	}
+	lineStart := m.lineStarts[line]
+	col := utf16CodeUnits(m.source[lineStart:offset])
+	return lsp.Position{Line: uint32(line), Character: uint32(col)}
+}
+
+func (m sourcePositionMapper) byteOffsetFromPosition(pos lsp.Position) int {
+	line := int(pos.Line)
+	if line < 0 {
+		return 0
+	}
+	if line >= len(m.lineStarts) {
+		return len(m.source)
+	}
+	lineStart := m.lineStarts[line]
+	lineEnd := len(m.source)
+	if line+1 < len(m.lineStarts) {
+		lineEnd = m.lineStarts[line+1] - 1
+		if lineEnd < lineStart {
+			lineEnd = lineStart
+		}
+	}
+	lineText := strings.TrimSuffix(m.source[lineStart:lineEnd], "\r")
+	target := int(pos.Character)
+	utf16Column := 0
+	bytePos := lineStart
+	for _, value := range lineText {
+		if utf16Column >= target {
+			return bytePos
+		}
+		size := len(string(value))
+		utf16Column += utf16.RuneLen(value)
+		bytePos += size
+		if utf16Column >= target {
+			return bytePos
+		}
+	}
+	return lineStart + len(lineText)
+}
+
+func utf16CodeUnits(s string) int {
+	units := 0
+	for _, r := range s {
+		units += utf16.RuneLen(r)
+	}
+	return units
+}
+

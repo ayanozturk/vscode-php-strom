@@ -1208,7 +1208,12 @@ func (h *Handler) formatting(raw json.RawMessage) (any, *lsp.ResponseError) {
 	if !ok {
 		return []lsp.TextEdit{}, nil
 	}
-	return h.prov.Formatting.Format(doc.URI, doc.Text, p.Options), nil
+	edits, err := h.prov.Formatting.Format(doc.URI, doc.Text, p.Options)
+	if err != nil {
+		// R6: identity failure is a defect — never return replacement text.
+		return nil, &lsp.ResponseError{Code: lsp.InternalError, Message: err.Error()}
+	}
+	return edits, nil
 }
 
 func (h *Handler) rangeFormatting(raw json.RawMessage) (any, *lsp.ResponseError) {
@@ -1220,7 +1225,11 @@ func (h *Handler) rangeFormatting(raw json.RawMessage) (any, *lsp.ResponseError)
 	if !ok {
 		return []lsp.TextEdit{}, nil
 	}
-	return h.prov.Formatting.FormatRange(doc.URI, doc.Text, p.Range, p.Options), nil
+	edits, err := h.prov.Formatting.FormatRange(doc.URI, doc.Text, p.Range, p.Options)
+	if err != nil {
+		return nil, &lsp.ResponseError{Code: lsp.InternalError, Message: err.Error()}
+	}
+	return edits, nil
 }
 
 func (h *Handler) rename(raw json.RawMessage) (any, *lsp.ResponseError) {
