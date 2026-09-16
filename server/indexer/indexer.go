@@ -22,7 +22,7 @@ import (
 
 	"github.com/ayanozturk/go-php-parser/analyse"
 	"github.com/ayanozturk/go-php-parser/ast"
-	goparser "github.com/ayanozturk/go-php-parser/parser"
+	goparser "github.com/ayanozturk/go-php-parser/diag"
 	"github.com/ayanozturk/go-php-parser/syntax"
 )
 
