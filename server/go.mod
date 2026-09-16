@@ -5,4 +5,6 @@ go 1.23
 // Pin tracks go-php-parser main with ElseIfDeclaration style spans
 // (v0.0.0-20260916120113-175f041f7902). Sibling override: make test-server-dev.
 // Checklist: make pin-parser-checklist
-require github.com/ayanozturk/go-php-parser v0.0.0-20260916120113-175f041f7902
+require github.com/ayanozturk/go-php-parser v0.0.0-20260916120611-8739fb9194c7
+
+require gopkg.in/yaml.v2 v2.4.0 // indirect

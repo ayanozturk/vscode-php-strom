@@ -2419,6 +2419,32 @@ if ($a) {
 	t.Fatalf("expected PSR12.ControlStructures.ElseIfDeclaration diagnostic, got %#v", diagnostics)
 }
 
+func TestDiagnosticsProvider_StyleNoTrailingWhitespaceSpan(t *testing.T) {
+	source := "<?php\nclass Foo { \n"
+	p := &DiagnosticsProvider{cfg: Config{DisabledAnalysis: DisabledAnalysis{
+		UndefinedVariables: true,
+		UndefinedSymbols:   true,
+		TypeErrors:         true,
+	}}}
+	diagnostics := p.Analyse("file:///trailing-ws-span.php", source)
+
+	for _, diagnostic := range diagnostics {
+		code, ok := diagnostic.Code.(string)
+		if !ok || code != "PSR12.Files.EndFileNoTrailingWhitespace" {
+			continue
+		}
+		want := newSourcePositionMapper(source).spanRange(2, 12, 2, 13)
+		if diagnostic.Range != want {
+			t.Fatalf("expected EndFileNoTrailingWhitespace span %+v, got %+v", want, diagnostic.Range)
+		}
+		if diagnostic.Range.Start == diagnostic.Range.End {
+			t.Fatal("expected EndFileNoTrailingWhitespace diagnostic to retain a non-point range")
+		}
+		return
+	}
+	t.Fatalf("expected PSR12.Files.EndFileNoTrailingWhitespace diagnostic, got %#v", diagnostics)
+}
+
 func TestLineColToRange(t *testing.T) {
 	r := lineColToRange(5, 10)
 	if r.Start.Line != 4 || r.Start.Character != 9 {
