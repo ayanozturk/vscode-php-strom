@@ -352,7 +352,9 @@ func (wi *WorkspaceIndexer) IndexDocument(uri, text string) {
 	res := syntax.ParseForIndex([]byte(text))
 	syntaxSyms := wi.putDeclarationTierResult(uri, res)
 	nodes := syntax.LowerAST(res)
-	wi.index.PutFile(uri, syntaxSyms)
+	// Merge AST-derived symbols (promoted props, backed enum $value, etc.)
+	// that the syntax declaration walk does not emit yet.
+	wi.index.PutFile(uri, mergeSymbolsPreferSyntax(syntaxSyms, extractSymbolsFromNodes(uri, nodes)))
 	stampSyntaxNodeIDs(wi.index.GetByURI(uri), wi.usageUses(uri))
 	wi.putProjectNodes(uri, nodes, hash)
 	wi.trackWorkspaceURI(uri)
@@ -881,7 +883,7 @@ func (wi *WorkspaceIndexer) indexFile(path string, skipFunctionBodies bool, visi
 
 	if syntaxRes != nil {
 		syntaxSyms := wi.putDeclarationTierResult(parsed.URI, syntaxRes)
-		wi.index.PutFile(parsed.URI, syntaxSyms)
+		wi.index.PutFile(parsed.URI, mergeSymbolsPreferSyntax(syntaxSyms, parsed.Symbols))
 	} else {
 		syntaxSyms := wi.putDeclarationTier(parsed.URI, parsed.Text)
 		wi.index.PutFile(parsed.URI, mergeSymbolsPreferSyntax(syntaxSyms, parsed.Symbols))
@@ -940,7 +942,8 @@ func parseSyntaxIndexable(uri, text string) (ParsedFile, *syntax.ParseResult) {
 		URI:     uri,
 		Text:    text,
 		Nodes:   nodes,
-		Symbols: extractSymbolsFromSyntax(uri, res),
+		// AST-side symbols for mergeSymbolsPreferSyntax (promoted props, etc.).
+		Symbols: extractSymbolsFromNodes(uri, nodes),
 	}, res
 }
 

@@ -6,8 +6,8 @@ import (
 
 	"github.com/ayanozturk/go-php-parser/analyse"
 	"github.com/ayanozturk/go-php-parser/ast"
-	goplexer "github.com/ayanozturk/go-php-parser/lexer"
 	goparser "github.com/ayanozturk/go-php-parser/parser"
+	"github.com/ayanozturk/go-php-parser/syntax"
 
 	"github.com/ayanozturk/vscode-php-strom/indexer"
 )
@@ -159,8 +159,11 @@ func analysisContextFromSnapshot(snapshot *analyse.SemanticSnapshot, project *an
 }
 
 func parseSemanticSnapshot(text string) semanticSnapshot {
-	l := goplexer.New(text)
-	parser := goparser.New(l, false)
-	nodes := parser.Parse()
-	return semanticSnapshot{nodes: nodes, errors: parser.StructuredErrors()}
+	src := []byte(text)
+	nodes, diags := syntax.ParseAST(src)
+	errs := make([]goparser.ParseError, len(diags))
+	for i, d := range diags {
+		errs[i] = goparser.ParseErrorFromOffsets(src, d.Span.Start, d.Span.End, d.Message)
+	}
+	return semanticSnapshot{nodes: nodes, errors: errs}
 }
