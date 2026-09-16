@@ -12,8 +12,6 @@ import (
 
 	"github.com/ayanozturk/go-php-parser/analyse"
 	"github.com/ayanozturk/go-php-parser/ast"
-	goplexer "github.com/ayanozturk/go-php-parser/lexer"
-	goparser "github.com/ayanozturk/go-php-parser/parser"
 	"github.com/ayanozturk/go-php-parser/syntax"
 
 	"github.com/ayanozturk/vscode-php-strom/indexer"
@@ -637,9 +635,7 @@ func resolveTypeCandidates(text, ident string) []string {
 
 func parseDocumentTypeContext(text string) documentTypeContext {
 	ctx := documentTypeContext{aliases: make(map[string]string)}
-	l := goplexer.New(text)
-	p := goparser.New(l, false)
-	nodes := p.Parse()
+	nodes, _ := syntax.ParseASTForIndex([]byte(text))
 	collectTypeContext(nodes, "", &ctx)
 	return ctx
 }

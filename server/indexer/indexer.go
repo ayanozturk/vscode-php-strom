@@ -22,7 +22,6 @@ import (
 
 	"github.com/ayanozturk/go-php-parser/analyse"
 	"github.com/ayanozturk/go-php-parser/ast"
-	goplexer "github.com/ayanozturk/go-php-parser/lexer"
 	goparser "github.com/ayanozturk/go-php-parser/parser"
 	"github.com/ayanozturk/go-php-parser/syntax"
 )
@@ -939,9 +938,9 @@ func parseSyntaxIndexable(uri, text string) (ParsedFile, *syntax.ParseResult) {
 	res := syntax.ParseForIndex([]byte(text))
 	nodes := syntax.LowerAST(res)
 	return ParsedFile{
-		URI:     uri,
-		Text:    text,
-		Nodes:   nodes,
+		URI:   uri,
+		Text:  text,
+		Nodes: nodes,
 		// AST-side symbols for mergeSymbolsPreferSyntax (promoted props, etc.).
 		Symbols: extractSymbolsFromNodes(uri, nodes),
 	}, res
@@ -1061,16 +1060,30 @@ func ParseSourceWithContext(ctx context.Context, uri, src string) ParsedFile {
 }
 
 func parseSource(ctx context.Context, uri, src string, skipFunctionBodies bool) ParsedFile {
-	l := goplexer.New(src)
-	p := goparser.New(l, false)
-	p.Ctx = ctx
-	p.SkipFunctionBodies = skipFunctionBodies
-	nodes := p.Parse()
+	if err := ctx.Err(); err != nil {
+		msg := fmt.Sprintf("parser context cancelled: %v", err)
+		return ParsedFile{
+			URI:    uri,
+			Text:   src,
+			Errors: []string{msg},
+			Lines:  countLines([]byte(src)),
+			Bytes:  len(src),
+		}
+	}
+	srcBytes := []byte(src)
+	var nodes []ast.Node
+	var diags []syntax.Diagnostic
+	if skipFunctionBodies {
+		nodes, diags = syntax.ParseASTForIndex(srcBytes)
+	} else {
+		nodes, diags = syntax.ParseAST(srcBytes)
+	}
 	recoverMissingMemberPHPDocs(nodes, src)
-	structured := p.StructuredErrors()
-	errs := make([]string, len(structured))
-	for i, pe := range structured {
-		errs[i] = pe.Error()
+	structured := make([]goparser.ParseError, len(diags))
+	errs := make([]string, len(diags))
+	for i, d := range diags {
+		structured[i] = goparser.ParseErrorFromOffsets(srcBytes, d.Span.Start, d.Span.End, d.Message)
+		errs[i] = structured[i].Error()
 	}
 	return ParsedFile{
 		URI:              uri,
@@ -1079,8 +1092,8 @@ func parseSource(ctx context.Context, uri, src string, skipFunctionBodies bool) 
 		Errors:           errs,
 		StructuredErrors: structured,
 		Symbols:          extractSymbolsFromNodes(uri, nodes),
-		Lines:            countLines([]byte(src)),
-		Bytes:            len(src),
+		Lines:            countLines(srcBytes),
+		Bytes:            len(srcBytes),
 	}
 }
 
