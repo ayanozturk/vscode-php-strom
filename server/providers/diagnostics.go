@@ -6,20 +6,18 @@ package providers
 import (
 	"hash/crc32"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 
 	"github.com/ayanozturk/go-php-parser/analyse"
 	"github.com/ayanozturk/go-php-parser/ast"
+	goparser "github.com/ayanozturk/go-php-parser/parser"
 	"github.com/ayanozturk/go-php-parser/sharedcache"
 	"github.com/ayanozturk/go-php-parser/style"
 
 	"github.com/ayanozturk/vscode-php-strom/indexer"
 	"github.com/ayanozturk/vscode-php-strom/lsp"
 )
-
-const parserDiagnosticCode = "Parser Errors"
 
 var analysisSourceLocks [64]sync.Mutex
 
@@ -700,7 +698,7 @@ func (p *DiagnosticsProvider) AnalyseTransient(uri, text string) []lsp.Diagnosti
 	return p.cfg.DiagnosticsExclusions.Filter(filename, p.analyseParsed("", filename, text, snapshot.nodes, snapshot.errors))
 }
 
-func (p *DiagnosticsProvider) AnalyseParsed(uri, text string, nodes []ast.Node, parseErrors []string) []lsp.Diagnostic {
+func (p *DiagnosticsProvider) AnalyseParsed(uri, text string, nodes []ast.Node, parseErrors []goparser.ParseError) []lsp.Diagnostic {
 	filename := uriToFilename(uri)
 	if p.cfg.DiagnosticsExclusions.IgnoresAll(filename) {
 		return []lsp.Diagnostic{}
@@ -708,7 +706,7 @@ func (p *DiagnosticsProvider) AnalyseParsed(uri, text string, nodes []ast.Node, 
 	return p.cfg.DiagnosticsExclusions.Filter(filename, p.analyseParsed(uri, filename, text, nodes, parseErrors))
 }
 
-func (p *DiagnosticsProvider) analyseParsed(cacheKey, filename, text string, nodes []ast.Node, parseErrors []string) []lsp.Diagnostic {
+func (p *DiagnosticsProvider) analyseParsed(cacheKey, filename, text string, nodes []ast.Node, parseErrors []goparser.ParseError) []lsp.Diagnostic {
 	var diags []lsp.Diagnostic
 	suppressions := collectInlineDiagnosticSuppressions(text)
 	positions := newSourcePositionMapper(text)
@@ -746,14 +744,18 @@ func (p *DiagnosticsProvider) analyseParsed(cacheKey, filename, text string, nod
 	}
 
 	if !p.cfg.DisabledAnalysis.SyntaxErrors {
-		for _, errMsg := range parseErrors {
+		for _, pe := range parseErrors {
 			sev := lsp.DiagSeverityError
+			code := pe.Code
+			if code == "" {
+				code = "Parser.Syntax"
+			}
 			diags = append(diags, lsp.Diagnostic{
-				Range:    parseErrorRange(positions, errMsg),
+				Range:    positions.spanRange(pe.Line, pe.Column, pe.EndLine, pe.EndColumn),
 				Severity: &sev,
-				Code:     parserDiagnosticCode,
+				Code:     code,
 				Source:   "phpstrom",
-				Message:  errMsg,
+				Message:  pe.Message,
 			})
 		}
 	}
@@ -800,23 +802,6 @@ func (c Config) disabledAnalysisIssueCodes() map[string]bool {
 		return nil
 	}
 	return disabled
-}
-
-func parseErrorRange(positions sourcePositionMapper, message string) lsp.Range {
-	lineText, remainder, ok := strings.Cut(strings.TrimPrefix(message, "line "), ":")
-	if !ok || !strings.HasPrefix(message, "line ") {
-		return positions.pointRange(0, 0)
-	}
-	columnText, _, ok := strings.Cut(remainder, ":")
-	if !ok {
-		return positions.pointRange(0, 0)
-	}
-	line, lineErr := strconv.Atoi(lineText)
-	column, columnErr := strconv.Atoi(columnText)
-	if lineErr != nil || columnErr != nil {
-		return positions.pointRange(0, 0)
-	}
-	return positions.pointRange(line, column)
 }
 
 // lineColToRange retains the legacy point contract for style diagnostics whose

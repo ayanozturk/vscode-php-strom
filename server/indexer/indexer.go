@@ -103,13 +103,14 @@ type IndexingSummary struct {
 
 // ParsedFile contains the single-parse result used for both indexing and diagnostics.
 type ParsedFile struct {
-	URI     string
-	Text    string
-	Nodes   []ast.Node
-	Errors  []string
-	Symbols []*Symbol
-	Lines   int
-	Bytes   int
+	URI              string
+	Text             string
+	Nodes            []ast.Node
+	Errors           []string // legacy Error() strings; prefer StructuredErrors
+	StructuredErrors []goparser.ParseError
+	Symbols          []*Symbol
+	Lines            int
+	Bytes            int
 }
 
 func splitPathSegments(p string) []string {
@@ -1043,15 +1044,20 @@ func parseSource(ctx context.Context, uri, src string, skipFunctionBodies bool) 
 	p.SkipFunctionBodies = skipFunctionBodies
 	nodes := p.Parse()
 	recoverMissingMemberPHPDocs(nodes, src)
-	errs := append([]string(nil), p.Errors()...)
+	structured := p.StructuredErrors()
+	errs := make([]string, len(structured))
+	for i, pe := range structured {
+		errs[i] = pe.Error()
+	}
 	return ParsedFile{
-		URI:     uri,
-		Text:    src,
-		Nodes:   nodes,
-		Errors:  errs,
-		Symbols: extractSymbolsFromNodes(uri, nodes),
-		Lines:   countLines([]byte(src)),
-		Bytes:   len(src),
+		URI:              uri,
+		Text:             src,
+		Nodes:            nodes,
+		Errors:           errs,
+		StructuredErrors: structured,
+		Symbols:          extractSymbolsFromNodes(uri, nodes),
+		Lines:            countLines([]byte(src)),
+		Bytes:            len(src),
 	}
 }
 

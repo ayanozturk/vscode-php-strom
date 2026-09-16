@@ -15,7 +15,7 @@ import (
 type semanticSnapshot struct {
 	text   string
 	nodes  []ast.Node
-	errors []string
+	errors []goparser.ParseError
 }
 
 type semanticAnalysisSnapshot struct {
@@ -162,6 +162,5 @@ func parseSemanticSnapshot(text string) semanticSnapshot {
 	l := goplexer.New(text)
 	parser := goparser.New(l, false)
 	nodes := parser.Parse()
-	errs := append([]string(nil), parser.Errors()...)
-	return semanticSnapshot{nodes: nodes, errors: errs}
+	return semanticSnapshot{nodes: nodes, errors: parser.StructuredErrors()}
 }

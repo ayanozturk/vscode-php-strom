@@ -25,14 +25,28 @@ class Foo {
 	if len(snapshot.errors) == 0 {
 		t.Fatal("expected go-php-parser to retain syntax errors with debug disabled")
 	}
+	for _, pe := range snapshot.errors {
+		if pe.Code == "" || pe.Message == "" {
+			t.Fatalf("expected structured parse error with code and message, got %#v", pe)
+		}
+	}
 
 	diags := p.Analyse("file:///test.php", source)
 	// Parser errors should surface as diagnostics
 	if len(diags) == 0 {
 		t.Fatal("expected at least one diagnostic for incomplete PHP, got none")
 	}
-	if !hasDiagnosticCode(diags, "Parser Errors") {
-		t.Fatalf("expected parser diagnostics to use the Parser Errors group code, got %#v", diags)
+	if !hasParserDiagnosticCode(diags) {
+		t.Fatalf("expected parser diagnostics to use Parser.* codes, got %#v", diags)
+	}
+	for _, d := range diags {
+		code, _ := d.Code.(string)
+		if !strings.HasPrefix(code, "Parser.") {
+			continue
+		}
+		if strings.HasPrefix(d.Message, "line ") {
+			t.Fatalf("expected bare structured message without line prefix, got %q", d.Message)
+		}
 	}
 }
 
@@ -58,7 +72,7 @@ final class Coordinates {
     }
 }`
 	diagnostics := (&DiagnosticsProvider{}).Analyse("file:///compatibility.php", source)
-	if hasDiagnosticCode(diagnostics, "Parser Errors") {
+	if hasParserDiagnosticCode(diagnostics) {
 		t.Fatalf("expected compatibility syntax to avoid parser diagnostics, got %#v", diagnostics)
 	}
 }
@@ -1330,6 +1344,16 @@ func hasDiagnosticCode(diagnostics []lsp.Diagnostic, code string) bool {
 	return false
 }
 
+func hasParserDiagnosticCode(diagnostics []lsp.Diagnostic) bool {
+	for _, diagnostic := range diagnostics {
+		code, _ := diagnostic.Code.(string)
+		if strings.HasPrefix(code, "Parser.") {
+			return true
+		}
+	}
+	return false
+}
+
 func countDiagnosticCode(diagnostics []lsp.Diagnostic, code string) int {
 	count := 0
 	for _, diagnostic := range diagnostics {
@@ -2379,23 +2403,27 @@ func TestLineColToRange_ZeroValues(t *testing.T) {
 	}
 }
 
-func TestParseErrorRange(t *testing.T) {
+func TestStructuredParseError_MapsSpan(t *testing.T) {
 	source := "zero zero\none one\ntwo two\nthree three\nfour four five"
-	r := parseErrorRange(newSourcePositionMapper(source), "line 5:10: unexpected token")
+	positions := newSourcePositionMapper(source)
+	r := positions.spanRange(5, 10, 5, 14)
 	if r.Start.Line != 4 || r.Start.Character != 9 {
-		t.Errorf("expected line=4 char=9, got line=%d char=%d", r.Start.Line, r.Start.Character)
+		t.Errorf("expected start line=4 char=9, got line=%d char=%d", r.Start.Line, r.Start.Character)
+	}
+	if r.End.Line != 4 || r.End.Character != 13 {
+		t.Errorf("expected end line=4 char=13, got line=%d char=%d", r.End.Line, r.End.Character)
 	}
 }
 
-func TestParseErrorRange_UnstructuredMessage(t *testing.T) {
-	r := parseErrorRange(newSourcePositionMapper("<?php\n"), "parser panic recovered")
+func TestStructuredParseError_UnlocatedFallsBackToOrigin(t *testing.T) {
+	r := newSourcePositionMapper("<?php\n").spanRange(0, 0, 0, 0)
 	if r.Start.Line != 0 || r.Start.Character != 0 {
 		t.Errorf("expected fallback 0,0 got %d,%d", r.Start.Line, r.Start.Character)
 	}
 }
 
-func TestParseErrorRange_MapsUTF16Column(t *testing.T) {
-	r := parseErrorRange(newSourcePositionMapper("<?php\nx🙂"), "line 2:3: unexpected token")
+func TestStructuredParseError_MapsUTF16Column(t *testing.T) {
+	r := newSourcePositionMapper("<?php\nx🙂").spanRange(2, 3, 2, 3)
 	if r.Start != (lsp.Position{Line: 1, Character: 3}) || r.End != r.Start {
 		t.Fatalf("expected parser error at UTF-16 position (1,3), got %+v", r)
 	}
