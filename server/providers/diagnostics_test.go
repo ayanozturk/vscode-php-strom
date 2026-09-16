@@ -2419,6 +2419,36 @@ if ($a) {
 	t.Fatalf("expected PSR12.ControlStructures.ElseIfDeclaration diagnostic, got %#v", diagnostics)
 }
 
+func TestDiagnosticsProvider_StyleMethodCamelCaseSpan(t *testing.T) {
+	source := `<?php
+class TestClass {
+	public function set_name() {}
+}
+`
+	p := &DiagnosticsProvider{cfg: Config{DisabledAnalysis: DisabledAnalysis{
+		UndefinedVariables: true,
+		UndefinedSymbols:   true,
+		TypeErrors:         true,
+	}}}
+	diagnostics := p.Analyse("file:///method-camelcase-span.php", source)
+
+	for _, diagnostic := range diagnostics {
+		code, ok := diagnostic.Code.(string)
+		if !ok || code != "PSR1.Methods.CamelCapsMethodName" {
+			continue
+		}
+		want := newSourcePositionMapper(source).spanRange(3, 18, 3, 26)
+		if diagnostic.Range != want {
+			t.Fatalf("expected MethodCamelCase span %+v, got %+v", want, diagnostic.Range)
+		}
+		if diagnostic.Range.Start == diagnostic.Range.End {
+			t.Fatal("expected MethodCamelCase diagnostic to retain a non-point range")
+		}
+		return
+	}
+	t.Fatalf("expected PSR1.Methods.CamelCapsMethodName diagnostic, got %#v", diagnostics)
+}
+
 func TestDiagnosticsProvider_StyleNoTrailingWhitespaceSpan(t *testing.T) {
 	source := "<?php\nclass Foo { \n"
 	p := &DiagnosticsProvider{cfg: Config{DisabledAnalysis: DisabledAnalysis{
