@@ -920,7 +920,26 @@ func (wi *WorkspaceIndexer) parseIndexableFile(path string, skipFunctionBodies b
 	if skipFunctionBodies {
 		parsed, syntaxRes = parseSyntaxIndexable(uri, text)
 	} else {
-		parsed = ParseSourceWithContext(ctx, uri, text)
+		// Full-body visitor path: one syntax.Parse shared for symbols + nodes.
+		res := syntax.Parse([]byte(text))
+		nodes := syntax.LowerAST(res)
+		recoverMissingMemberPHPDocs(nodes, text)
+		srcBytes := []byte(text)
+		structured := make([]goparser.ParseError, len(res.Diagnostics))
+		errs := make([]string, len(res.Diagnostics))
+		for i, d := range res.Diagnostics {
+			structured[i] = goparser.ParseErrorFromOffsets(srcBytes, d.Span.Start, d.Span.End, d.Message)
+			errs[i] = structured[i].Error()
+		}
+		parsed = ParsedFile{
+			URI:              uri,
+			Text:             text,
+			Nodes:            nodes,
+			Errors:           errs,
+			StructuredErrors: structured,
+			Symbols:          extractSymbolsFromNodes(uri, nodes),
+		}
+		syntaxRes = res
 	}
 	parsed.Lines = countLines(data)
 	parsed.Bytes = len(data)
