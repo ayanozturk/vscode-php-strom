@@ -734,7 +734,7 @@ func (p *DiagnosticsProvider) analyseParsed(cacheKey, filename, text string, nod
 				sev = lsp.DiagSeverityError
 			}
 			diags = append(diags, lsp.Diagnostic{
-				Range:    lineColToRange(issue.Line, issue.Column),
+				Range:    positions.spanRange(issue.Line, issue.Column, issue.EndLine, issue.EndColumn),
 				Severity: &sev,
 				Code:     issue.Code,
 				Source:   "phpstrom",
@@ -804,8 +804,8 @@ func (c Config) disabledAnalysisIssueCodes() map[string]bool {
 	return disabled
 }
 
-// lineColToRange retains the legacy point contract for style diagnostics whose
-// coordinate sources are not yet uniformly structured parser rune positions.
+// lineColToRange retains the legacy point contract for callers that only have
+// one-based line/column without an end span (tests and transitional paths).
 func lineColToRange(line, col int) lsp.Range {
 	if line < 1 {
 		line = 1

@@ -2389,6 +2389,36 @@ enum InvoiceStatus: int {
 	}
 }
 
+func TestDiagnosticsProvider_StyleElseIfSpan(t *testing.T) {
+	source := `<?php
+if ($a) {
+} else if ($b) {
+}
+`
+	p := &DiagnosticsProvider{cfg: Config{DisabledAnalysis: DisabledAnalysis{
+		UndefinedVariables: true,
+		UndefinedSymbols:   true,
+		TypeErrors:         true,
+	}}}
+	diagnostics := p.Analyse("file:///elseif-span.php", source)
+
+	for _, diagnostic := range diagnostics {
+		code, ok := diagnostic.Code.(string)
+		if !ok || code != "PSR12.ControlStructures.ElseIfDeclaration" {
+			continue
+		}
+		want := newSourcePositionMapper(source).spanRange(3, 3, 3, 10)
+		if diagnostic.Range != want {
+			t.Fatalf("expected ElseIfDeclaration span %+v, got %+v", want, diagnostic.Range)
+		}
+		if diagnostic.Range.Start == diagnostic.Range.End {
+			t.Fatal("expected ElseIfDeclaration diagnostic to retain a non-point range")
+		}
+		return
+	}
+	t.Fatalf("expected PSR12.ControlStructures.ElseIfDeclaration diagnostic, got %#v", diagnostics)
+}
+
 func TestLineColToRange(t *testing.T) {
 	r := lineColToRange(5, 10)
 	if r.Start.Line != 4 || r.Start.Character != 9 {
