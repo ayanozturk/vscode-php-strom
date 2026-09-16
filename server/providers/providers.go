@@ -115,18 +115,37 @@ func (p *DefinitionProvider) Provide(uri, text string, pos lsp.Position) []lsp.L
 	if p.cache != nil && word != "" {
 		snapshot := p.cache.snapshot(uri, text)
 		analysisCtx := p.cache.analysisContextForFile(p.idx, uri, uriToFilename(uri), text, snapshot.nodes)
-		if hoverTarget, ok := analyse.InferHoverTargetAtPosition(snapshot.nodes, int(pos.Line)+1, int(pos.Character)+1, unqualifiedName(word), analysisCtx); ok && hoverTarget.ReceiverClass != "" {
+		if hoverTarget, ok := analyse.InferHoverTargetAtPosition(snapshot.nodes, int(pos.Line)+1, int(pos.Character)+1, unqualifiedName(word), analysisCtx); ok {
 			switch hoverTarget.Kind {
 			case analyse.HoverTargetMethod:
+				if hoverTarget.ReceiverClass == "" {
+					break
+				}
 				if sym := resolveMethodSymbol(p.idx, hoverTarget.ReceiverClass, unqualifiedName(word)); sym != nil {
 					return []lsp.Location{symToLocation(sym)}
 				}
 				return nil
 			case analyse.HoverTargetProperty:
+				if hoverTarget.ReceiverClass == "" {
+					break
+				}
 				if sym := resolvePropertySymbol(p.idx, hoverTarget.ReceiverClass, unqualifiedName(word)); sym != nil {
 					return []lsp.Location{symToLocation(sym)}
 				}
 				return nil
+			case analyse.HoverTargetFunction:
+				lookup := unqualifiedName(word)
+				if lookup == "" {
+					return nil
+				}
+				syms := prioritizeDefinitionMatches(p.idx.GetIndex().GetByName(lookup), lookup, indexer.KindFunction)
+				var locs []lsp.Location
+				for _, s := range syms {
+					if s.Kind == indexer.KindFunction {
+						locs = append(locs, symToLocation(s))
+					}
+				}
+				return locs
 			}
 		}
 	}
@@ -148,7 +167,7 @@ func (p *DefinitionProvider) Provide(uri, text string, pos lsp.Position) []lsp.L
 		return nil
 	}
 
-	syms := prioritizeDefinitionMatches(p.idx.GetIndex().GetByName(lookup), lookup)
+	syms := prioritizeDefinitionMatches(p.idx.GetIndex().GetByName(lookup), lookup, 0)
 	var locs []lsp.Location
 	for _, s := range syms {
 		locs = append(locs, symToLocation(s))
@@ -577,7 +596,7 @@ func resolveTypeDefinitionLocations(idx *indexer.WorkspaceIndexer, text string, 
 		return nil
 	}
 
-	matched := prioritizeDefinitionMatches(idx.GetIndex().GetByName(lookup), lookup)
+	matched := prioritizeDefinitionMatches(idx.GetIndex().GetByName(lookup), lookup, 0)
 	var locs []lsp.Location
 	for _, sym := range matched {
 		if isClassLikeKind(sym.Kind) {
@@ -697,7 +716,8 @@ func identifierAt(text string, pos lsp.Position) string {
 	return line[start:end]
 }
 
-func prioritizeDefinitionMatches(symbols []*indexer.Symbol, lookup string) []*indexer.Symbol {
+func prioritizeDefinitionMatches(symbols []*indexer.Symbol, lookup string, preferKind indexer.SymbolKind) []*indexer.Symbol {
+	exactPreferred := make([]*indexer.Symbol, 0)
 	exactClassLike := make([]*indexer.Symbol, 0)
 	exact := make([]*indexer.Symbol, 0)
 	seen := make(map[string]struct{})
@@ -712,11 +732,18 @@ func prioritizeDefinitionMatches(symbols []*indexer.Symbol, lookup string) []*in
 		}
 		seen[sym.FQN] = struct{}{}
 		exact = append(exact, sym)
+		if preferKind != 0 && sym.Kind == preferKind {
+			exactPreferred = append(exactPreferred, sym)
+		}
 		if isClassLikeKind(sym.Kind) {
 			exactClassLike = append(exactClassLike, sym)
 		}
 	}
 
+	if len(exactPreferred) > 0 {
+		sortSymbols(exactPreferred)
+		return exactPreferred
+	}
 	if len(exactClassLike) > 0 {
 		sortSymbols(exactClassLike)
 		return exactClassLike
@@ -757,6 +784,13 @@ func resolveHoverSymbol(idx *indexer.WorkspaceIndexer, uri, text string, pos lsp
 
 	if hasHoverTarget {
 		switch hoverTarget.Kind {
+		case analyse.HoverTargetFunction:
+			matched := prioritizeDefinitionMatches(idx.GetIndex().GetByName(lookup), lookup, indexer.KindFunction)
+			for _, sym := range matched {
+				if sym.Kind == indexer.KindFunction {
+					return sym
+				}
+			}
 		case analyse.HoverTargetLiteral, analyse.HoverTargetVariable, analyse.HoverTargetMethod, analyse.HoverTargetProperty:
 			// Receiver-aware accesses should not degrade into arbitrary global
 			// short-name matches when the hovered token is not a declaration-like
@@ -780,7 +814,7 @@ func resolveHoverSymbol(idx *indexer.WorkspaceIndexer, uri, text string, pos lsp
 		return sym
 	}
 
-	matched := prioritizeDefinitionMatches(idx.GetIndex().GetByName(lookup), lookup)
+	matched := prioritizeDefinitionMatches(idx.GetIndex().GetByName(lookup), lookup, 0)
 	if len(matched) == 0 {
 		return nil
 	}
@@ -800,7 +834,7 @@ func resolveMethodSymbol(idx *indexer.WorkspaceIndexer, className, methodName st
 	if sym := index.GetByFQN(classSym.FQN + "::" + methodName); sym != nil && sym.Kind == indexer.KindMethod {
 		return sym
 	}
-	for _, sym := range prioritizeDefinitionMatches(index.GetByName(methodName), methodName) {
+	for _, sym := range prioritizeDefinitionMatches(index.GetByName(methodName), methodName, 0) {
 		if sym.Kind != indexer.KindMethod {
 			continue
 		}
@@ -827,7 +861,7 @@ func resolvePropertySymbol(idx *indexer.WorkspaceIndexer, className, propertyNam
 	if sym := index.GetByFQN(classSym.FQN + "::$" + propertyName); sym != nil && sym.Kind == indexer.KindProperty {
 		return sym
 	}
-	for _, sym := range prioritizeDefinitionMatches(index.GetByName(propertyName), propertyName) {
+	for _, sym := range prioritizeDefinitionMatches(index.GetByName(propertyName), propertyName, 0) {
 		if sym.Kind != indexer.KindProperty {
 			continue
 		}

@@ -517,6 +517,9 @@ func (r workspaceSymbolResolver) ResolveFunction(name string) (analyse.ResolvedF
 			return resolvedFunction(sym), true
 		}
 	}
+	if strings.Contains(name, `\`) {
+		return analyse.ResolvedFunction{}, false
+	}
 	lookup := unqualifiedName(name)
 	for _, sym := range idx.GetByName(lookup) {
 		if sym.Kind == indexer.KindFunction && strings.EqualFold(sym.Name, lookup) {
@@ -555,7 +558,7 @@ func (r workspaceSymbolResolver) resolveClassSymbol(name string) (*indexer.Symbo
 	if lookup == "" {
 		return nil, false
 	}
-	for _, sym := range prioritizeDefinitionMatches(idx.GetByName(lookup), lookup) {
+	for _, sym := range prioritizeDefinitionMatches(idx.GetByName(lookup), lookup, 0) {
 		if !isClassLikeKind(sym.Kind) {
 			continue
 		}
