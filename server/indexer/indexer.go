@@ -397,13 +397,16 @@ func (wi *WorkspaceIndexer) UsageGraph() *analyse.ProjectUsageGraph {
 // BindFileForReferences fully parses+binds uri (R3 reference mode) and replaces
 // that file's declaration-tier uses. Call before project-wide rename/refs.
 // Returns the bound graph so callers can reuse it (avoid a second full parse).
+//
+// Uses syntax.Parse + IndexSyntaxFileForReferences (BindSyntaxResult) — not
+// ParseForIndex — so body use sites are visible to FindMatching / ReferencesAt.
 func (wi *WorkspaceIndexer) BindFileForReferences(uri, text string) analyse.UsageGraph {
 	if wi == nil || wi.usage == nil || text == "" {
 		return analyse.UsageGraph{}
 	}
-	graph := analyse.BindFile(uri, []byte(text), analyse.BindModeReferences)
-	wi.usage.PutFile(uri, graph.Uses)
-	return graph
+	res := syntax.Parse([]byte(text))
+	analyse.IndexSyntaxFileForReferences(wi.usage, uri, res)
+	return analyse.UsageGraph{Uses: wi.usage.UsesForURI(uri)}
 }
 
 // UpgradeMatchingFilesForReferences rebinds files that already have declaration-tier

@@ -190,31 +190,52 @@ func (p *ImplementationProvider) Provide(uri, text string, pos lsp.Position) []l
 type ReferencesProvider struct{ idx *indexer.WorkspaceIndexer }
 
 func (p *ReferencesProvider) Provide(uri, text string, pos lsp.Position, includeDecl bool) []lsp.Location {
-	cursor, openGraph, ok := bindCursorForRefs(p.idx, uri, text, pos)
-	if !ok {
-		return nil
-	}
 	_ = includeDecl
+	res := syntax.Parse([]byte(text))
+	offset := positionToByteOffset(text, pos)
+
+	var hits []analyse.NameUse
+	if p.idx != nil && p.idx.UsageGraph() != nil {
+		g := p.idx.UsageGraph()
+		// Seed/refresh active file, resolve cursor, upgrade declaration-tier peers,
+		// then query via ReferencesAt (BindSyntaxResult → FindMatching).
+		analyse.IndexSyntaxFileForReferences(g, uri, res)
+		cursor, ok := analyse.UseAtOffset(g.UsesForURI(uri), offset)
+		if !ok {
+			return nil
+		}
+		p.idx.UpgradeMatchingFilesForReferences(cursor, uri, "")
+		hits = analyse.ReferencesAt(g, uri, res, offset)
+	} else {
+		graph := analyse.BindSyntaxResult(uri, res)
+		cursor, ok := analyse.UseAtOffset(graph.Uses, offset)
+		if !ok {
+			return nil
+		}
+		hits = matchingNameUses(cursor, graph.Uses)
+	}
+
 	seen := map[string]struct{}{}
 	var out []lsp.Location
-	add := func(loc lsp.Location) {
+	for _, use := range hits {
+		loc := nameUseToLocation(use, text, uri)
 		key := loc.URI + ":" + strconv.FormatUint(uint64(loc.Range.Start.Line), 10) + ":" +
 			strconv.FormatUint(uint64(loc.Range.Start.Character), 10)
 		if _, ok := seen[key]; ok {
-			return
+			continue
 		}
 		seen[key] = struct{}{}
 		out = append(out, loc)
 	}
-	if p.idx != nil {
-		if g := p.idx.UsageGraph(); g != nil {
-			for _, use := range g.FindMatching(cursor) {
-				add(nameUseToLocation(use, text, uri))
-			}
+	return out
+}
+
+func matchingNameUses(needle analyse.NameUse, uses []analyse.NameUse) []analyse.NameUse {
+	var out []analyse.NameUse
+	for _, u := range uses {
+		if nameUsesMatch(needle, u) {
+			out = append(out, u)
 		}
-	}
-	for _, loc := range matchingUsesToLocations(uri, text, cursor, openGraph) {
-		add(loc)
 	}
 	return out
 }
@@ -238,30 +259,6 @@ func nameUseToLocation(use analyse.NameUse, openText, openURI string) lsp.Locati
 			End:   end,
 		},
 	}
-}
-
-func sameFileMatchingUses(uri, text string, cursor analyse.NameUse) []lsp.Location {
-	graph := analyse.BindFile(uri, []byte(text), analyse.BindModeReferences)
-	return matchingUsesToLocations(uri, text, cursor, graph)
-}
-
-func matchingUsesToLocations(uri, text string, cursor analyse.NameUse, graph analyse.UsageGraph) []lsp.Location {
-	var locs []lsp.Location
-	for _, use := range graph.Uses {
-		if !nameUsesMatch(cursor, use) {
-			continue
-		}
-		start := offsetToPosition(text, use.Span.Start)
-		end := offsetToPosition(text, use.Span.End)
-		locs = append(locs, lsp.Location{
-			URI: uri,
-			Range: lsp.Range{
-				Start: start,
-				End:   end,
-			},
-		})
-	}
-	return locs
 }
 
 func nameUsesMatch(needle, u analyse.NameUse) bool {
@@ -392,28 +389,6 @@ func boundSymbolAt(uri, text string, pos lsp.Position) (analyse.NameUse, bool) {
 	return analyse.UseAtOffset(graph.Uses, offset)
 }
 
-// bindCursorForRefs binds the open file once (R3), upgrades matching workspace
-// files from declaration-tier to reference-tier, and returns the cursor use plus
-// the open-file graph for same-file edits without a second parse.
-func bindCursorForRefs(idx *indexer.WorkspaceIndexer, uri, text string, pos lsp.Position) (analyse.NameUse, analyse.UsageGraph, bool) {
-	offset := positionToByteOffset(text, pos)
-	var graph analyse.UsageGraph
-	if idx != nil {
-		graph = idx.BindFileForReferences(uri, text)
-	} else {
-		graph = analyse.BindFile(uri, []byte(text), analyse.BindModeReferences)
-	}
-	cursor, ok := analyse.UseAtOffset(graph.Uses, offset)
-	if !ok {
-		return analyse.NameUse{}, graph, false
-	}
-	if idx != nil {
-		// openURI already bound above; skip rebinding open buffer (openText="").
-		idx.UpgradeMatchingFilesForReferences(cursor, uri, "")
-	}
-	return cursor, graph, true
-}
-
 // ─── Rename ───────────────────────────────────────────────────────────────────
 
 type RenameProvider struct{ idx *indexer.WorkspaceIndexer }
@@ -422,26 +397,14 @@ func (p *RenameProvider) Provide(uri, text string, pos lsp.Position, newName str
 	if newName == "" {
 		return nil
 	}
-	cursor, openGraph, ok := bindCursorForRefs(p.idx, uri, text, pos)
-	if !ok {
+	// Same BindSyntaxResult / ReferencesAt path as references (rename = edit those spans).
+	locs := (&ReferencesProvider{idx: p.idx}).Provide(uri, text, pos, true)
+	if len(locs) == 0 {
 		return nil
 	}
 	changes := map[string][]lsp.TextEdit{}
-	addEdit := func(loc lsp.Location) {
+	for _, loc := range locs {
 		changes[loc.URI] = append(changes[loc.URI], lsp.TextEdit{Range: loc.Range, NewText: newName})
-	}
-	if p.idx != nil {
-		if g := p.idx.UsageGraph(); g != nil {
-			for _, use := range g.FindMatching(cursor) {
-				addEdit(nameUseToLocation(use, text, uri))
-			}
-		}
-	}
-	for _, loc := range matchingUsesToLocations(uri, text, cursor, openGraph) {
-		addEdit(loc)
-	}
-	if len(changes) == 0 {
-		return nil
 	}
 	return &lsp.WorkspaceEdit{Changes: changes}
 }

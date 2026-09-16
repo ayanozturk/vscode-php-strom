@@ -48,13 +48,13 @@ prepare-go-work:
 ## pin-parser-checklist: print steps to bump server/go.mod after go-php-parser+syntax is pushed
 pin-parser-checklist:
 	@echo "==> go-php-parser pin checklist (do NOT invent a fake remote commit)"
-	@echo "    Current pin in server/go.mod is pre-syntax; GOWORK=off builds need an update."
-	@echo "    1. Confirm origin/main (or tag) of $(LOCAL_PHP_PARSER_DIR) contains the syntax/ package."
+	@echo "    Current pin in server/go.mod should track go-php-parser main (syntax/ + ReferencesAt)."
+	@echo "    1. Confirm origin/main of $(LOCAL_PHP_PARSER_DIR) contains the syntax/ package."
 	@echo "    2. Note the real pushed commit SHA (git -C $(LOCAL_PHP_PARSER_DIR) rev-parse origin/main)."
 	@echo "    3. cd $(SERVER_DIR) && GOWORK=off go get github.com/ayanozturk/go-php-parser@<SHA>"
 	@echo "    4. cd $(SERVER_DIR) && GOWORK=off go mod tidy"
 	@echo "    5. Validate: make test-server   # GOWORK=off against the new pin"
-	@echo "    Until then: make test-server-dev / build-server-dev (GOWORK → sibling checkout)."
+	@echo "    Sibling override: make test-server-dev / build-server-dev (GOWORK → local checkout)."
 
 ## build-server: compile the Go language server binaries for all marketplace targets
 build-server:
