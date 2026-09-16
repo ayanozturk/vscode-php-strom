@@ -16,15 +16,16 @@ func (wi *WorkspaceIndexer) loadConfiguredStubs() {
 		if err != nil {
 			continue
 		}
-		parsed := ParseSourceForIndex(uri, string(data))
-		if len(parsed.Errors) > 0 {
+		parsed, res := parseSyntaxIndexable(uri, string(data))
+		if res != nil && len(res.Diagnostics) > 0 {
 			// The parser is intentionally error-tolerant and can return a useful
 			// declaration AST even when a stub contains syntax it does not yet
 			// understand. Keep the recovered symbols instead of dropping the
 			// entire extension stub because one declaration was unsupported.
-			log.Printf("[indexer] indexing recovered stub %s with %d parser error(s)", name, len(parsed.Errors))
+			log.Printf("[indexer] indexing recovered stub %s with %d parser error(s)", name, len(res.Diagnostics))
 		}
-		wi.index.PutFile(parsed.URI, parsed.Symbols)
+		syms := wi.putDeclarationTierResult(parsed.URI, res)
+		wi.index.PutFile(parsed.URI, syms)
 		wi.mu.Lock()
 		wi.stubURIs = append(wi.stubURIs, parsed.URI)
 		wi.mu.Unlock()

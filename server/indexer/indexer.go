@@ -871,7 +871,7 @@ func (wi *WorkspaceIndexer) indexFile(path string, skipFunctionBodies bool, visi
 		}
 	}()
 
-	parsed, skipReason := wi.parseIndexableFile(path, skipFunctionBodies)
+	parsed, syntaxRes, skipReason := wi.parseIndexableFile(path, skipFunctionBodies)
 	if skipReason != "" {
 		if strings.HasPrefix(skipReason, "timeout") {
 			log.Printf("[indexer] %s: %s", skipReason, path)
@@ -879,8 +879,13 @@ func (wi *WorkspaceIndexer) indexFile(path string, skipFunctionBodies bool, visi
 		return 0, 0, false
 	}
 
-	syntaxSyms := wi.putDeclarationTier(parsed.URI, parsed.Text)
-	wi.index.PutFile(parsed.URI, mergeSymbolsPreferSyntax(syntaxSyms, parsed.Symbols))
+	if syntaxRes != nil {
+		syntaxSyms := wi.putDeclarationTierResult(parsed.URI, syntaxRes)
+		wi.index.PutFile(parsed.URI, syntaxSyms)
+	} else {
+		syntaxSyms := wi.putDeclarationTier(parsed.URI, parsed.Text)
+		wi.index.PutFile(parsed.URI, mergeSymbolsPreferSyntax(syntaxSyms, parsed.Symbols))
+	}
 	stampSyntaxNodeIDs(wi.index.GetByURI(parsed.URI), wi.usageUses(parsed.URI))
 	if projectCollector != nil {
 		projectCollector(parsed)
@@ -891,7 +896,7 @@ func (wi *WorkspaceIndexer) indexFile(path string, skipFunctionBodies bool, visi
 	return parsed.Lines, parsed.Bytes, true
 }
 
-func (wi *WorkspaceIndexer) parseIndexableFile(path string, skipFunctionBodies bool) (ParsedFile, string) {
+func (wi *WorkspaceIndexer) parseIndexableFile(path string, skipFunctionBodies bool) (ParsedFile, *syntax.ParseResult, string) {
 	ctx, cancel := context.WithTimeout(context.Background(), perFileParseTimeout)
 	defer cancel()
 
@@ -900,28 +905,43 @@ func (wi *WorkspaceIndexer) parseIndexableFile(path string, skipFunctionBodies b
 	wi.mu.RUnlock()
 	data, size, oversized, err := ReadFileWithinLimit(path, maxSize)
 	if err != nil {
-		return ParsedFile{}, "read-error"
+		return ParsedFile{}, nil, "read-error"
 	}
 	if oversized {
 		log.Printf("[indexer] skipping oversized file (observed %d bytes, limit %d): %s", size, maxSize, path)
-		return ParsedFile{}, "oversized-file"
+		return ParsedFile{}, nil, "oversized-file"
 	}
 
 	uri := pathToURI(path)
+	text := string(data)
 	var parsed ParsedFile
+	var syntaxRes *syntax.ParseResult
 	if skipFunctionBodies {
-		parsed = ParseSourceForIndexWithContext(ctx, uri, string(data))
+		parsed, syntaxRes = parseSyntaxIndexable(uri, text)
 	} else {
-		parsed = ParseSourceWithContext(ctx, uri, string(data))
+		parsed = ParseSourceWithContext(ctx, uri, text)
 	}
 	parsed.Lines = countLines(data)
 	parsed.Bytes = len(data)
 
 	if ctx.Err() != nil {
-		return ParsedFile{}, "timeout>20s"
+		return ParsedFile{}, nil, "timeout>20s"
 	}
 
-	return parsed, ""
+	return parsed, syntaxRes, ""
+}
+
+// parseSyntaxIndexable runs one declaration-tier syntax parse shared by symbol
+// extraction, usage binding, and classic AST project nodes via CST→AST lower.
+func parseSyntaxIndexable(uri, text string) (ParsedFile, *syntax.ParseResult) {
+	res := syntax.ParseForIndex([]byte(text))
+	nodes := syntax.LowerAST(res)
+	return ParsedFile{
+		URI:     uri,
+		Text:    text,
+		Nodes:   nodes,
+		Symbols: extractSymbolsFromSyntax(uri, res),
+	}, res
 }
 
 // ReadFileWithinLimit reads at most maxSize+1 bytes so callers can reject
