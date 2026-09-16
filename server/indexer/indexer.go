@@ -347,13 +347,14 @@ func (wi *WorkspaceIndexer) IndexDocument(uri, text string) {
 		return
 	}
 
-	// Declaration-tier syntax: symbols + usage graph share one ParseForIndex (R4).
-	syntaxSyms := wi.putDeclarationTier(uri, text)
-	// Legacy AST still feeds project analyse until that migrates off *ast.Node.
-	parsed := ParseSource(uri, text)
-	wi.index.PutFile(uri, mergeSymbolsPreferSyntax(syntaxSyms, parsed.Symbols))
+	// One declaration-tier syntax parse feeds symbols, usage binding, and
+	// classic AST project nodes via CST→AST lower (no second classic parse).
+	res := syntax.ParseForIndex([]byte(text))
+	syntaxSyms := wi.putDeclarationTierResult(uri, res)
+	nodes := syntax.LowerAST(res)
+	wi.index.PutFile(uri, syntaxSyms)
 	stampSyntaxNodeIDs(wi.index.GetByURI(uri), wi.usageUses(uri))
-	wi.putProjectNodes(uri, parsed.Nodes, hash)
+	wi.putProjectNodes(uri, nodes, hash)
 	wi.trackWorkspaceURI(uri)
 }
 
@@ -505,7 +506,6 @@ func (wi *WorkspaceIndexer) readURISource(uri string) (string, bool) {
 	}
 	return string(data), true
 }
-
 
 // ProjectIndex returns the parser-native project index used by analysis rules.
 func (wi *WorkspaceIndexer) ProjectIndex() *analyse.ProjectIndex {
@@ -1092,7 +1092,15 @@ func (wi *WorkspaceIndexer) putDeclarationTier(uri, text string) []*Symbol {
 	if text == "" {
 		return nil
 	}
-	res := syntax.ParseForIndex([]byte(text))
+	return wi.putDeclarationTierResult(uri, syntax.ParseForIndex([]byte(text)))
+}
+
+// putDeclarationTierResult applies symbol extraction and usage binding for an
+// already-parsed declaration-tier syntax result (share with LowerAST).
+func (wi *WorkspaceIndexer) putDeclarationTierResult(uri string, res *syntax.ParseResult) []*Symbol {
+	if res == nil {
+		return nil
+	}
 	syms := extractSymbolsFromSyntax(uri, res)
 	if wi != nil && wi.usage != nil {
 		graph := analyse.BindSyntaxResult(uri, res)
