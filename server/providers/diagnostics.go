@@ -34,6 +34,7 @@ func runAnalysisRulesForSource(filename, text string, nodes []ast.Node, ctx *ana
 	defer sharedcache.DeleteCachedFileContent(filename)
 	defer sharedcache.DeleteCachedLines(source)
 
+	ctx.Content = source
 	return analyse.RunAnalysisRulesWithContext(filename, nodes, ctx)
 }
 
