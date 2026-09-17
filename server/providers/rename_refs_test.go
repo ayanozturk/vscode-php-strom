@@ -1,6 +1,7 @@
 package providers
 
 import (
+	"fmt"
 	"os"
 	"testing"
 
@@ -47,6 +48,85 @@ func TestReferencesUsesBoundSymbol(t *testing.T) {
 			t.Fatalf("refs must not include B\\Foo: %+v", locs)
 		}
 	}
+}
+
+func TestReferencesHonorsIncludeDeclaration(t *testing.T) {
+	idx := indexer.New(indexer.Config{})
+	text := "<?php\nclass Foo {}\nfunction useFoo(Foo $foo) {}\n"
+	uri := "file:///workspace/Foo.php"
+	idx.IndexDocument(uri, text)
+
+	provider := &ReferencesProvider{idx: idx}
+	pos := lsp.Position{Line: 2, Character: 17}
+	withDeclaration := provider.Provide(uri, text, pos, true)
+	withoutDeclaration := provider.Provide(uri, text, pos, false)
+	if len(withDeclaration) != 2 {
+		t.Fatalf("includeDeclaration=true: want 2 locations, got %+v", withDeclaration)
+	}
+	if len(withoutDeclaration) != 1 || withoutDeclaration[0].Range.Start.Line != 2 {
+		t.Fatalf("includeDeclaration=false: want only the type use, got %+v", withoutDeclaration)
+	}
+}
+
+func TestReferencesFindAllBodyOnlyCandidates(t *testing.T) {
+	dir := t.TempDir()
+	idx := indexer.New(indexer.Config{MaxSize: 1 << 20})
+	declPath := dir + "/Target.php"
+	declURI := "file://" + declPath
+	declSrc := "<?php\nclass Target {}\n"
+	if err := os.WriteFile(declPath, []byte(declSrc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	idx.IndexDocument(declURI, declSrc)
+
+	const bodyFiles = 40
+	for i := 0; i < bodyFiles; i++ {
+		path := fmt.Sprintf("%s/Body%02d.php", dir, i)
+		uri := "file://" + path
+		src := fmt.Sprintf("<?php\nfunction body%d() { return new Target(); }\n", i)
+		if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		idx.IndexDocument(uri, src)
+	}
+
+	provider := &ReferencesProvider{idx: idx}
+	locs := provider.Provide(declURI, declSrc, lsp.Position{Line: 1, Character: 7}, true)
+	bodyHits := 0
+	for _, loc := range locs {
+		if loc.URI != declURI {
+			bodyHits++
+		}
+	}
+	if bodyHits != bodyFiles {
+		t.Fatalf("want all %d body-only references, got %d in %+v", bodyFiles, bodyHits, locs)
+	}
+}
+
+func TestReferencesFindShortBodyOnlyIdentifier(t *testing.T) {
+	dir := t.TempDir()
+	idx := indexer.New(indexer.Config{MaxSize: 1 << 20})
+	declPath := dir + "/X.php"
+	declURI := "file://" + declPath
+	declSrc := "<?php\nclass X {}\n"
+	bodyPath := dir + "/Body.php"
+	bodyURI := "file://" + bodyPath
+	bodySrc := "<?php\nfunction body() { return new X(); }\n"
+	for path, src := range map[string]string{declPath: declSrc, bodyPath: bodySrc} {
+		if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	idx.IndexDocument(declURI, declSrc)
+	idx.IndexDocument(bodyURI, bodySrc)
+
+	locs := (&ReferencesProvider{idx: idx}).Provide(declURI, declSrc, lsp.Position{Line: 1, Character: 7}, true)
+	for _, loc := range locs {
+		if loc.URI == bodyURI {
+			return
+		}
+	}
+	t.Fatalf("short body-only reference was not found: %+v", locs)
 }
 
 func TestUpgradeMatchingFilesSeesBodyRef(t *testing.T) {

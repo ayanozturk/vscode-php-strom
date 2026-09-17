@@ -417,8 +417,8 @@ func (wi *WorkspaceIndexer) BindFileForReferences(uri, text string) analyse.Usag
 // when provided; other candidates are read from disk.
 //
 // When declaration-tier indexing missed a file (body-only mention inside a skipped
-// function body), a capped short-name scan upgrades those peers safely: substring
-// filter + full bind; FindMatching still requires Resolved/Kind/Owner identity.
+// function body), an identifier-aware scan upgrades every candidate. FindMatching
+// still requires Resolved/Kind/Owner identity after the full bind.
 //
 // If openURI was already bound via BindFileForReferences, pass openText="" to skip
 // rebinding the open buffer (openURI is still excluded from disk upgrades).
@@ -452,11 +452,6 @@ func (wi *WorkspaceIndexer) UpgradeMatchingFilesForReferences(needle analyse.Nam
 	return openGraph
 }
 
-const (
-	bodyOnlyRefCandidateCap = 32
-	bodyOnlyRefMinNameLen   = 3
-)
-
 // upgradeBodyOnlyReferenceCandidates finds workspace files with no declaration-tier
 // FQN hit that still mention needle's short name, then full-binds them (R3 body-only gap).
 func (wi *WorkspaceIndexer) upgradeBodyOnlyReferenceCandidates(needle analyse.NameUse, seen map[string]struct{}) {
@@ -467,14 +462,10 @@ func (wi *WorkspaceIndexer) upgradeBodyOnlyReferenceCandidates(needle analyse.Na
 	if i := strings.LastIndexByte(short, '\\'); i >= 0 {
 		short = short[i+1:]
 	}
-	if len(short) < bodyOnlyRefMinNameLen {
+	if short == "" {
 		return
 	}
-	upgraded := 0
 	for _, uri := range wi.WorkspaceFileURIs() {
-		if upgraded >= bodyOnlyRefCandidateCap {
-			break
-		}
 		if uri == "" {
 			continue
 		}
@@ -482,13 +473,33 @@ func (wi *WorkspaceIndexer) upgradeBodyOnlyReferenceCandidates(needle analyse.Na
 			continue
 		}
 		text, ok := wi.readURISource(uri)
-		if !ok || text == "" || !strings.Contains(text, short) {
+		if !ok || text == "" || !containsPHPIdentifier(text, short) {
 			continue
 		}
 		seen[uri] = struct{}{}
 		wi.BindFileForReferences(uri, text)
-		upgraded++
 	}
+}
+
+func containsPHPIdentifier(text, identifier string) bool {
+	for start := 0; start <= len(text)-len(identifier); {
+		relative := strings.Index(text[start:], identifier)
+		if relative < 0 {
+			return false
+		}
+		match := start + relative
+		end := match + len(identifier)
+		if (match == 0 || !isPHPIdentifierByte(text[match-1])) &&
+			(end == len(text) || !isPHPIdentifierByte(text[end])) {
+			return true
+		}
+		start = match + 1
+	}
+	return false
+}
+
+func isPHPIdentifierByte(b byte) bool {
+	return b == '_' || b >= 0x80 || b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z' || b >= '0' && b <= '9'
 }
 
 // readURISource loads file bytes for a workspace URI (disk). Returns false on skip/error.

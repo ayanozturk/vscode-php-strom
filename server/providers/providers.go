@@ -207,7 +207,6 @@ func (p *ImplementationProvider) Provide(uri, text string, pos lsp.Position) []l
 type ReferencesProvider struct{ idx *indexer.WorkspaceIndexer }
 
 func (p *ReferencesProvider) Provide(uri, text string, pos lsp.Position, includeDecl bool) []lsp.Location {
-	_ = includeDecl
 	res := syntax.Parse([]byte(text))
 	offset := positionToByteOffset(text, pos)
 
@@ -235,6 +234,9 @@ func (p *ReferencesProvider) Provide(uri, text string, pos lsp.Position, include
 	seen := map[string]struct{}{}
 	var out []lsp.Location
 	for _, use := range hits {
+		if !includeDecl && use.Declaration {
+			continue
+		}
 		loc := nameUseToLocation(use, text, uri)
 		key := loc.URI + ":" + strconv.FormatUint(uint64(loc.Range.Start.Line), 10) + ":" +
 			strconv.FormatUint(uint64(loc.Range.Start.Character), 10)
