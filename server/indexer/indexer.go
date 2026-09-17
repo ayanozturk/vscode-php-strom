@@ -482,6 +482,9 @@ func (wi *WorkspaceIndexer) upgradeBodyOnlyReferenceCandidates(needle analyse.Na
 }
 
 func containsPHPIdentifier(text, identifier string) bool {
+	if identifier == "" {
+		return false
+	}
 	for start := 0; start <= len(text)-len(identifier); {
 		relative := strings.Index(text[start:], identifier)
 		if relative < 0 {
@@ -730,30 +733,6 @@ func semanticChangeAffectsText(text string, dependencyNames []string) bool {
 		}
 	}
 	return false
-}
-
-func containsPHPIdentifier(text, identifier string) bool {
-	if identifier == "" {
-		return false
-	}
-	for start := 0; start < len(text); {
-		index := strings.Index(text[start:], identifier)
-		if index < 0 {
-			return false
-		}
-		index += start
-		end := index + len(identifier)
-		if (index == 0 || !isPHPIdentifierByte(text[index-1])) &&
-			(end == len(text) || !isPHPIdentifierByte(text[end])) {
-			return true
-		}
-		start = index + 1
-	}
-	return false
-}
-
-func isPHPIdentifierByte(value byte) bool {
-	return value == '_' || value >= 0x80 || value >= 'a' && value <= 'z' || value >= '0' && value <= '9'
 }
 
 func projectIndexKey(uri string) string {
