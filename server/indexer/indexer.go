@@ -918,10 +918,10 @@ func (wi *WorkspaceIndexer) parseIndexableFile(path string, skipFunctionBodies b
 	var parsed ParsedFile
 	var syntaxRes *syntax.ParseResult
 	if skipFunctionBodies {
-		parsed, syntaxRes = parseSyntaxIndexable(uri, text)
+		parsed, syntaxRes = parseSyntaxIndexableWithContext(ctx, uri, text)
 	} else {
 		// Full-body visitor path: one syntax.Parse shared for symbols + nodes.
-		res := syntax.Parse([]byte(text))
+		res := syntax.ParseWithContext(ctx, []byte(text), syntax.ParseOptions{})
 		nodes := syntax.LowerAST(res)
 		recoverMissingMemberPHPDocs(nodes, text)
 		srcBytes := []byte(text)
@@ -954,7 +954,11 @@ func (wi *WorkspaceIndexer) parseIndexableFile(path string, skipFunctionBodies b
 // parseSyntaxIndexable runs one declaration-tier syntax parse shared by symbol
 // extraction, usage binding, and classic AST project nodes via CST→AST lower.
 func parseSyntaxIndexable(uri, text string) (ParsedFile, *syntax.ParseResult) {
-	res := syntax.ParseForIndex([]byte(text))
+	return parseSyntaxIndexableWithContext(context.Background(), uri, text)
+}
+
+func parseSyntaxIndexableWithContext(ctx context.Context, uri, text string) (ParsedFile, *syntax.ParseResult) {
+	res := syntax.ParseWithContext(ctx, []byte(text), syntax.ParseOptions{SkipFunctionBodies: true})
 	nodes := syntax.LowerAST(res)
 	return ParsedFile{
 		URI:   uri,
@@ -1093,9 +1097,9 @@ func parseSource(ctx context.Context, uri, src string, skipFunctionBodies bool) 
 	var nodes []ast.Node
 	var diags []syntax.Diagnostic
 	if skipFunctionBodies {
-		nodes, diags = syntax.ParseASTForIndex(srcBytes)
+		nodes, diags = syntax.ParseASTForIndexWithContext(ctx, srcBytes)
 	} else {
-		nodes, diags = syntax.ParseAST(srcBytes)
+		nodes, diags = syntax.ParseASTWithContext(ctx, srcBytes)
 	}
 	recoverMissingMemberPHPDocs(nodes, src)
 	structured := make([]goparser.ParseError, len(diags))

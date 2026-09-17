@@ -2,7 +2,7 @@ module github.com/ayanozturk/vscode-php-strom
 
 go 1.23
 
-// Pin tracks go-php-parser main after Interface NS-segment + bare count() fixes
-// (v0.0.0-20260916223444-68b315370f75). Sibling override: make test-server-dev.
+// Pin tracks go-php-parser main after syntax-parser cancellation and security gates.
+// (v0.0.0-20260917072854-bad58b3279ff). Sibling override: make test-server-dev.
 // Checklist: make pin-parser-checklist
-require github.com/ayanozturk/go-php-parser v0.0.0-20260917070942-041b5d3ac9ba
+require github.com/ayanozturk/go-php-parser v0.0.0-20260917072854-bad58b3279ff
