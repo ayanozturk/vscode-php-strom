@@ -11,7 +11,7 @@ import (
 )
 
 func main() {
-	root := "/Volumes/RG-DOCK/rg_core"
+	root := "."
 	if len(os.Args) > 1 {
 		root = os.Args[1]
 	}
@@ -34,7 +34,7 @@ func main() {
 	wi.SetWorkspaceFolders([]indexer.WorkspaceFolder{
 		{
 			URI:  "file://" + root,
-			Name: "rg_core",
+			Name: "benchmark-root",
 		},
 	})
 
