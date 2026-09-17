@@ -7,3 +7,5 @@ dist/
 .cache/
 .vscode-test/
 bin/
+server/main
+server/parse-test
