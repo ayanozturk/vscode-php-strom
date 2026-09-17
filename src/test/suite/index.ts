@@ -71,7 +71,7 @@ export async function run(): Promise<void> {
   }
   assert.equal(properties['phpstrom.diagnostics.analysis.style']?.default, false);
   assert.equal(properties['phpstrom.diagnostics.analysis.sideEffects']?.default, false);
-  assert.equal(properties['phpstrom.inlayHints.parameterTypes.enable']?.default, false);
-  assert.equal(properties['phpstrom.inlayHints.returnTypes.enable']?.default, false);
+  assert.ok(!('phpstrom.codeLens.references.enable' in properties), 'expected unimplemented code lens settings to be removed');
+  assert.ok(!('phpstrom.inlayHints.parameterTypes.enable' in properties), 'expected unimplemented inlay hint settings to be removed');
   assert.ok(!('phpstrom.telemetry.enable' in properties), 'expected unused telemetry setting to be removed');
 }

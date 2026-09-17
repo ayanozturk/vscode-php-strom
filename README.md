@@ -85,7 +85,7 @@ Settings live under `phpstrom.*` in VS Code. The ones that affect behaviour toda
 }
 ```
 
-Format, completion `use`-insert, PHPDoc generation, code lens, and inlay-hint settings exist in the schema but have no working Go providers yet.
+Format, completion `use`-insert, and PHPDoc generation settings exist in the schema but have no working Go providers yet. Code lens and inlay-hint settings were removed from the schema until real providers exist.
 
 ## Packaging
 

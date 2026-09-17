@@ -519,34 +519,6 @@ function getConfiguration(): Record<string, unknown> {
       returnVoid: config.get<boolean>('phpdoc.returnVoid', true),
       textFormat: config.get<string>('phpdoc.textFormat', 'snippet'),
     },
-    codeLens: {
-      references: {
-        enable: config.get<boolean>('codeLens.references.enable', false),
-      },
-      implementations: {
-        enable: config.get<boolean>('codeLens.implementations.enable', false),
-      },
-      overrides: {
-        enable: config.get<boolean>('codeLens.overrides.enable', false),
-      },
-      parent: {
-        enable: config.get<boolean>('codeLens.parent.enable', false),
-      },
-      usages: {
-        enable: config.get<boolean>('codeLens.usages.enable', false),
-      },
-    },
-    inlayHints: {
-      parameterNames: {
-        enable: config.get<boolean>('inlayHints.parameterNames.enable', true),
-      },
-      parameterTypes: {
-        enable: config.get<boolean>('inlayHints.parameterTypes.enable', false),
-      },
-      returnTypes: {
-        enable: config.get<boolean>('inlayHints.returnTypes.enable', false),
-      },
-    },
     compatibility: {
       preferPsalmPhpstanPrefixedAnnotations: config.get<boolean>(
         'compatibility.preferPsalmPhpstanPrefixedAnnotations',
