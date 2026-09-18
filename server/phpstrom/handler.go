@@ -47,7 +47,7 @@ type Handler struct {
 	trace                  *editorTraceRecorder
 }
 
-const workspaceDiagnosticsLimit = 50_000
+const workspaceDiagnosticsLimit = 20_000
 const onTypeAnalysisDelay = 150 * time.Millisecond
 const maxDocumentAnalysisWorkers = 2
 const maxEditorTraceEvents = 1024
@@ -888,10 +888,10 @@ func (h *Handler) runWorkspaceDiagnosticsLocked(scan *workspaceDiagnosticsScanSt
 	}
 
 	wg.Wait()
-	if scan.capped() {
-		return false
-	}
-
+	// A capped scan still publishes every file's diagnostics collected before
+	// the cap tripped - the cap only stops the scan from doing MORE work, it
+	// must not throw away everything already computed. Capped is still
+	// reported to the client via scan.capped() in the finished notification.
 	resultURIs := make([]string, 0, len(results))
 	for uri := range results {
 		resultURIs = append(resultURIs, uri)
@@ -1004,12 +1004,19 @@ type workspaceDiagnosticsScanState struct {
 	totalDiagnostics atomic.Int64
 	processedFiles   atomic.Int64
 	totalFiles       int
+	limit            int64
 	isCapped         atomic.Bool
 	onProgress       func(done, total int)
 }
 
 func newWorkspaceDiagnosticsScanState(totalFiles int, onProgress func(done, total int)) *workspaceDiagnosticsScanState {
-	return &workspaceDiagnosticsScanState{totalFiles: totalFiles, onProgress: onProgress}
+	return &workspaceDiagnosticsScanState{totalFiles: totalFiles, onProgress: onProgress, limit: workspaceDiagnosticsLimit}
+}
+
+// newWorkspaceDiagnosticsScanStateWithLimit is for tests that need to trip
+// the cap without materializing workspaceDiagnosticsLimit real files.
+func newWorkspaceDiagnosticsScanStateWithLimit(totalFiles int, onProgress func(done, total int), limit int64) *workspaceDiagnosticsScanState {
+	return &workspaceDiagnosticsScanState{totalFiles: totalFiles, onProgress: onProgress, limit: limit}
 }
 
 func (s *workspaceDiagnosticsScanState) allow(count int) bool {
@@ -1018,11 +1025,11 @@ func (s *workspaceDiagnosticsScanState) allow(count int) bool {
 	}
 	for {
 		current := s.totalDiagnostics.Load()
-		if current >= workspaceDiagnosticsLimit {
+		if current >= s.limit {
 			s.isCapped.Store(true)
 			return false
 		}
-		if current+int64(count) > workspaceDiagnosticsLimit {
+		if current+int64(count) > s.limit {
 			s.isCapped.Store(true)
 			return false
 		}

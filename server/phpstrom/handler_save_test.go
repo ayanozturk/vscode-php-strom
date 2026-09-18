@@ -598,3 +598,51 @@ func TestWorkspaceDiagnosticsStopsAtLimit(t *testing.T) {
 		t.Fatalf("expected scan total %d, got %d", expectedTotal, scan.total())
 	}
 }
+
+// TestWorkspaceDiagnosticsPublishesResultsCollectedBeforeCap is a regression
+// test for a real bug: runWorkspaceDiagnosticsLocked collected every file's
+// diagnostics into a results map as workers ran, but once the cap tripped it
+// returned early (`if scan.capped() { return false }`) *before* publishing
+// that map - discarding every diagnostic collected for files processed
+// before the cap, not just declining to collect more. The Problems panel
+// showed "Stopped after N diagnostics" but listed nothing at all.
+func TestWorkspaceDiagnosticsPublishesResultsCollectedBeforeCap(t *testing.T) {
+	tmpDir := t.TempDir()
+	const fileCount = 5
+	for i := range fileCount {
+		filePath := filepath.Join(tmpDir, "BadClass"+strconv.Itoa(i)+".php")
+		text := "<?php\nclass Bad_Class_" + strconv.Itoa(i) + " {}\n"
+		if err := os.WriteFile(filePath, []byte(text), 0o644); err != nil {
+			t.Fatalf("write workspace file %d: %v", i, err)
+		}
+	}
+
+	var out synchronizedBuffer
+	srv := &Server{out: &out}
+	h := NewHandler(srv)
+	enableStyleAnalysis(h)
+	h.idx.SetWorkspaceFolders([]indexer.WorkspaceFolder{{URI: "file://" + filepath.ToSlash(tmpDir), Name: "tmp"}})
+	h.idx.IndexWorkspace()
+
+	perFileDiagnostics := len(h.prov.Diagnostics.Analyse("file:///probe.php", "<?php\nclass Bad_Class_probe {}\n"))
+	if perFileDiagnostics == 0 {
+		t.Fatal("expected synthetic test file to emit diagnostics")
+	}
+
+	// A limit smaller than one file's own diagnostic count trips the cap on
+	// the very first file processed, while leaving the scan running for the
+	// rest - reproducing "capped after only some files were collected".
+	scan := newWorkspaceDiagnosticsScanStateWithLimit(fileCount, nil, int64(perFileDiagnostics))
+	applied := h.runWorkspaceDiagnosticsLocked(scan)
+
+	if !scan.capped() {
+		t.Fatal("expected scan to be capped")
+	}
+	if !applied {
+		t.Fatal("expected a capped scan to still report applied=true: diagnostics collected before the cap must be published")
+	}
+	payload := out.String()
+	if !strings.Contains(payload, "PSR1.Classes.ClassDeclaration.PascalCase") {
+		t.Fatalf("expected diagnostics collected before the cap to actually be published, got %q", payload)
+	}
+}
