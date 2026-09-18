@@ -1,19 +1,37 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"log"
 	"os"
 	"runtime"
+	"runtime/pprof"
 	"time"
 
 	"github.com/ayanozturk/vscode-php-strom/indexer"
 )
 
 func main() {
+	cpuProfile := flag.String("cpuprofile", "", "write CPU profile to file")
+	memProfile := flag.String("memprofile", "", "write heap profile to file")
+	flag.Parse()
+
 	root := "."
-	if len(os.Args) > 1 {
-		root = os.Args[1]
+	if flag.NArg() > 0 {
+		root = flag.Arg(0)
+	}
+
+	if *cpuProfile != "" {
+		f, err := os.Create(*cpuProfile)
+		if err != nil {
+			log.Fatalf("create cpu profile: %v", err)
+		}
+		defer f.Close()
+		if err := pprof.StartCPUProfile(f); err != nil {
+			log.Fatalf("start cpu profile: %v", err)
+		}
+		defer pprof.StopCPUProfile()
 	}
 
 	log.SetOutput(os.Stderr)
@@ -78,4 +96,16 @@ func main() {
 	fmt.Printf("HeapAlloc:       %.2f MB\n", float64(memEnd.HeapAlloc)/(1024*1024))
 	fmt.Printf("Sys memory:      %.2f MB\n", float64(memEnd.Sys)/(1024*1024))
 	fmt.Printf("=========================================\n")
+
+	if *memProfile != "" {
+		f, err := os.Create(*memProfile)
+		if err != nil {
+			log.Fatalf("create mem profile: %v", err)
+		}
+		defer f.Close()
+		runtime.GC()
+		if err := pprof.WriteHeapProfile(f); err != nil {
+			log.Fatalf("write mem profile: %v", err)
+		}
+	}
 }

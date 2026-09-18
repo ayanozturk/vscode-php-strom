@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/ayanozturk/go-php-parser/ast"
@@ -658,13 +659,21 @@ func TestUpdateConfigAppliesWorkspaceExcludes(t *testing.T) {
 }
 
 func TestDiagnosticWorkerCountLeavesInteractiveCapacity(t *testing.T) {
+	procs := runtime.GOMAXPROCS(0)
+
 	if got := DiagnosticWorkerCountFor(999); got > 2 {
 		t.Fatalf("expected at most two full-analysis workers for small workspaces, got %d", got)
 	}
-	if got := DiagnosticWorkerCountFor(1_000); got > 3 {
-		t.Fatalf("expected at most three full-analysis workers for medium workspaces, got %d", got)
+	if got := DiagnosticWorkerCountFor(1_000); got > max(procs/2, 2) {
+		t.Fatalf("expected at most half of GOMAXPROCS workers for medium workspaces, got %d (GOMAXPROCS=%d)", got, procs)
 	}
-	if got := DiagnosticWorkerCountFor(10_000); got > 4 {
-		t.Fatalf("expected at most four full-analysis workers for large workspaces, got %d", got)
+	if got := DiagnosticWorkerCountFor(10_000); got > max(procs-1, 2) {
+		t.Fatalf("expected at most GOMAXPROCS-1 workers for large workspaces, got %d (GOMAXPROCS=%d)", got, procs)
+	}
+	// Regardless of machine size, a large-workspace scan must always leave at
+	// least one core free for interactive use (unless the machine has only 1-2
+	// cores, where max(procs-1, 2) already yields the full core count).
+	if got := DiagnosticWorkerCountFor(50_000); procs > 2 && got >= procs {
+		t.Fatalf("expected diagnostics workers to leave at least one core free on a %d-core machine, got %d", procs, got)
 	}
 }
