@@ -11,7 +11,9 @@ go 1.23
 // single-line files (generated vendor files, e.g. AWS SDK API definitions,
 // shaped as one huge array literal - 103s -> 45ms to lower a real 1.4MB
 // example; indexing a real 10k-file workspace with such files went from
-// 2m8s to 2.3s).
+// 2m8s to 2.3s), a large ext/standard phpstubs coverage gap (326 missing
+// functions) plus new Mbstring/PDO stubs, and a $this-in-property-hooks
+// binder fix.
 // Sibling override: make test-server-dev.
 // Checklist: make pin-parser-checklist
-require github.com/ayanozturk/go-php-parser v0.0.0-20260918105914-82d884338ee3
+require github.com/ayanozturk/go-php-parser v0.0.0-20260918111551-a7bb30ecbbdb
