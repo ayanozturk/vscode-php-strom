@@ -731,6 +731,54 @@ func workspaceDiagnosticsFingerprint(cfg *Config) []byte {
 	return encoded
 }
 
+// workspaceDiagnosticsSlowLogAfter is how long a single file's diagnostics
+// pass may run before it's logged as slow. workspaceDiagnosticsAbandonAfter
+// mirrors indexer.perFileParseTimeout: the analysis path (unlike indexing)
+// has no context-based cancellation, so a stuck file's goroutine cannot be
+// killed — abandoning it only frees the worker to move on to other files.
+const (
+	workspaceDiagnosticsSlowLogAfter = 3 * time.Second
+	workspaceDiagnosticsAbandonAfter = 20 * time.Second
+)
+
+// runDiagnosticsWithTimeout runs fn (a diagnostics call for uri) on its own
+// goroutine and logs to the server output if it runs long or never returns
+// within workspaceDiagnosticsAbandonAfter. On abandonment the caller's worker
+// moves on immediately; the abandoned goroutine keeps running in the
+// background (analysis has no cancellation hook) and its result, if any, is
+// discarded when it eventually finishes.
+func runDiagnosticsWithTimeout(uri string, fn func() []lsp.Diagnostic) ([]lsp.Diagnostic, bool) {
+	started := time.Now()
+	done := make(chan []lsp.Diagnostic, 1)
+	go func() {
+		done <- fn()
+	}()
+
+	slowTimer := time.NewTimer(workspaceDiagnosticsSlowLogAfter)
+	defer slowTimer.Stop()
+	abandonTimer := time.NewTimer(workspaceDiagnosticsAbandonAfter)
+	defer abandonTimer.Stop()
+
+	for {
+		select {
+		case diags := <-done:
+			if elapsed := time.Since(started); elapsed >= workspaceDiagnosticsSlowLogAfter {
+				log.Printf("[phpstrom] slow diagnostics: %s took %s", uri, elapsed.Round(time.Millisecond))
+			}
+			return diags, true
+		case <-slowTimer.C:
+			log.Printf("[phpstrom] slow diagnostics: %s still running after %s", uri, workspaceDiagnosticsSlowLogAfter)
+		case <-abandonTimer.C:
+			log.Printf("[phpstrom] stuck diagnostics: abandoning %s after %s, worker moving on", uri, workspaceDiagnosticsAbandonAfter)
+			go func() {
+				diags := <-done
+				log.Printf("[phpstrom] stuck diagnostics: %s finished after abandonment (%d diagnostic(s), took %s)", uri, len(diags), time.Since(started).Round(time.Millisecond))
+			}()
+			return nil, false
+		}
+	}
+}
+
 func (h *Handler) runWorkspaceDiagnosticsLocked(scan *workspaceDiagnosticsScanState) bool {
 	h.runtimeMu.RLock()
 	diagnosticsEnabled := h.cfg.Diagnostics.Enable
@@ -775,7 +823,16 @@ func (h *Handler) runWorkspaceDiagnosticsLocked(scan *workspaceDiagnosticsScanSt
 				}
 
 				if doc, ok := h.documents.Snapshot(uri); ok {
-					diags := diagnosticsProvider.Analyse(uri, doc.Text)
+					diags, completed := runDiagnosticsWithTimeout(uri, func() []lsp.Diagnostic {
+						return diagnosticsProvider.Analyse(uri, doc.Text)
+					})
+					if !completed {
+						done := int(scan.processedFiles.Add(1))
+						if scan.onProgress != nil && done%50 == 0 {
+							scan.onProgress(done, scan.totalFiles)
+						}
+						continue
+					}
 					if diags == nil {
 						diags = []lsp.Diagnostic{}
 					}
@@ -803,7 +860,16 @@ func (h *Handler) runWorkspaceDiagnosticsLocked(scan *workspaceDiagnosticsScanSt
 					}
 					continue
 				}
-				diags := diagnosticsProvider.AnalyseTransient(uri, text)
+				diags, completed := runDiagnosticsWithTimeout(uri, func() []lsp.Diagnostic {
+					return diagnosticsProvider.AnalyseTransient(uri, text)
+				})
+				if !completed {
+					done := int(scan.processedFiles.Add(1))
+					if scan.onProgress != nil && done%50 == 0 {
+						scan.onProgress(done, scan.totalFiles)
+					}
+					continue
+				}
 				if diags == nil {
 					diags = []lsp.Diagnostic{}
 				}

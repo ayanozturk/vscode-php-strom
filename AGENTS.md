@@ -22,19 +22,12 @@ Do **not** chase a single line-% on the whole repo. Use layered targets.
 
 - Prefer **behavioral coverage**: binding, rename/refs, format identity, type-from-syntax — not line % on giant rule files.
 - Keep differential/level fixtures green; add cases when string→syntax edges move.
-- go-php-parser's Phase 4 added an optional `AnalysisContext.Content []byte`
-  field: when set, `analyse.RunAnalysisRulesWithContext` uses a CST-direct
-  fused analysis path instead of the `[]ast.Node` walk (additive; left nil,
-  behavior is unchanged). `server/providers/diagnostics.go`'s
-  `runAnalysisRulesForSource` does **not** set it yet — doing so today would
-  break the pinned `GOWORK=off` build, since `Content` doesn't exist on the
-  go-php-parser version currently pinned in `server/go.mod` (confirmed by
-  trying it and reverting). Validated only via `make test-server-dev`
-  against a local sibling checkout with the field. Wiring `ctx.Content =
-  source` into `diagnostics.go` is a one-line follow-up, gated on bumping
-  `server/go.mod`'s pin past the go-php-parser commit that adds the field
-  (which itself requires pushing go-php-parser to GitHub first — needs
-  explicit user confirmation, not yet requested).
+- go-php-parser's `AnalysisContext.Content []byte` field selects its
+  CST-direct fused analysis path in `RunAnalysisRulesWithContext` (left nil,
+  behavior falls back to the legacy `[]ast.Node` walk).
+  `server/providers/diagnostics.go`'s `runAnalysisRulesForSource` sets
+  `ctx.Content = source`, so production diagnostics always use the
+  CST-direct path; keep it set when touching that function.
 
 ### Perf (not coverage %)
 
