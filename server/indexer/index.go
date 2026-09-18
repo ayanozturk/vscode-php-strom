@@ -15,9 +15,17 @@ type Index struct {
 }
 
 type shard struct {
-	mu          sync.RWMutex
-	byFQN       map[string]*Symbol   // FQN → symbol
+	mu    sync.RWMutex
+	byFQN map[string]*Symbol   // FQN → symbol
 	byNameLower map[string][]*Symbol // lowercase unqualified name → symbols
+	// byOwnerLower is keyed by lowercase owner FQN (before "::"), then by the
+	// member's own FQN, mirroring byFQN's overwrite-on-collision semantics:
+	// distinct files that (legitimately, e.g. Symfony's per-scenario test
+	// fixtures) declare a member under the exact same FQN must not leave
+	// stale entries from a superseded file sitting alongside the current one.
+	// A plain append-only []*Symbol here previously accumulated exactly that
+	// kind of stale duplicate.
+	byOwnerLower map[string]map[string]*Symbol
 }
 
 func newIndex() *Index {
@@ -27,6 +35,7 @@ func newIndex() *Index {
 	for i := range idx.shards {
 		idx.shards[i].byFQN = make(map[string]*Symbol)
 		idx.shards[i].byNameLower = make(map[string][]*Symbol)
+		idx.shards[i].byOwnerLower = make(map[string]map[string]*Symbol)
 	}
 	return idx
 }
@@ -34,6 +43,16 @@ func newIndex() *Index {
 func (idx *Index) shardFor(key string) *shard {
 	h := fnv32(key)
 	return &idx.shards[h%shards]
+}
+
+// symbolOwnerLower returns the lowercased owner FQN for a member symbol whose
+// FQN has the "\Owner\Class::member" shape, or "", false for non-members.
+func symbolOwnerLower(fqn string) (string, bool) {
+	i := strings.Index(fqn, "::")
+	if i < 0 {
+		return "", false
+	}
+	return strings.ToLower(fqn[:i]), true
 }
 
 // PutFile replaces all symbols for a given URI atomically.
@@ -45,10 +64,15 @@ func (idx *Index) PutFile(uri string, symbols []*Symbol) {
 	if len(symbols) > 0 {
 		fqns = make([]string, 0, len(symbols))
 		grouped := make(map[*shard][]*Symbol, min(len(symbols), shards))
+		ownerGrouped := make(map[*shard][]*Symbol, min(len(symbols), shards))
 		for _, sym := range symbols {
 			s := idx.shardFor(sym.FQN)
 			grouped[s] = append(grouped[s], sym)
 			fqns = append(fqns, sym.FQN)
+			if ownerLower, ok := symbolOwnerLower(sym.FQN); ok {
+				os := idx.shardFor(ownerLower)
+				ownerGrouped[os] = append(ownerGrouped[os], sym)
+			}
 		}
 		for s, shardSymbols := range grouped {
 			s.mu.Lock()
@@ -56,6 +80,19 @@ func (idx *Index) PutFile(uri string, symbols []*Symbol) {
 				nameLower := strings.ToLower(sym.Name)
 				s.byFQN[sym.FQN] = sym
 				s.byNameLower[nameLower] = append(s.byNameLower[nameLower], sym)
+			}
+			s.mu.Unlock()
+		}
+		for s, shardSymbols := range ownerGrouped {
+			s.mu.Lock()
+			for _, sym := range shardSymbols {
+				ownerLower, _ := symbolOwnerLower(sym.FQN)
+				members := s.byOwnerLower[ownerLower]
+				if members == nil {
+					members = make(map[string]*Symbol)
+					s.byOwnerLower[ownerLower] = members
+				}
+				members[sym.FQN] = sym
 			}
 			s.mu.Unlock()
 		}
@@ -88,10 +125,20 @@ func (idx *Index) RemoveFile(uri string) {
 	delete(idx.uriToFQNs, uri)
 	idx.muURI.Unlock()
 
+	type ownerFQN struct {
+		ownerLower string
+		fqn        string
+	}
+
 	grouped := make(map[*shard][]string, min(len(fqns), shards))
+	ownerGrouped := make(map[*shard][]ownerFQN, min(len(fqns), shards))
 	for _, fqn := range fqns {
 		s := idx.shardFor(fqn)
 		grouped[s] = append(grouped[s], fqn)
+		if ownerLower, ok := symbolOwnerLower(fqn); ok {
+			os := idx.shardFor(ownerLower)
+			ownerGrouped[os] = append(ownerGrouped[os], ownerFQN{ownerLower: ownerLower, fqn: fqn})
+		}
 	}
 
 	for s, shardFQNs := range grouped {
@@ -115,6 +162,24 @@ func (idx *Index) RemoveFile(uri string) {
 				s.byNameLower[nameLower] = updated
 			}
 			delete(s.byFQN, fqn)
+		}
+		s.mu.Unlock()
+	}
+
+	// byOwnerLower is keyed by (ownerLower, fqn), mirroring byFQN's own
+	// unconditional delete-by-key above: whichever file currently "owns" a
+	// colliding FQN in byFQN is the same one byOwnerLower reflects.
+	for s, entries := range ownerGrouped {
+		s.mu.Lock()
+		for _, e := range entries {
+			members := s.byOwnerLower[e.ownerLower]
+			if members == nil {
+				continue
+			}
+			delete(members, e.fqn)
+			if len(members) == 0 {
+				delete(s.byOwnerLower, e.ownerLower)
+			}
 		}
 		s.mu.Unlock()
 	}
@@ -196,6 +261,26 @@ func (idx *Index) Search(query string) []*Symbol {
 		s.mu.RUnlock()
 	}
 	return results
+}
+
+// MethodsByOwner returns members (methods, promoted properties, etc.) whose
+// FQN is "ownerFQN::member", matched case-insensitively on ownerFQN. Backed
+// by the byOwnerLower secondary index, so this is an O(1) shard lookup
+// instead of a linear scan over every indexed symbol.
+func (idx *Index) MethodsByOwner(ownerFQN string) []*Symbol {
+	ownerLower := strings.ToLower(ownerFQN)
+	s := idx.shardFor(ownerLower)
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	members := s.byOwnerLower[ownerLower]
+	if len(members) == 0 {
+		return nil
+	}
+	out := make([]*Symbol, 0, len(members))
+	for _, sym := range members {
+		out = append(out, sym)
+	}
+	return out
 }
 
 // FuzzySearch matches acronyms / camelCase abbreviations.

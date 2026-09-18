@@ -7,12 +7,14 @@ import (
 	"os"
 	"runtime"
 	"runtime/pprof"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/ayanozturk/vscode-php-strom/indexer"
+	"github.com/ayanozturk/vscode-php-strom/lsp"
 	"github.com/ayanozturk/vscode-php-strom/providers"
 )
 
@@ -20,6 +22,7 @@ func main() {
 	cpuProfile := flag.String("cpuprofile", "", "write CPU profile to file")
 	memProfile := flag.String("memprofile", "", "write heap profile to file")
 	workers := flag.Int("workers", 0, "worker count override (0 = indexer.DiagnosticWorkerCountFor default)")
+	dumpDiagnostics := flag.String("dump", "", "write sorted uri|message lines to this file for correctness diffing")
 	flag.Parse()
 
 	root := "."
@@ -81,6 +84,8 @@ func main() {
 	var processed int64
 	var totalDiags int64
 	var wg sync.WaitGroup
+	var dumpMu sync.Mutex
+	var dumpLines []string
 
 	var memStart, memEnd runtime.MemStats
 	runtime.ReadMemStats(&memStart)
@@ -100,10 +105,26 @@ func main() {
 				diags := diagProvider.AnalyseTransient(uri, string(text))
 				atomic.AddInt64(&totalDiags, int64(len(diags)))
 				atomic.AddInt64(&processed, 1)
+				if *dumpDiagnostics != "" {
+					lines := make([]string, len(diags))
+					for i, d := range diags {
+						lines[i] = formatDiagnosticLine(uri, d)
+					}
+					dumpMu.Lock()
+					dumpLines = append(dumpLines, lines...)
+					dumpMu.Unlock()
+				}
 			}
 		}()
 	}
 	wg.Wait()
+
+	if *dumpDiagnostics != "" {
+		sort.Strings(dumpLines)
+		if err := os.WriteFile(*dumpDiagnostics, []byte(strings.Join(dumpLines, "\n")+"\n"), 0o644); err != nil {
+			log.Fatalf("write dump: %v", err)
+		}
+	}
 
 	elapsed := time.Since(start)
 	runtime.ReadMemStats(&memEnd)
@@ -140,4 +161,8 @@ func main() {
 			log.Fatalf("write mem profile: %v", err)
 		}
 	}
+}
+
+func formatDiagnosticLine(uri string, d lsp.Diagnostic) string {
+	return fmt.Sprintf("%s|%d|%s", uri, d.Range.Start.Line, d.Message)
 }

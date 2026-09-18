@@ -284,10 +284,9 @@ func (r workspaceSymbolResolver) MethodsDeclaredBy(className string) []analyse.R
 	if !ok {
 		return nil
 	}
-	prefix := strings.ToLower(classSym.FQN + "::")
 	var methods []analyse.ResolvedMethod
-	for _, sym := range r.idx.GetIndex().AllSymbols() {
-		if sym.Kind == indexer.KindMethod && strings.HasPrefix(strings.ToLower(sym.FQN), prefix) {
+	for _, sym := range r.idx.GetIndex().MethodsByOwner(classSym.FQN) {
+		if sym.Kind == indexer.KindMethod {
 			method := resolvedMethod(sym)
 			if classSym.Kind == indexer.KindInterface {
 				method.Abstract = true
