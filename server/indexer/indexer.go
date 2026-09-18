@@ -24,6 +24,7 @@ import (
 	"github.com/ayanozturk/go-php-parser/ast"
 	goparser "github.com/ayanozturk/go-php-parser/diag"
 	"github.com/ayanozturk/go-php-parser/syntax"
+	"github.com/ayanozturk/go-php-parser/token"
 )
 
 // WorkspaceIndexer discovers and indexes PHP files in workspace folders.
@@ -923,9 +924,12 @@ func (wi *WorkspaceIndexer) parseIndexableFile(path string, skipFunctionBodies b
 		srcBytes := []byte(text)
 		structured := make([]goparser.ParseError, len(res.Diagnostics))
 		errs := make([]string, len(res.Diagnostics))
-		for i, d := range res.Diagnostics {
-			structured[i] = goparser.ParseErrorFromOffsets(srcBytes, d.Span.Start, d.Span.End, d.Message)
-			errs[i] = structured[i].Error()
+		if len(res.Diagnostics) > 0 {
+			lines := token.NewLineTable(srcBytes)
+			for i, d := range res.Diagnostics {
+				structured[i] = goparser.ParseErrorFromOffsetsWithLines(srcBytes, lines, d.Span.Start, d.Span.End, d.Message)
+				errs[i] = structured[i].Error()
+			}
 		}
 		parsed = ParsedFile{
 			URI:              uri,
@@ -1100,9 +1104,12 @@ func parseSource(ctx context.Context, uri, src string, skipFunctionBodies bool) 
 	recoverMissingMemberPHPDocs(nodes, src)
 	structured := make([]goparser.ParseError, len(diags))
 	errs := make([]string, len(diags))
-	for i, d := range diags {
-		structured[i] = goparser.ParseErrorFromOffsets(srcBytes, d.Span.Start, d.Span.End, d.Message)
-		errs[i] = structured[i].Error()
+	if len(diags) > 0 {
+		lines := token.NewLineTable(srcBytes)
+		for i, d := range diags {
+			structured[i] = goparser.ParseErrorFromOffsetsWithLines(srcBytes, lines, d.Span.Start, d.Span.End, d.Message)
+			errs[i] = structured[i].Error()
+		}
 	}
 	return ParsedFile{
 		URI:              uri,

@@ -10,9 +10,10 @@ go 1.23
 // ProjectUsageGraph re-indexing); a large ext/standard phpstubs coverage
 // gap plus new Mbstring/PDO/ddtrace stubs; a $this-in-property-hooks
 // binder fix; a reserved-word method/member name fix (e.g. `function
-// declare()`); and a false-positive fix for enum case values that are
-// valid PHP 8.1+ constant expressions we can't statically evaluate (e.g.
-// `OtherEnum::CASE->value`).
+// declare()`); a false-positive fix for enum case values that are valid
+// PHP 8.1+ constant expressions we can't statically evaluate (e.g.
+// `OtherEnum::CASE->value`); and a LineTable rebuild-per-diagnostic fix
+// (diagnostics scan on a real 10k-file workspace: 31s -> 5s).
 // Sibling override: make test-server-dev.
 // Checklist: make pin-parser-checklist
-require github.com/ayanozturk/go-php-parser v0.0.0-20260918130007-0f49868743e7
+require github.com/ayanozturk/go-php-parser v0.0.0-20260918133318-24add2acf3bb

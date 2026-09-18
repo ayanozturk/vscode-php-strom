@@ -8,6 +8,7 @@ import (
 	"github.com/ayanozturk/go-php-parser/ast"
 	goparser "github.com/ayanozturk/go-php-parser/diag"
 	"github.com/ayanozturk/go-php-parser/syntax"
+	"github.com/ayanozturk/go-php-parser/token"
 
 	"github.com/ayanozturk/vscode-php-strom/indexer"
 )
@@ -162,8 +163,11 @@ func parseSemanticSnapshot(text string) semanticSnapshot {
 	src := []byte(text)
 	nodes, diags := syntax.ParseAST(src)
 	errs := make([]goparser.ParseError, len(diags))
-	for i, d := range diags {
-		errs[i] = goparser.ParseErrorFromOffsets(src, d.Span.Start, d.Span.End, d.Message)
+	if len(diags) > 0 {
+		lines := token.NewLineTable(src)
+		for i, d := range diags {
+			errs[i] = goparser.ParseErrorFromOffsetsWithLines(src, lines, d.Span.Start, d.Span.End, d.Message)
+		}
 	}
 	return semanticSnapshot{nodes: nodes, errors: errs}
 }
