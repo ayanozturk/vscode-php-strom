@@ -5,9 +5,13 @@ go 1.23
 // Pin tracks go-php-parser main, including the Phase 4 CST-direct
 // analysis path (AnalysisContext.Content), the shared-parse fix that
 // collapsed each file's CST-direct pass from ~10 syntax.Parse calls to 1,
-// and the per-class lowering memoization fix in the return-type/missing-
+// the per-class lowering memoization fix in the return-type/missing-
 // types/phpdoc rules (was O(N^2) per class, ~2.7x diagnostics speedup
-// measured on the symfony corpus).
+// measured on the symfony corpus), and the positionAt O(N^2) fix for long
+// single-line files (generated vendor files, e.g. AWS SDK API definitions,
+// shaped as one huge array literal - 103s -> 45ms to lower a real 1.4MB
+// example; indexing a real 10k-file workspace with such files went from
+// 2m8s to 2.3s).
 // Sibling override: make test-server-dev.
 // Checklist: make pin-parser-checklist
-require github.com/ayanozturk/go-php-parser v0.0.0-20260918095519-d106816453d9
+require github.com/ayanozturk/go-php-parser v0.0.0-20260918105914-82d884338ee3

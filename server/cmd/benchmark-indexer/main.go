@@ -15,6 +15,7 @@ import (
 func main() {
 	cpuProfile := flag.String("cpuprofile", "", "write CPU profile to file")
 	memProfile := flag.String("memprofile", "", "write heap profile to file")
+	prodExcludes := flag.Bool("prod-excludes", false, "use production default excludes (indexes vendor/**, excludes only vendor/**/{Tests,tests}/**) instead of excluding all of vendor")
 	flag.Parse()
 
 	root := "."
@@ -37,15 +38,22 @@ func main() {
 	log.SetOutput(os.Stderr)
 	log.Printf("Starting Indexer Benchmark on root: %s", root)
 
+	exclude := []string{
+		"**/vendor/**",
+		"**/node_modules/**",
+		"**/cache/**",
+		"**/.git/**",
+	}
+	if *prodExcludes {
+		// Mirrors phpstrom.DefaultConfig's Files.Exclude: vendor source is
+		// indexed (needed for cross-referencing/annotating vendor types),
+		// only vendor test suites are skipped.
+		exclude = []string{"**/.git/**", "**/node_modules/**", "**/vendor/**/{Tests,tests}/**"}
+	}
 	cfg := indexer.Config{
 		MaxSize:      10 * 1024 * 1024, // 10MB
 		Associations: []string{"**/*.php", "**/*.phtml"},
-		Exclude: []string{
-			"**/vendor/**",
-			"**/node_modules/**",
-			"**/cache/**",
-			"**/.git/**",
-		},
+		Exclude:      exclude,
 	}
 
 	wi := indexer.New(cfg)

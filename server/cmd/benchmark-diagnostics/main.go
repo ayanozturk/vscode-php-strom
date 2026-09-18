@@ -23,6 +23,7 @@ func main() {
 	memProfile := flag.String("memprofile", "", "write heap profile to file")
 	workers := flag.Int("workers", 0, "worker count override (0 = indexer.DiagnosticWorkerCountFor default)")
 	dumpDiagnostics := flag.String("dump", "", "write sorted uri|message lines to this file for correctness diffing")
+	prodExcludes := flag.Bool("prod-excludes", false, "use production default excludes (indexes vendor/**, excludes only vendor/**/{Tests,tests}/**) instead of excluding all of vendor")
 	flag.Parse()
 
 	root := "."
@@ -45,15 +46,19 @@ func main() {
 	log.SetOutput(os.Stderr)
 	log.Printf("Starting Diagnostics Benchmark on root: %s", root)
 
+	exclude := []string{
+		"**/vendor/**",
+		"**/node_modules/**",
+		"**/cache/**",
+		"**/.git/**",
+	}
+	if *prodExcludes {
+		exclude = []string{"**/.git/**", "**/node_modules/**", "**/vendor/**/{Tests,tests}/**"}
+	}
 	cfg := indexer.Config{
 		MaxSize:      10 * 1024 * 1024,
 		Associations: []string{"**/*.php", "**/*.phtml"},
-		Exclude: []string{
-			"**/vendor/**",
-			"**/node_modules/**",
-			"**/cache/**",
-			"**/.git/**",
-		},
+		Exclude:      exclude,
 	}
 	wi := indexer.New(cfg)
 	wi.SetWorkspaceFolders([]indexer.WorkspaceFolder{{URI: "file://" + root, Name: "benchmark-root"}})
