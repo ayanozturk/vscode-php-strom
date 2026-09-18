@@ -5,4 +5,4 @@ go 1.23
 // Pin tracks go-php-parser main, including the Phase 4 CST-direct
 // analysis path (AnalysisContext.Content). Sibling override: make test-server-dev.
 // Checklist: make pin-parser-checklist
-require github.com/ayanozturk/go-php-parser v0.0.0-20260917204826-33cd38f7b228
+require github.com/ayanozturk/go-php-parser v0.0.0-20260917233316-5b36388d01ff

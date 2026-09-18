@@ -1,2 +1,2 @@
-github.com/ayanozturk/go-php-parser v0.0.0-20260917204826-33cd38f7b228 h1:DvqvwMRkHvYC23XU7D1nOV6wDJP7biM5z4YfCRhXtK0=
-github.com/ayanozturk/go-php-parser v0.0.0-20260917204826-33cd38f7b228/go.mod h1:CWpxmRlRRZZH4zG9p7dJ9XCVDg4R2aOMsKRRrQuh0Vw=
+github.com/ayanozturk/go-php-parser v0.0.0-20260917233316-5b36388d01ff h1:o7qC+zITHWRI3n4An9kaAL2W0LbnKxXzHB8l+rooTWg=
+github.com/ayanozturk/go-php-parser v0.0.0-20260917233316-5b36388d01ff/go.mod h1:CWpxmRlRRZZH4zG9p7dJ9XCVDg4R2aOMsKRRrQuh0Vw=
