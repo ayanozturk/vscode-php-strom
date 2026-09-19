@@ -5,6 +5,7 @@ package providers
 
 import (
 	"hash/crc32"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -710,6 +711,9 @@ func (p *DiagnosticsProvider) AnalyseParsed(uri, text string, nodes []ast.Node, 
 }
 
 func (p *DiagnosticsProvider) analyseParsed(cacheKey, filename, text string, nodes []ast.Node, parseErrors []goparser.ParseError) []lsp.Diagnostic {
+	if isPharArchivePath(filename) {
+		return nil
+	}
 	var diags []lsp.Diagnostic
 	suppressions := collectInlineDiagnosticSuppressions(text)
 	positions := newSourcePositionMapper(text)
@@ -857,6 +861,18 @@ func (s inlineDiagnosticSuppressions) filter(diags []lsp.Diagnostic) []lsp.Diagn
 		filtered = append(filtered, diag)
 	}
 	return filtered
+}
+
+// isPharArchivePath reports whether path is a .phar package. A .phar is a
+// packaged distributable (a PHP stub followed by a compiled/serialized
+// manifest and file contents section that is binary, not PHP source) - it
+// is never meant to be hand-edited, and once the lexer runs past the stub
+// into the binary section every subsequent "token" is garbage. Reporting
+// syntax errors or style issues there is pure noise: a single vendored
+// .phar (e.g. phpstan.phar) can produce hundreds of meaningless
+// "Parser.ExpectedToken" diagnostics with no actionable content.
+func isPharArchivePath(path string) bool {
+	return strings.EqualFold(filepath.Ext(path), ".phar")
 }
 
 func isVendoredAnalysisPath(path string) bool {

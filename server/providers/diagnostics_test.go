@@ -50,6 +50,26 @@ class Foo {
 	}
 }
 
+// TestDiagnosticsProviderSkipsPharArchives is a regression test for a real
+// false positive: .phar files are matched by the indexer's file
+// associations (matchesAssociations allows .phar so genuinely plain-PHP
+// phars can still be indexed), but a compiled .phar is a PHP stub followed
+// by a binary manifest/contents section. Feeding that binary section
+// through the lexer as if it were PHP source produces hundreds of
+// meaningless "Parser.ExpectedToken" diagnostics with no actionable
+// content - measured on a real vendor phpstan.phar: 729 such diagnostics
+// from one file. .phar files must be skipped for diagnostics entirely.
+func TestDiagnosticsProviderSkipsPharArchives(t *testing.T) {
+	p := &DiagnosticsProvider{}
+	// Simulates a compiled phar: a valid PHP stub followed by bytes that are
+	// not valid PHP syntax (standing in for a phar's binary manifest).
+	source := "<?php\n__HALT_COMPILER();\n\x00\x01\xFF\xFEnotphp{{{garbage"
+	diags := p.Analyse("file:///vendor/phpstan/phpstan/phpstan.phar", source)
+	if len(diags) != 0 {
+		t.Fatalf("expected no diagnostics for a .phar file, got %d: %#v", len(diags), diags)
+	}
+}
+
 func TestDiagnosticsProviderAcceptsExpandedParserCompatibilitySyntax(t *testing.T) {
 	source := `<?php
 namespace Example;

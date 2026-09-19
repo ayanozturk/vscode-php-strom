@@ -169,5 +169,5 @@ func main() {
 }
 
 func formatDiagnosticLine(uri string, d lsp.Diagnostic) string {
-	return fmt.Sprintf("%s|%d|%s", uri, d.Range.Start.Line, d.Message)
+	return fmt.Sprintf("%v|%s|%d|%s", d.Code, uri, d.Range.Start.Line, d.Message)
 }
