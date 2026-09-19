@@ -12,8 +12,10 @@ go 1.23
 // binder fix; a reserved-word method/member name fix (e.g. `function
 // declare()`); a false-positive fix for enum case values that are valid
 // PHP 8.1+ constant expressions we can't statically evaluate (e.g.
-// `OtherEnum::CASE->value`); and a LineTable rebuild-per-diagnostic fix
-// (diagnostics scan on a real 10k-file workspace: 31s -> 5s).
+// `OtherEnum::CASE->value`); a LineTable rebuild-per-diagnostic fix
+// (diagnostics scan on a real 10k-file workspace: 31s -> 5s); and a
+// LexAllContext token-slice pre-sizing fix (biggest single allocator on a
+// real 16.6k-file workspace, -38% on its own footprint).
 // Sibling override: make test-server-dev.
 // Checklist: make pin-parser-checklist
-require github.com/ayanozturk/go-php-parser v0.0.0-20260918133318-24add2acf3bb
+require github.com/ayanozturk/go-php-parser v0.0.0-20260919084654-38083f4d4c46
