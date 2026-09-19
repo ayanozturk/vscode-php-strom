@@ -70,6 +70,39 @@ func TestDiagnosticsProviderSkipsPharArchives(t *testing.T) {
 	}
 }
 
+// TestDiagnosticsProviderSkipsStyleChecksUnderVendor is a regression test:
+// vendor code is never something the user can (or should) fix to match
+// their own style rules, so style checks must never run under a vendor/
+// path - matching how analyse-package rules already skip vendor via
+// isVendoredAnalysisPath. Syntax errors still surface for vendor files
+// (a genuinely corrupt vendor install is worth knowing about); only style
+// is gated.
+func TestDiagnosticsProviderSkipsStyleChecksUnderVendor(t *testing.T) {
+	p := &DiagnosticsProvider{}
+	// A real, unambiguous PSR1 violation (class name not PascalCase) that
+	// would otherwise always be flagged.
+	source := "<?php\nclass not_pascal_case {}\n"
+
+	projectDiags := p.Analyse("file:///src/not_pascal_case.php", source)
+	if !hasCode(projectDiags, "PSR1.Classes.ClassDeclaration.PascalCase") {
+		t.Fatalf("expected the PascalCase style violation on project code, got %#v", projectDiags)
+	}
+
+	vendorDiags := p.Analyse("file:///vendor/some/pkg/not_pascal_case.php", source)
+	if hasCode(vendorDiags, "PSR1.Classes.ClassDeclaration.PascalCase") {
+		t.Fatalf("expected no style diagnostics under vendor/, got %#v", vendorDiags)
+	}
+}
+
+func hasCode(diags []lsp.Diagnostic, code string) bool {
+	for _, d := range diags {
+		if c, ok := d.Code.(string); ok && c == code {
+			return true
+		}
+	}
+	return false
+}
+
 func TestDiagnosticsProviderAcceptsExpandedParserCompatibilitySyntax(t *testing.T) {
 	source := `<?php
 namespace Example;

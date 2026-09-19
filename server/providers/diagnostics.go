@@ -734,7 +734,7 @@ func (p *DiagnosticsProvider) analyseParsed(cacheKey, filename, text string, nod
 		})
 	}
 
-	if !p.cfg.DisabledAnalysis.Style {
+	if !p.cfg.DisabledAnalysis.Style && !isVendoredAnalysisPath(filename) {
 		for _, issue := range style.FilterIssues(style.RunSelectedRules(filename, []byte(text), nodes, []string{"all"}), p.cfg.DiagnosticsOverrides) {
 			sev := lsp.DiagSeverityWarning
 			if issue.Type == style.Error {
