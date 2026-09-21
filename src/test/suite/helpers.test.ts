@@ -25,7 +25,7 @@ export async function runHelperTests(): Promise<void> {
 
   assert.equal(formatRate(0), '0');
   assert.equal(formatRate(-3), '0');
-  assert.equal(formatRate(Number.PositiveInfinity), '0');
+  assert.equal(formatRate(Number.POSITIVE_INFINITY), '0');
   assert.equal(formatRate(12.6), '13');
 
   assert.deepEqual(
