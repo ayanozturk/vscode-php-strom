@@ -15,6 +15,7 @@ import (
 	goparser "github.com/ayanozturk/go-php-parser/diag"
 	"github.com/ayanozturk/go-php-parser/sharedcache"
 	"github.com/ayanozturk/go-php-parser/style"
+	"github.com/ayanozturk/go-php-parser/syntax"
 
 	"github.com/ayanozturk/vscode-php-strom/indexer"
 	"github.com/ayanozturk/vscode-php-strom/lsp"
@@ -22,7 +23,7 @@ import (
 
 var analysisSourceLocks [64]sync.Mutex
 
-func runAnalysisRulesForSource(filename, text string, nodes []ast.Node, ctx *analyse.AnalysisContext) []analyse.AnalysisIssue {
+func runAnalysisRulesForSource(filename, text string, nodes []ast.Node, parsed *syntax.ParseResult, ctx *analyse.AnalysisContext) []analyse.AnalysisIssue {
 	if isVendoredAnalysisPath(filename) {
 		return nil
 	}
@@ -36,6 +37,11 @@ func runAnalysisRulesForSource(filename, text string, nodes []ast.Node, ctx *ana
 	defer sharedcache.DeleteCachedLines(source)
 
 	ctx.Content = source
+	// Prefer the ParseAndLower result that owned lowering + facts so the fused
+	// CST path does not parse again (hybrid A/B ownership).
+	if parsed != nil {
+		ctx.Parsed = parsed
+	}
 	return analyse.RunAnalysisRulesWithContext(filename, nodes, ctx)
 }
 
@@ -686,7 +692,7 @@ func (p *DiagnosticsProvider) Analyse(uri, text string) []lsp.Diagnostic {
 		return []lsp.Diagnostic{}
 	}
 	snapshot := p.cache.snapshot(uri, text)
-	return p.cfg.DiagnosticsExclusions.Filter(filename, p.analyseParsed(uri, filename, text, snapshot.nodes, snapshot.errors))
+	return p.cfg.DiagnosticsExclusions.Filter(filename, p.analyseParsed(uri, filename, text, snapshot.nodes, snapshot.parsed, snapshot.errors))
 }
 
 // AnalyseTransient analyses a closed/background document without retaining its
@@ -699,7 +705,7 @@ func (p *DiagnosticsProvider) AnalyseTransient(uri, text string) []lsp.Diagnosti
 		return []lsp.Diagnostic{}
 	}
 	snapshot := parseSemanticSnapshot(text)
-	return p.cfg.DiagnosticsExclusions.Filter(filename, p.analyseParsed("", filename, text, snapshot.nodes, snapshot.errors))
+	return p.cfg.DiagnosticsExclusions.Filter(filename, p.analyseParsed("", filename, text, snapshot.nodes, snapshot.parsed, snapshot.errors))
 }
 
 func (p *DiagnosticsProvider) AnalyseParsed(uri, text string, nodes []ast.Node, parseErrors []goparser.ParseError) []lsp.Diagnostic {
@@ -707,10 +713,11 @@ func (p *DiagnosticsProvider) AnalyseParsed(uri, text string, nodes []ast.Node, 
 	if p.cfg.DiagnosticsExclusions.IgnoresAll(filename) {
 		return []lsp.Diagnostic{}
 	}
-	return p.cfg.DiagnosticsExclusions.Filter(filename, p.analyseParsed(uri, filename, text, nodes, parseErrors))
+	// External nodes have no shared ParseResult; fused rules may Parse once via Content.
+	return p.cfg.DiagnosticsExclusions.Filter(filename, p.analyseParsed(uri, filename, text, nodes, nil, parseErrors))
 }
 
-func (p *DiagnosticsProvider) analyseParsed(cacheKey, filename, text string, nodes []ast.Node, parseErrors []goparser.ParseError) []lsp.Diagnostic {
+func (p *DiagnosticsProvider) analyseParsed(cacheKey, filename, text string, nodes []ast.Node, parsed *syntax.ParseResult, parseErrors []goparser.ParseError) []lsp.Diagnostic {
 	if isPharArchivePath(filename) {
 		return nil
 	}
@@ -723,7 +730,7 @@ func (p *DiagnosticsProvider) analyseParsed(cacheKey, filename, text string, nod
 	analysisCtx.PHPVersion = p.cfg.PHPVersion
 	analysisCtx.AnalysisLevel = p.cfg.AnalysisLevel
 	analysisCtx.DisabledIssueCodes = p.cfg.disabledAnalysisIssueCodes()
-	for _, issue := range analyse.FilterIssues(runAnalysisRulesForSource(filename, text, nodes, analysisCtx), p.cfg.DiagnosticsOverrides) {
+	for _, issue := range analyse.FilterIssues(runAnalysisRulesForSource(filename, text, nodes, parsed, analysisCtx), p.cfg.DiagnosticsOverrides) {
 		sev := lsp.DiagSeverityWarning
 		diags = append(diags, lsp.Diagnostic{
 			Range:    positions.spanRange(issue.Line, issue.Column, issue.EndLine, issue.EndColumn),

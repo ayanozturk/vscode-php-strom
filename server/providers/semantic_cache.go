@@ -16,6 +16,9 @@ import (
 type semanticSnapshot struct {
 	text   string
 	nodes  []ast.Node
+	// parsed is the CST from the same ParseAndLower that produced nodes.
+	// Rules set AnalysisContext.Parsed to this so the fused path does not re-parse.
+	parsed *syntax.ParseResult
 	errors []goparser.ParseError
 }
 
@@ -111,11 +114,18 @@ func (c *semanticDocumentCache) analysisContextForFile(idx *indexer.WorkspaceInd
 	var semantic *analyse.SemanticSnapshot
 	var err error
 	if project != nil {
-		semantic, err = analyse.NewSemanticSnapshotWithIndex(project, parsed, nil, []string{filename})
+		// Hybrid A/B: index-only snapshot; one full-body tree owns
+		// buildFileSemantics via AnalysisContextForFile (same as CLI/bench).
+		var base *analyse.SemanticSnapshot
+		base, err = analyse.NewSemanticSnapshotWithIndexOnly(project, []string{filename}, nil)
+		if err == nil {
+			fileCtx := base.AnalysisContextForFile(filename, nodes)
+			semantic, _ = fileCtx.Facts.(*analyse.SemanticSnapshot)
+		}
 	} else {
 		semantic, err = analyse.NewSemanticSnapshot(parsed, nil)
 	}
-	if err != nil {
+	if err != nil || semantic == nil {
 		return analysisContextFromSnapshot(nil, project, idx)
 	}
 
@@ -161,7 +171,12 @@ func analysisContextFromSnapshot(snapshot *analyse.SemanticSnapshot, project *an
 
 func parseSemanticSnapshot(text string) semanticSnapshot {
 	src := []byte(text)
-	nodes, diags := syntax.ParseAST(src)
+	// One ParseAndLower owns editor AST + CST for facts and rules (hybrid A/B).
+	nodes, res := syntax.ParseAndLower(src)
+	var diags []syntax.Diagnostic
+	if res != nil {
+		diags = res.Diagnostics
+	}
 	errs := make([]goparser.ParseError, len(diags))
 	if len(diags) > 0 {
 		lines := token.NewLineTable(src)
@@ -169,5 +184,5 @@ func parseSemanticSnapshot(text string) semanticSnapshot {
 			errs[i] = goparser.ParseErrorFromOffsetsWithLines(src, lines, d.Span.Start, d.Span.End, d.Message)
 		}
 	}
-	return semanticSnapshot{nodes: nodes, errors: errs}
+	return semanticSnapshot{nodes: nodes, parsed: res, errors: errs}
 }
