@@ -95,8 +95,9 @@ build-ext: deps
 	npm run package
 
 ## install: build everything, package the VSIX, and install it in VS Code
-## NODE_NO_WARNINGS=1: VS Code/Cursor CLI still calls url.parse (DEP0169) during
-## post-install gallery metadata; not from our scripts. See microsoft/vscode#301941.
+## DEP0169 (url.parse) on --install-extension comes from the VS Code/Cursor `code`
+## CLI gallery path (microsoft/vscode#319867, #301941), not our sources or vsce.
+## Silence only that warning on the install child (not NODE_NO_WARNINGS=1).
 install: build
 	@echo "==> Packaging extension..."
 	npx vsce package --no-dependencies -o $(VSIX)
@@ -105,7 +106,8 @@ install: build
 	  || ls "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code" 2>/dev/null \
 	  || ls "$$HOME/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code" 2>/dev/null); \
 	  if [ -z "$$CODE" ]; then echo "ERROR: 'code' CLI not found. Open VS Code → Command Palette → 'Install code command in PATH', then re-run make install."; exit 1; fi; \
-	  NODE_NO_WARNINGS=1 "$$CODE" --install-extension $(VSIX)
+	  NODE_OPTIONS="$${NODE_OPTIONS:+$$NODE_OPTIONS }--disable-warning=DEP0169" \
+	  "$$CODE" --install-extension $(VSIX)
 	@echo "==> Done. Reload VS Code to activate the new version."
 
 ## release: bump the extension version, build and install it, then commit the version metadata
