@@ -15,11 +15,13 @@ go 1.23
 // `OtherEnum::CASE->value`); a LineTable rebuild-per-diagnostic fix
 // (diagnostics scan on a real 10k-file workspace: 31s -> 5s); and a
 // LexAllContext token-slice pre-sizing fix (biggest single allocator on a
-// real 16.6k-file workspace, -38% on its own footprint); and three parser
+// real 16.6k-file workspace, -38% on its own footprint); three parser
 // correctness fixes (reserved-word class names in expression position,
 // `self::$$dynamicProp`, and `yield from` nested in an expression - the
 // last was silently building the wrong tree even in cases that didn't
-// error, e.g. Symfony's own AmpResponseV4.php).
+// error, e.g. Symfony's own AmpResponseV4.php); and a Level0.Symbols
+// false-positive fix for `$var::staticMethod()` / `$this::method()`
+// (variable class was lowered without "$" and inventing `…\var`).
 // Sibling override: make test-server-dev.
 // Checklist: make pin-parser-checklist
-require github.com/ayanozturk/go-php-parser v0.0.0-20260921142528-33638c6f49f3
+require github.com/ayanozturk/go-php-parser v0.0.0-20260921195803-e925523fb97d
