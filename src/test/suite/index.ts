@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
 import * as vscode from 'vscode';
+import { runDiagnosticsViewTests } from './diagnosticsView.test.js';
+import { runHelperTests } from './helpers.test.js';
+import { runQuickConfigViewTests } from './quickConfigView.test.js';
 
 type ConfigurationGroup = {
   title?: string;
@@ -25,7 +28,7 @@ function configurationProperties(manifest: ExtensionManifest): Record<string, { 
   return Object.assign({}, ...groups.map((group) => group.properties ?? {}));
 }
 
-export async function run(): Promise<void> {
+async function runManifestAssertions(): Promise<void> {
   const extension = vscode.extensions.all.find((candidate) => {
     const manifest = candidate.packageJSON as ExtensionManifest;
     return manifest.publisher === 'AOSSoftware' && manifest.name === 'phpstrom';
@@ -74,4 +77,11 @@ export async function run(): Promise<void> {
   assert.ok(!('phpstrom.codeLens.references.enable' in properties), 'expected unimplemented code lens settings to be removed');
   assert.ok(!('phpstrom.inlayHints.parameterTypes.enable' in properties), 'expected unimplemented inlay hint settings to be removed');
   assert.ok(!('phpstrom.telemetry.enable' in properties), 'expected unused telemetry setting to be removed');
+}
+
+export async function run(): Promise<void> {
+  await runManifestAssertions();
+  await runHelperTests();
+  await runDiagnosticsViewTests();
+  await runQuickConfigViewTests();
 }

@@ -11,6 +11,13 @@ import {
   openDiagnosticNode,
   ProjectDiagnosticsTreeProvider,
 } from './client/diagnosticsView.js';
+import {
+  formatBytes,
+  formatDuration,
+  formatRate,
+  isPotentialPhpConflict,
+  mergeExcludePatterns,
+} from './client/helpers.js';
 import { QuickConfigTreeProvider } from './client/quickConfigView.js';
 
 let client: LanguageClient | undefined;
@@ -417,38 +424,6 @@ async function ensureExecutable(targetPath: string, platform: NodeJS.Platform): 
   await fs.chmod(targetPath, 0o755);
 }
 
-function formatDuration(durationMs: number): string {
-  if (!Number.isFinite(durationMs) || durationMs < 0) {
-    return '0 ms';
-  }
-  if (durationMs < 1000) {
-    return `${Math.round(durationMs).toLocaleString()} ms`;
-  }
-  return `${(durationMs / 1000).toFixed(durationMs < 10_000 ? 2 : 1)}s`;
-}
-
-function formatBytes(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes <= 0) {
-    return '0 B';
-  }
-  const units = ['B', 'KB', 'MB', 'GB'];
-  let value = bytes;
-  let unitIndex = 0;
-  while (value >= 1024 && unitIndex < units.length - 1) {
-    value /= 1024;
-    unitIndex++;
-  }
-  const decimals = unitIndex === 0 ? 0 : 1;
-  return `${value.toFixed(decimals)} ${units[unitIndex]}`;
-}
-
-function formatRate(value: number): string {
-  if (!Number.isFinite(value) || value < 0) {
-    return '0';
-  }
-  return Math.round(value).toLocaleString();
-}
-
 function getConfiguration(): Record<string, unknown> {
   const config = vscode.workspace.getConfiguration('phpstrom');
   const defaultFilesExclude = ['**/.git/**', '**/node_modules/**', '**/vendor/**/{Tests,tests}/**'];
@@ -580,19 +555,6 @@ function enabledWorkspaceExcludePatterns(): string[] {
   return patterns;
 }
 
-function mergeExcludePatterns(...groups: readonly string[][]): string[] {
-  const merged = new Set<string>();
-  for (const group of groups) {
-    for (const pattern of group) {
-      const trimmed = pattern.trim();
-      if (trimmed) {
-        merged.add(trimmed);
-      }
-    }
-  }
-  return [...merged];
-}
-
 async function warnAboutConflictingPhpExtensions(): Promise<void> {
   const conflicts = getPotentialPhpExtensionConflicts();
   const builtInPhpExtensionId = 'vscode.php-language-features';
@@ -646,26 +608,6 @@ function getPotentialPhpExtensionConflicts(): PhpExtensionConflict[] {
 
   conflicts.sort((left, right) => left.label.localeCompare(right.label));
   return conflicts;
-}
-
-function isPotentialPhpConflict(ext: vscode.Extension<unknown>): boolean {
-  const id = ext.id.toLowerCase();
-  const activationEvents = Array.isArray(ext.packageJSON?.activationEvents)
-    ? ext.packageJSON.activationEvents
-    : [];
-  const contributesLanguages = Array.isArray(ext.packageJSON?.contributes?.languages)
-    ? ext.packageJSON.contributes.languages
-    : [];
-
-  if (id === 'vscode.php-language-features') {
-    return true;
-  }
-
-  if (!contributesLanguages.some((language: { id?: string }) => language?.id === 'php')) {
-    return false;
-  }
-
-  return activationEvents.some((event: string) => event === 'onLanguage:php');
 }
 
 function logPhpExtensionConflicts(conflicts: PhpExtensionConflict[]): void {

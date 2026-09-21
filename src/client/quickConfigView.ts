@@ -77,6 +77,8 @@ export class QuickConfigTreeProvider implements vscode.TreeDataProvider<QuickCon
 
   dispose(): void {
     this.configListener.dispose();
+    this.treeDataEmitter.dispose();
+    this.analysisLevelChangeEmitter.dispose();
   }
 
   getAnalysisLevel(): AnalysisLevel {
