@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/ayanozturk/vscode-php-strom/indexer"
@@ -134,8 +135,7 @@ func constraintTokenAllowsMajorMinor(token, candidate string) bool {
 		return true
 	}
 	if strings.HasPrefix(token, "^") || strings.HasPrefix(token, "~") {
-		token = strings.TrimLeft(token, "^~")
-		return compareMajorMinor(candidate, majorMinorVersion(token)) >= 0
+		return caretOrTildeAllows(token[0], strings.TrimLeft(token, "^~"), candidate)
 	}
 	if strings.HasSuffix(token, ".*") || strings.HasSuffix(token, ".x") {
 		return candidate == majorMinorVersion(strings.TrimSuffix(strings.TrimSuffix(token, ".*"), ".x"))
@@ -169,6 +169,60 @@ func constraintTokenAllowsMajorMinor(token, candidate string) bool {
 	default:
 		return true
 	}
+}
+
+// caretOrTildeAllows applies Composer caret (^) / tilde (~) semantics against a
+// major.minor candidate from the supported PHP list.
+//
+//	^8.3     → >=8.3 <9.0
+//	^0.3     → >=0.3 <0.4
+//	~8.3.12  → >=8.3 <8.4   (patch present ⇒ next minor)
+//	~8.3     → >=8.3 <9.0   (two components ⇒ next major)
+func caretOrTildeAllows(op byte, raw, candidate string) bool {
+	base := majorMinorVersion(raw)
+	if base == "" {
+		return true
+	}
+	if compareMajorMinor(candidate, base) < 0 {
+		return false
+	}
+
+	parts := strings.Split(base, ".")
+	if len(parts) != 2 {
+		return true
+	}
+	major, errMaj := strconv.Atoi(parts[0])
+	minor, errMin := strconv.Atoi(parts[1])
+	if errMaj != nil || errMin != nil {
+		return true
+	}
+
+	var upper string
+	switch op {
+	case '~':
+		if tildeHasPatch(raw) {
+			upper = strconv.Itoa(major) + "." + strconv.Itoa(minor+1)
+		} else {
+			upper = strconv.Itoa(major+1) + ".0"
+		}
+	case '^':
+		if major == 0 {
+			upper = "0." + strconv.Itoa(minor+1)
+		} else {
+			upper = strconv.Itoa(major+1) + ".0"
+		}
+	default:
+		return true
+	}
+	return compareMajorMinor(candidate, upper) < 0
+}
+
+func tildeHasPatch(raw string) bool {
+	raw = strings.TrimSpace(raw)
+	raw = strings.TrimPrefix(raw, "v")
+	raw = strings.TrimPrefix(raw, "V")
+	parts := strings.Split(raw, ".")
+	return len(parts) >= 3
 }
 
 var majorMinorPattern = regexp.MustCompile(`(\d+)\.(\d+)`)

@@ -1,6 +1,7 @@
 package providers
 
 import (
+	"net/url"
 	"os"
 	pathpkg "path"
 	"path/filepath"
@@ -276,6 +277,9 @@ func relativeWorkspacePath(root, filename string) (string, bool) {
 
 func uriToPath(uri string) string {
 	p := strings.TrimPrefix(uri, "file://")
+	if unescaped, err := url.PathUnescape(p); err == nil {
+		p = unescaped
+	}
 	return filepath.FromSlash(p)
 }
 

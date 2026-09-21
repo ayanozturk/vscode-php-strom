@@ -1,7 +1,9 @@
 package phpstrom
 
 import (
+	"strings"
 	"sync"
+	"unicode/utf16"
 
 	"github.com/ayanozturk/vscode-php-strom/lsp"
 )
@@ -85,9 +87,8 @@ func (s *DocumentStore) Close(uri string) {
 }
 
 func applyEdit(src string, r lsp.Range, newText string) string {
-	lines := splitLines(src)
-	startOff := lineCharOffset(lines, int(r.Start.Line), int(r.Start.Character))
-	endOff := lineCharOffset(lines, int(r.End.Line), int(r.End.Character))
+	startOff := byteOffsetFromUTF16Position(src, int(r.Start.Line), int(r.Start.Character))
+	endOff := byteOffsetFromUTF16Position(src, int(r.End.Line), int(r.End.Character))
 	if startOff < 0 || endOff < 0 || startOff > endOff || endOff > len(src) {
 		return src
 	}
@@ -107,17 +108,44 @@ func splitLines(s string) []string {
 	return lines
 }
 
-func lineCharOffset(lines []string, line, char int) int {
+// byteOffsetFromUTF16Position maps an LSP (line, character) position — where
+// character is a UTF-16 code unit offset — onto a byte offset in src.
+func byteOffsetFromUTF16Position(src string, line, char int) int {
+	if line < 0 {
+		return 0
+	}
+	lines := splitLines(src)
 	off := 0
 	for i := 0; i < line && i < len(lines); i++ {
 		off += len(lines[i])
 	}
-	if line < len(lines) {
-		lineStr := lines[line]
-		if char > len(lineStr) {
-			char = len(lineStr)
-		}
-		off += char
+	if line >= len(lines) {
+		return len(src)
 	}
-	return off
+	lineText := lines[line]
+	// Exclude the trailing newline from the editable line content when present.
+	content := lineText
+	if strings.HasSuffix(content, "\n") {
+		content = content[:len(content)-1]
+		if strings.HasSuffix(content, "\r") {
+			content = content[:len(content)-1]
+		}
+	}
+	if char < 0 {
+		char = 0
+	}
+	utf16Column := 0
+	bytePos := 0
+	for _, r := range content {
+		if utf16Column >= char {
+			return off + bytePos
+		}
+		size := len(string(r))
+		utf16Column += utf16.RuneLen(r)
+		bytePos += size
+		if utf16Column >= char {
+			return off + bytePos
+		}
+	}
+	return off + len(content)
 }
