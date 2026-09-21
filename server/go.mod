@@ -22,4 +22,4 @@ go 1.23
 // error, e.g. Symfony's own AmpResponseV4.php).
 // Sibling override: make test-server-dev.
 // Checklist: make pin-parser-checklist
-require github.com/ayanozturk/go-php-parser v0.0.0-20260921113159-25b10b117b6d
+require github.com/ayanozturk/go-php-parser v0.0.0-20260921115334-03e7773b2f52
