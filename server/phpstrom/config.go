@@ -88,6 +88,14 @@ func DefaultConfig() *Config {
 	return c
 }
 
+// DefaultProviderConfig returns the provider settings used by a server with
+// untouched configuration. Diagnostic benchmarks use this to stay aligned
+// with production defaults instead of relying on providers.Config's
+// intentionally all-enabled zero value.
+func DefaultProviderConfig(folders []indexer.WorkspaceFolder) providers.Config {
+	return DefaultConfig().toProviderConfig(folders)
+}
+
 func (c *Config) ApplyInitOptions(opts map[string]interface{}) {
 	if v, ok := opts["storagePath"].(string); ok {
 		c.StoragePath = v

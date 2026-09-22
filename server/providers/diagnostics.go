@@ -49,9 +49,20 @@ type workspaceSymbolResolver struct {
 	idx *indexer.WorkspaceIndexer
 }
 
+func (r workspaceSymbolResolver) ResolveServiceType(id string) (string, bool) {
+	if r.idx == nil {
+		return "", false
+	}
+	return r.idx.ResolveServiceType(id)
+}
+
 type projectFallbackResolver struct {
 	project  *analyse.ProjectIndex
 	fallback workspaceSymbolResolver
+}
+
+func (r projectFallbackResolver) ResolveServiceType(id string) (string, bool) {
+	return r.fallback.ResolveServiceType(id)
 }
 
 func (r projectFallbackResolver) ClassExists(name string) bool {
@@ -774,7 +785,7 @@ func (p *DiagnosticsProvider) analyseParsed(cacheKey, filename, text string, nod
 		}
 	}
 
-	return suppressions.filter(diags)
+	return suppressions.filter(filterResolvedServiceMethodDiagnostics(filename, nodes, analysisCtx, diags))
 }
 
 func (c Config) disabledAnalysisIssueCodes() map[string]bool {

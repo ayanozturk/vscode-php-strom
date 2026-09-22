@@ -15,6 +15,9 @@ func inferVariableFlowHoverType(nodes []ast.Node, targetLine int, variableName s
 		return "", false
 	}
 	var result string
+	if nodesContainVariableAtLine(nodes, targetLine, variableName) {
+		result, _ = inferVariableTypeThroughStatements(nodes, nodes, targetLine, variableName, ctx)
+	}
 	var walk func([]ast.Node)
 	walk = func(current []ast.Node) {
 		for _, node := range current {
@@ -92,12 +95,18 @@ func assignmentFromStatement(node ast.Node) *ast.AssignmentNode {
 }
 
 func inferAssignmentRightType(allNodes []ast.Node, node ast.Node, ctx *analyse.AnalysisContext, variableTypes map[string]string) string {
+	if instance, ok := node.(*ast.NewNode); ok {
+		return instance.ClassName
+	}
 	call, ok := node.(*ast.MethodCallNode)
 	if !ok {
 		return ""
 	}
 	if receiver, ok := call.Object.(*ast.VariableNode); ok && ctx != nil && ctx.Resolver != nil {
 		if receiverType := variableTypes[receiver.Name]; receiverType != "" {
+			if serviceType := resolvedServiceCallType(call, receiverType, ctx); serviceType != "" {
+				return serviceType
+			}
 			if className, single := analyse.ParseType(receiverType).SingleClassName(); single {
 				if method, resolved := ctx.Resolver.ResolveMethod(className, call.Method); resolved {
 					return method.ReturnType
@@ -115,6 +124,58 @@ func inferAssignmentRightType(allNodes []ast.Node, node ast.Node, ctx *analyse.A
 		}
 	}
 	return target.Type
+}
+
+type serviceTypeResolver interface {
+	ResolveServiceType(id string) (string, bool)
+}
+
+func resolvedServiceCallType(call *ast.MethodCallNode, receiverType string, ctx *analyse.AnalysisContext) string {
+	if call == nil || !strings.EqualFold(call.Method, "get") || len(call.Args) == 0 || ctx == nil || ctx.Resolver == nil {
+		return ""
+	}
+	serviceID := ""
+	switch argument := call.Args[0].(type) {
+	case *ast.StringNode:
+		serviceID = argument.Value
+	case *ast.StringLiteral:
+		serviceID = argument.Value
+	}
+	if serviceID == "" || !isContainerResolverType(receiverType, ctx, make(map[string]struct{})) {
+		return ""
+	}
+	resolver, ok := ctx.Resolver.(serviceTypeResolver)
+	if !ok {
+		return ""
+	}
+	serviceType, _ := resolver.ResolveServiceType(serviceID)
+	return serviceType
+}
+
+func isContainerResolverType(typeName string, ctx *analyse.AnalysisContext, seen map[string]struct{}) bool {
+	className, ok := analyse.ParseType(typeName).SingleClassName()
+	if !ok {
+		return false
+	}
+	className = strings.TrimPrefix(className, `\`)
+	key := strings.ToLower(className)
+	if key == "psr\\container\\containerinterface" || key == "symfony\\component\\dependencyinjection\\containerinterface" {
+		return true
+	}
+	if _, duplicate := seen[key]; duplicate {
+		return false
+	}
+	seen[key] = struct{}{}
+	class, ok := ctx.Resolver.ResolveClass(className)
+	if !ok {
+		return false
+	}
+	for _, parent := range append(append([]string(nil), class.Extends...), class.Implements...) {
+		if isContainerResolverType(parent, ctx, seen) {
+			return true
+		}
+	}
+	return false
 }
 
 func guardRejectsNull(node *ast.IfNode, variableName string) bool {
@@ -208,6 +269,12 @@ func nodeContainsVariableAtLine(node ast.Node, line int, variableName string) bo
 		if nodeContainsVariableAtLine(n.Object, line, variableName) {
 			return true
 		}
+		for _, argument := range n.Args {
+			if nodeContainsVariableAtLine(argument, line, variableName) {
+				return true
+			}
+		}
+	case *ast.FunctionCallNode:
 		for _, argument := range n.Args {
 			if nodeContainsVariableAtLine(argument, line, variableName) {
 				return true

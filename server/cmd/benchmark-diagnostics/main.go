@@ -15,6 +15,7 @@ import (
 
 	"github.com/ayanozturk/vscode-php-strom/indexer"
 	"github.com/ayanozturk/vscode-php-strom/lsp"
+	"github.com/ayanozturk/vscode-php-strom/phpstrom"
 	"github.com/ayanozturk/vscode-php-strom/providers"
 )
 
@@ -23,7 +24,7 @@ func main() {
 	memProfile := flag.String("memprofile", "", "write heap profile to file")
 	workers := flag.Int("workers", 0, "worker count override (0 = indexer.DiagnosticWorkerCountFor default)")
 	dumpDiagnostics := flag.String("dump", "", "write sorted uri|message lines to this file for correctness diffing")
-	prodExcludes := flag.Bool("prod-excludes", false, "use production default excludes (indexes vendor/**, excludes only vendor/**/{Tests,tests}/**) instead of excluding all of vendor")
+	prodExcludes := flag.Bool("prod-excludes", false, "use production indexing excludes and diagnostic defaults, including reportable-file filtering")
 	flag.Parse()
 
 	root := "."
@@ -60,18 +61,26 @@ func main() {
 		Associations: []string{"**/*.php", "**/*.phtml"},
 		Exclude:      exclude,
 	}
+	folders := []indexer.WorkspaceFolder{{URI: "file://" + root, Name: "benchmark-root"}}
 	wi := indexer.New(cfg)
-	wi.SetWorkspaceFolders([]indexer.WorkspaceFolder{{URI: "file://" + root, Name: "benchmark-root"}})
+	wi.SetWorkspaceFolders(folders)
 
 	indexStart := time.Now()
 	wi.OnIndexingProgress(func(done, total int) {})
 	wi.IndexWorkspace()
 	log.Printf("Indexing done in %s", time.Since(indexStart).Round(time.Millisecond))
 
-	prov := providers.NewRegistry(wi, providers.Config{})
+	providerCfg := providers.Config{}
+	if *prodExcludes {
+		providerCfg = phpstrom.DefaultProviderConfig(folders)
+	}
+	prov := providers.NewRegistry(wi, providerCfg)
 	diagProvider := prov.Diagnostics
 
 	uris := wi.WorkspaceFileURIs()
+	if *prodExcludes {
+		uris = reportableWorkspaceURIs(uris, diagProvider)
+	}
 	log.Printf("Scanning %d files for diagnostics...", len(uris))
 
 	workerCount := *workers
@@ -166,6 +175,17 @@ func main() {
 			log.Fatalf("write mem profile: %v", err)
 		}
 	}
+}
+
+func reportableWorkspaceURIs(uris []string, diagnostics *providers.DiagnosticsProvider) []string {
+	reportable := make([]string, 0, len(uris))
+	for _, uri := range uris {
+		if diagnostics.IgnoresAll(uri) {
+			continue
+		}
+		reportable = append(reportable, uri)
+	}
+	return reportable
 }
 
 func formatDiagnosticLine(uri string, d lsp.Diagnostic) string {

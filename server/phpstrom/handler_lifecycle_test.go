@@ -117,6 +117,34 @@ func TestWorkspaceScanDoesNotPublishEmptyDiagnosticsForCleanFiles(t *testing.T) 
 	}
 }
 
+func TestCompletedWorkspaceScanClearsPreviouslyPublishedDiagnostics(t *testing.T) {
+	tmpDir := t.TempDir()
+	filePath := filepath.Join(tmpDir, "Clean.php")
+	uri := "file://" + filepath.ToSlash(filePath)
+	if err := os.WriteFile(filePath, []byte("<?php\n\nclass Clean\n{\n}\n"), 0o644); err != nil {
+		t.Fatalf("write clean file: %v", err)
+	}
+
+	var out synchronizedBuffer
+	h := NewHandler(&Server{out: &out})
+	h.idx.SetWorkspaceFolders([]indexer.WorkspaceFolder{{URI: "file://" + filepath.ToSlash(tmpDir), Name: "tmp"}})
+	h.idx.IndexWorkspace()
+	h.publishedDiagnostics[uri] = struct{}{}
+
+	scan := newWorkspaceDiagnosticsScanState(1, nil)
+	if applied := h.runWorkspaceDiagnosticsLocked(scan); !applied {
+		t.Fatal("expected completed workspace scan to be applied")
+	}
+
+	payload := out.String()
+	if !strings.Contains(payload, uri) || !strings.Contains(payload, `"diagnostics":[]`) {
+		t.Fatalf("expected completed scan to clear stale diagnostics for %s, got %q", uri, payload)
+	}
+	if h.hasPublishedDiagnostics(uri) {
+		t.Fatal("expected stale URI to be removed from the published diagnostics set")
+	}
+}
+
 func TestEditorTraceIsBoundedAndReturnsAnIndependentCopy(t *testing.T) {
 	h := NewHandler(&Server{out: io.Discard})
 	for range maxEditorTraceEvents + 3 {

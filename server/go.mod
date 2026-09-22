@@ -22,6 +22,10 @@ go 1.23
 // error, e.g. Symfony's own AmpResponseV4.php); and a Level0.Symbols
 // false-positive fix for `$var::staticMethod()` / `$this::method()`
 // (variable class was lowered without "$" and inventing `…\var`).
+// The current pin also preserves PHPDoc through method attributes, contextual
+// named-argument identifiers, array-shorthand union arms, generic repository
+// return contracts, type aliases in local @var annotations, and guaranteed
+// retry-loop catch assignments.
 // Sibling override: make test-server-dev.
 // Checklist: make pin-parser-checklist
-require github.com/ayanozturk/go-php-parser v0.0.0-20260921195803-e925523fb97d
+require github.com/ayanozturk/go-php-parser v0.0.0-20260922201016-33a52fdbbedf

@@ -40,6 +40,7 @@ type WorkspaceIndexer struct {
 	semanticChanges  []semanticChangeEvent
 	folders          []WorkspaceFolder
 	workspaceURIs    []string
+	serviceTypes     map[string]string
 	gitignores       []workspaceGitignore
 	compiledExcludes [][]string
 	stubURIs         []string
@@ -206,6 +207,7 @@ func (wi *WorkspaceIndexer) indexWorkspace(visitor func(ParsedFile)) {
 	folders := wi.folders
 	gitignores := append([]workspaceGitignore(nil), wi.gitignores...)
 	wi.mu.RUnlock()
+	serviceTypes := loadSymfonyServiceTypes(folders)
 
 	paths := wi.collectWorkspaceFilePaths(folders, gitignores)
 	uris := make([]string, 0, len(paths))
@@ -215,6 +217,7 @@ func (wi *WorkspaceIndexer) indexWorkspace(visitor func(ParsedFile)) {
 
 	wi.mu.Lock()
 	wi.workspaceURIs = uris
+	wi.serviceTypes = serviceTypes
 	wi.mu.Unlock()
 
 	total := len(paths)
@@ -394,6 +397,16 @@ func (wi *WorkspaceIndexer) WorkspaceFileURIs() []string {
 		uris = append(uris, pathToURI(filePath))
 	}
 	return uris
+}
+
+// ResolveServiceType returns the concrete class recorded for a public service
+// in generated Symfony container metadata. Ambiguous service IDs are omitted
+// when different cache environments disagree about their concrete class.
+func (wi *WorkspaceIndexer) ResolveServiceType(id string) (string, bool) {
+	wi.mu.RLock()
+	defer wi.mu.RUnlock()
+	typeName, ok := wi.serviceTypes[id]
+	return typeName, ok
 }
 
 // GetIndex returns the underlying symbol index for provider use.
