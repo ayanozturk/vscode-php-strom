@@ -3,7 +3,9 @@ package providers
 import (
 	"strings"
 	"unicode/utf16"
+	"unicode/utf8"
 
+	goparser "github.com/ayanozturk/go-php-parser/diag"
 	"github.com/ayanozturk/vscode-php-strom/lsp"
 )
 
@@ -89,7 +91,8 @@ func (m sourcePositionMapper) positionFromByteOffset(offset int) lsp.Position {
 		line = i
 	}
 	lineStart := m.lineStarts[line]
-	col := utf16CodeUnits(m.source[lineStart:offset])
+	linePrefix := strings.TrimSuffix(m.source[lineStart:offset], "\r")
+	col := utf16CodeUnits(linePrefix)
 	return lsp.Position{Line: uint32(line), Character: uint32(col)}
 }
 
@@ -127,6 +130,75 @@ func (m sourcePositionMapper) byteOffsetFromPosition(pos lsp.Position) int {
 	return lineStart + len(lineText)
 }
 
+// byteSpanFromRunePositions converts the parser/style packages' one-based
+// rune coordinates into the shared diagnostic's half-open byte span.
+func (m sourcePositionMapper) byteSpanFromRunePositions(startLine, startColumn, endLine, endColumn int) goparser.ByteSpan {
+	start := m.byteOffsetFromRunePosition(startLine, startColumn)
+	end := start
+	if endLine > 0 && endColumn > 0 {
+		end = m.byteOffsetFromRunePosition(endLine, endColumn)
+	}
+	if end < start {
+		end = start
+	}
+	return goparser.ByteSpan{Start: start, End: end}
+}
+
+func (m sourcePositionMapper) byteOffsetFromRunePosition(line, column int) int {
+	if line < 1 {
+		return 0
+	}
+	lineIndex := line - 1
+	if lineIndex >= len(m.lineStarts) {
+		return len(m.source)
+	}
+	start := m.lineStarts[lineIndex]
+	end := len(m.source)
+	if lineIndex+1 < len(m.lineStarts) {
+		end = m.lineStarts[lineIndex+1] - 1
+	}
+	lineText := strings.TrimSuffix(m.source[start:end], "\r")
+	targetRunes := column - 1
+	if targetRunes < 0 {
+		targetRunes = 0
+	}
+	offset := start
+	for count := 0; count < targetRunes && offset < start+len(lineText); count++ {
+		_, size := utf8.DecodeRuneInString(lineText[offset-start:])
+		if size < 1 {
+			break
+		}
+		offset += size
+	}
+	return offset
+}
+
+func (m sourcePositionMapper) diagnosticRange(value goparser.Diagnostic) lsp.Range {
+	return lsp.Range{
+		Start: m.positionFromByteOffset(value.Span.Start),
+		End:   m.positionFromByteOffset(value.Span.End),
+	}
+}
+
+func (m sourcePositionMapper) toLSPDiagnostic(value goparser.Diagnostic) lsp.Diagnostic {
+	severity := lsp.DiagSeverityWarning
+	switch value.Severity {
+	case goparser.SeverityError:
+		severity = lsp.DiagSeverityError
+	case goparser.SeverityInfo:
+		severity = lsp.DiagSeverityInfo
+	case goparser.SeverityHint:
+		severity = lsp.DiagSeverityHint
+	}
+	return lsp.Diagnostic{
+		Range:    m.diagnosticRange(value),
+		Severity: &severity,
+		Code:     value.Code,
+		Source:   value.Source,
+		Message:  value.Message,
+	}
+}
+
 func utf16CodeUnits(s string) int {
 	units := 0
 	for _, r := range s {
@@ -134,4 +206,3 @@ func utf16CodeUnits(s string) int {
 	}
 	return units
 }
-

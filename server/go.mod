@@ -28,6 +28,6 @@ go 1.23
 // retry-loop catch assignments.
 // Sibling override: make test-server-dev.
 // Checklist: make pin-parser-checklist
-require github.com/ayanozturk/go-php-parser v0.0.0-20260923193930-94f506edf28a
+require github.com/ayanozturk/go-php-parser v0.0.0-20260924213851-8b7a50df98c5
 
 require gopkg.in/yaml.v2 v2.4.0 // indirect
