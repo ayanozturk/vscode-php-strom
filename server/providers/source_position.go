@@ -77,23 +77,8 @@ func positionBefore(left, right lsp.Position) bool {
 }
 
 func (m sourcePositionMapper) positionFromByteOffset(offset int) lsp.Position {
-	if offset < 0 {
-		offset = 0
-	}
-	if offset > len(m.source) {
-		offset = len(m.source)
-	}
-	line := 0
-	for i, start := range m.lineStarts {
-		if start > offset {
-			break
-		}
-		line = i
-	}
-	lineStart := m.lineStarts[line]
-	linePrefix := strings.TrimSuffix(m.source[lineStart:offset], "\r")
-	col := utf16CodeUnits(linePrefix)
-	return lsp.Position{Line: uint32(line), Character: uint32(col)}
+	position := goparser.UTF16PositionFromByteOffset([]byte(m.source), offset)
+	return lsp.Position{Line: position.Line, Character: position.Character}
 }
 
 func (m sourcePositionMapper) byteOffsetFromPosition(pos lsp.Position) int {
@@ -133,15 +118,7 @@ func (m sourcePositionMapper) byteOffsetFromPosition(pos lsp.Position) int {
 // byteSpanFromRunePositions converts the parser/style packages' one-based
 // rune coordinates into the shared diagnostic's half-open byte span.
 func (m sourcePositionMapper) byteSpanFromRunePositions(startLine, startColumn, endLine, endColumn int) goparser.ByteSpan {
-	start := m.byteOffsetFromRunePosition(startLine, startColumn)
-	end := start
-	if endLine > 0 && endColumn > 0 {
-		end = m.byteOffsetFromRunePosition(endLine, endColumn)
-	}
-	if end < start {
-		end = start
-	}
-	return goparser.ByteSpan{Start: start, End: end}
+	return goparser.ByteSpanFromRunePositions([]byte(m.source), startLine, startColumn, endLine, endColumn)
 }
 
 func (m sourcePositionMapper) byteOffsetFromRunePosition(line, column int) int {

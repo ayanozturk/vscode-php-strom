@@ -732,7 +732,7 @@ func (p *DiagnosticsProvider) analyseParsed(cacheKey, filename, text string, nod
 	if isPharArchivePath(filename) {
 		return nil
 	}
-	var diags []lsp.Diagnostic
+	var diagnostics []goparser.Diagnostic
 	suppressions := collectInlineDiagnosticSuppressions(text)
 	positions := newSourcePositionMapper(text)
 
@@ -742,57 +742,25 @@ func (p *DiagnosticsProvider) analyseParsed(cacheKey, filename, text string, nod
 	analysisCtx.AnalysisLevel = p.cfg.AnalysisLevel
 	analysisCtx.DisabledIssueCodes = p.cfg.disabledAnalysisIssueCodes()
 	for _, issue := range analyse.FilterIssues(runAnalysisRulesForSource(filename, text, nodes, parsed, analysisCtx), p.cfg.DiagnosticsOverrides) {
-		diagnostic := goparser.Diagnostic{
-			Filename: filename,
-			Source:   "phpstrom",
-			Code:     issue.Code,
-			Severity: goparser.SeverityWarning,
-			Message:  issue.Message,
-			Span:     positions.byteSpanFromRunePositions(issue.Line, issue.Column, issue.EndLine, issue.EndColumn),
-		}
-		diags = append(diags, positions.toLSPDiagnostic(diagnostic))
+		diagnostics = append(diagnostics, issue.AsDiagnostic([]byte(text), "phpstrom"))
 	}
 
 	if !p.cfg.DisabledAnalysis.Style && !isVendoredAnalysisPath(filename) {
 		for _, issue := range style.FilterIssues(style.RunSelectedRules(filename, []byte(text), nodes, []string{"all"}), p.cfg.DiagnosticsOverrides) {
-			severity := goparser.SeverityWarning
-			if issue.Type == style.Error {
-				severity = goparser.SeverityError
-			}
-			diagnostic := goparser.Diagnostic{
-				Filename: filename,
-				Source:   "phpstrom",
-				Code:     issue.Code,
-				Severity: severity,
-				Message:  issue.Message,
-				Span:     positions.byteSpanFromRunePositions(issue.Line, issue.Column, issue.EndLine, issue.EndColumn),
-			}
-			diags = append(diags, positions.toLSPDiagnostic(diagnostic))
+			diagnostics = append(diagnostics, issue.AsDiagnostic([]byte(text), "phpstrom"))
 		}
 	}
 
 	if !p.cfg.DisabledAnalysis.SyntaxErrors {
 		for _, pe := range parseErrors {
-			span := goparser.ByteSpan{Start: pe.Offset, End: pe.EndOffset}
-			if span.End < span.Start {
-				span.End = span.Start
-			}
-			code := pe.Code
-			if code == "" {
-				code = "Parser.Syntax"
-			}
-			diagnostic := goparser.Diagnostic{
-				Filename: filename,
-				Source:   "phpstrom",
-				Code:     code,
-				Severity: goparser.SeverityError,
-				Message:  pe.Message,
-				Span:     span,
-			}
-			diags = append(diags, positions.toLSPDiagnostic(diagnostic))
+			diagnostics = append(diagnostics, pe.AsDiagnostic(filename, "phpstrom"))
 		}
 	}
-
+	goparser.Sort(diagnostics)
+	diags := make([]lsp.Diagnostic, 0, len(diagnostics))
+	for _, diagnostic := range diagnostics {
+		diags = append(diags, positions.toLSPDiagnostic(diagnostic))
+	}
 	return suppressions.filter(filterResolvedServiceMethodDiagnostics(filename, nodes, analysisCtx, diags))
 }
 
