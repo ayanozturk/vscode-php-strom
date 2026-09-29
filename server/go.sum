@@ -6,6 +6,8 @@ github.com/ayanozturk/go-php-parser v0.0.0-20260929070757-57152d5bb9e5 h1:YPHGP7
 github.com/ayanozturk/go-php-parser v0.0.0-20260929070757-57152d5bb9e5/go.mod h1:CWpxmRlRRZZH4zG9p7dJ9XCVDg4R2aOMsKRRrQuh0Vw=
 github.com/ayanozturk/go-php-parser v0.0.0-20260929071548-d0d6420d26be h1:974zF40ZRPJjkQZMHY4JJpLMPkdpXp93iHulqDf9x0s=
 github.com/ayanozturk/go-php-parser v0.0.0-20260929071548-d0d6420d26be/go.mod h1:CWpxmRlRRZZH4zG9p7dJ9XCVDg4R2aOMsKRRrQuh0Vw=
+github.com/ayanozturk/go-php-parser v0.0.0-20260929072203-ef58b771a9c8 h1:qiv+YBG5yfuyg6JFgQesS3Y1HdxgH0A/8yULekhD5FY=
+github.com/ayanozturk/go-php-parser v0.0.0-20260929072203-ef58b771a9c8/go.mod h1:CWpxmRlRRZZH4zG9p7dJ9XCVDg4R2aOMsKRRrQuh0Vw=
 gopkg.in/check.v1 v0.0.0-20161208181325-20d25e280405/go.mod h1:Co6ibVJAznAaIkqp8huTwlJQCZ016jof/cbN4VW5Yz0=
 gopkg.in/yaml.v2 v2.4.0 h1:D8xgwECY7CYvx+Y2n4sBz93Jn9JRvxdiyyo8CTfuKaY=
 gopkg.in/yaml.v2 v2.4.0/go.mod h1:RDklbk79AGWmwhnvt/jBztapEOGDOx6ZbXqjP6csGnQ=
