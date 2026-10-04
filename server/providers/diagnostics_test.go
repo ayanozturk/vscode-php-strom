@@ -23,7 +23,7 @@ class Foo {
 `
 	snapshot := parseSemanticSnapshot(source)
 	if len(snapshot.errors) == 0 {
-		t.Fatal("expected go-php-parser to retain syntax errors with debug disabled")
+		t.Fatal("expected Tusk to retain syntax errors with debug disabled")
 	}
 	for _, pe := range snapshot.errors {
 		if pe.Code == "" || pe.Message == "" {

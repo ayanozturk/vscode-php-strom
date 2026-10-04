@@ -1,7 +1,7 @@
 package providers
 
-// diagnostics.go — implements DiagnosticsProvider using go-phpcs analysis and
-// style rules from github.com/ayanozturk/go-php-parser (local: go-phpcs).
+// diagnostics.go — implements DiagnosticsProvider using tusk analysis and
+// style rules from github.com/ayanozturk/go-php-parser (local: tusk).
 
 import (
 	"hash/crc32"
@@ -677,7 +677,7 @@ func resolvedClassKind(kind indexer.SymbolKind) string {
 	}
 }
 
-// DiagnosticsProvider produces LSP diagnostics by running go-phpcs analysis
+// DiagnosticsProvider produces LSP diagnostics by running tusk analysis
 // and style rules against the document text.
 type DiagnosticsProvider struct {
 	idx   *indexer.WorkspaceIndexer
