@@ -94,7 +94,7 @@ function getIterator(): Traversable
 	}
 }
 
-func TestHoverProviderShowsInferredLocalVariableType(t *testing.T) {
+func TestHoverProviderShowsInferredLocalStringLiteral(t *testing.T) {
 	provider := &HoverProvider{idx: indexer.New(indexer.Config{})}
 	text := `<?php
 class Example
@@ -110,8 +110,8 @@ class Example
 	if hover == nil {
 		t.Fatal("expected hover for inferred local variable type, got nil")
 	}
-	if !strings.Contains(hover.Contents.Value, "string") {
-		t.Fatalf("expected inferred string type in hover, got %q", hover.Contents.Value)
+	if !strings.Contains(hover.Contents.Value, `"hello"`) {
+		t.Fatalf("expected inferred string literal in hover, got %q", hover.Contents.Value)
 	}
 }
 
