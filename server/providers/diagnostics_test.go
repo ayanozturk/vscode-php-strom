@@ -2671,3 +2671,48 @@ class Harbor {
 		t.Fatalf("expected both invalid property arguments, got %+v", diags)
 	}
 }
+
+func TestDiagnosticsProvider_CallableContractsAndInferredReturns(t *testing.T) {
+	p := &DiagnosticsProvider{}
+	const source = `<?php
+/**
+ * @template Value
+ * @param callable(): Value $factory
+ * @return Value
+ */
+function evaluate(callable $factory) { return $factory(); }
+/** @param Closure(int):string $callback */
+function consume(Closure $callback): void {}
+function acceptInt(int $value): void {}
+function clean(int $number): int {
+    $callback = function () use ($number) { return $number; };
+    acceptInt(evaluate($callback));
+    consume(fn(mixed $value): string => 'ready');
+    return evaluate(fn() => $number);
+}
+function wrong(): int {
+    consume(fn(int $value): int => $value);
+    acceptInt(evaluate(fn() => 'wrong'));
+    return evaluate(fn() => 'wrong');
+}
+`
+	var argumentErrors, returnErrors int
+	for _, diagnostic := range p.Analyse("file:///callable-contracts.php", source) {
+		code, _ := diagnostic.Code.(string)
+		switch code {
+		case "A.ARG.TYPE":
+			argumentErrors++
+			if diagnostic.Range.Start.Line != 17 && diagnostic.Range.Start.Line != 18 {
+				t.Fatalf("callback argument error escaped the invalid controls: %+v", diagnostic)
+			}
+		case "A.RETURN.TYPE":
+			returnErrors++
+			if diagnostic.Range.Start.Line != 16 {
+				t.Fatalf("unexpected captured callback return error: %+v", diagnostic)
+			}
+		}
+	}
+	if argumentErrors != 2 || returnErrors != 1 {
+		t.Fatalf("expected two argument errors and one inferred return error, got %d/%d", argumentErrors, returnErrors)
+	}
+}

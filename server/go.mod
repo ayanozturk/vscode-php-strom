@@ -25,7 +25,8 @@ go 1.23
 // The current pin also preserves PHPDoc through method and property attributes,
 // contextual named-argument identifiers, array-shorthand union arms, generic repository
 // return contracts, type aliases in local @var annotations, and guaranteed
-// retry-loop catch assignments.
+// retry-loop catch assignments. Callback contracts now retain signature metadata,
+// infer supported closure/arrow returns, and preserve generic call-site bindings.
 // Sibling override: make test-server-dev.
 // Checklist: make pin-parser-checklist
-require github.com/ayanozturk/go-php-parser v0.0.0-20261009215545-4b0bde77f4c7
+require github.com/ayanozturk/go-php-parser v0.0.0-20261009223717-48208dd17ad1
