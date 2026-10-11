@@ -27,6 +27,8 @@ go 1.23
 // return contracts, type aliases in local @var annotations, and guaranteed
 // retry-loop catch assignments. Callback contracts now retain signature metadata,
 // infer supported closure/arrow returns, and preserve generic call-site bindings.
+// It also includes compound-guard narrowing, integer-range return compatibility,
+// array-shape and callable fixes, and more conservative empty-array diagnostics.
 // Sibling override: make test-server-dev.
 // Checklist: make pin-parser-checklist
-require github.com/ayanozturk/tusk v0.0.0-20261011210105-be589421ba68
+require github.com/ayanozturk/tusk v0.0.0-20261011212403-d943b67429d6

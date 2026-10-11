@@ -1,5 +1,8 @@
 .vscode/**
 .github/**
+.codex/**
+.cursor/**
+**/AGENTS.md
 .gitignore
 src/**
 server/**

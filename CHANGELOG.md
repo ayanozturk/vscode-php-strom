@@ -2,6 +2,17 @@
 
 All notable changes to PHP Strom are documented in this file.
 
+## 1.0.0 - 2026-10-11
+
+### Added
+
+- Initial 1.0 release of PHP language support for VS Code, with workspace indexing, diagnostics, hover, navigation, signature help, completion, document outline, and workspace symbols.
+- Bundled language-server binaries for macOS, Linux, and Windows on amd64 and arm64.
+
+### Changed
+
+- Documented the implemented language features and the LSP providers that are not yet available.
+
 ## 0.1.38 - 2026-09-08
 
 ### Fixed
