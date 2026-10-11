@@ -3,8 +3,8 @@ package providers
 import (
 	"strings"
 
-	"github.com/ayanozturk/go-php-parser/analyse"
-	"github.com/ayanozturk/go-php-parser/ast"
+	"github.com/ayanozturk/tusk/analyse"
+	"github.com/ayanozturk/tusk/ast"
 )
 
 // inferVariableFlowHoverType bridges flow-sensitive hover inference for the

@@ -3,7 +3,7 @@ package providers
 import (
 	"testing"
 
-	"github.com/ayanozturk/go-php-parser/analyse"
+	"github.com/ayanozturk/tusk/analyse"
 
 	"github.com/ayanozturk/vscode-php-strom/indexer"
 )

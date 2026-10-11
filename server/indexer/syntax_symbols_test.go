@@ -3,8 +3,8 @@ package indexer
 import (
 	"testing"
 
-	"github.com/ayanozturk/go-php-parser/analyse"
-	"github.com/ayanozturk/go-php-parser/syntax"
+	"github.com/ayanozturk/tusk/analyse"
+	"github.com/ayanozturk/tusk/syntax"
 )
 
 func TestExtractSymbolsFromSyntaxClassMembers(t *testing.T) {

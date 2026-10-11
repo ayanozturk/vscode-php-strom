@@ -4,11 +4,11 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/ayanozturk/go-php-parser/analyse"
-	"github.com/ayanozturk/go-php-parser/ast"
-	goparser "github.com/ayanozturk/go-php-parser/diag"
-	"github.com/ayanozturk/go-php-parser/syntax"
-	"github.com/ayanozturk/go-php-parser/token"
+	"github.com/ayanozturk/tusk/analyse"
+	"github.com/ayanozturk/tusk/ast"
+	goparser "github.com/ayanozturk/tusk/diag"
+	"github.com/ayanozturk/tusk/syntax"
+	"github.com/ayanozturk/tusk/token"
 
 	"github.com/ayanozturk/vscode-php-strom/indexer"
 )

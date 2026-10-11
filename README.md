@@ -1,6 +1,6 @@
 # PHP Strom
 
-Open-source PHP language support for VS Code. A TypeScript client talks to a bundled Go language server that runs [go-php-parser](https://github.com/ayanozturk/go-php-parser) for parsing, indexing, and diagnostics.
+Open-source PHP language support for VS Code. A TypeScript client talks to a bundled Go language server that runs [tusk](https://github.com/ayanozturk/tusk) for parsing, indexing, and diagnostics.
 
 Not a complete Intelephense/PhpStorm stand-in. Unimplemented LSP features (formatting, rename, folding, code actions, code lens, inlay hints, document links, type hierarchy, implementations, references, highlights, and similar) are not advertised until implemented.
 
@@ -62,7 +62,7 @@ Local extension JavaScript is always `dist/extension.js` (webpack via `make buil
 To build against a local parser checkout:
 
 ```sh
-make build-server-dev LOCAL_PHP_PARSER_DIR=/path/to/go-php-parser
+make build-server-dev LOCAL_TUSK_DIR=/path/to/tusk
 make test-server-dev
 ```
 

@@ -10,7 +10,7 @@ VERSION_BUMP ?= patch
 GOFLAGS     :=
 TARGETS     := darwin-arm64 darwin-x64 linux-arm64 linux-x64 win32-arm64 win32-x64
 CACHE_DIR   := .cache
-LOCAL_PHP_PARSER_DIR ?= ../go-php-parser
+LOCAL_TUSK_DIR ?= ../tusk
 GO_WORK_FILE    := $(abspath $(CACHE_DIR)/phpstrom.build.work)
 
 # Detect OS for binary extension
@@ -35,23 +35,23 @@ deps:
 ## build: compile Go server + webpack-bundled extension client
 build: build-server build-ext
 
-## prepare-go-work: generate a temporary Go workspace for explicit sibling-parser development
-## (required while server/go.mod pins a pre-syntax parser; see pin-parser-checklist)
+## prepare-go-work: generate a temporary Go workspace for local sibling-Tusk development
+## (normal targets use server/go.mod; this opts into the local checkout)
 prepare-go-work:
-	@if [ ! -f "$(LOCAL_PHP_PARSER_DIR)/go.mod" ]; then \
-		echo "ERROR: local parser module not found at $(LOCAL_PHP_PARSER_DIR)."; \
+	@if [ ! -f "$(LOCAL_TUSK_DIR)/go.mod" ]; then \
+		echo "ERROR: local parser module not found at $(LOCAL_TUSK_DIR)."; \
 		exit 1; \
 	fi
 	@mkdir -p $(CACHE_DIR)
-	@printf 'go 1.23\n\nuse (\n\t%s\n\t%s\n)\n' "$(abspath $(SERVER_DIR))" "$(abspath $(LOCAL_PHP_PARSER_DIR))" > "$(GO_WORK_FILE)"
+	@printf 'go 1.23\n\nuse (\n\t%s\n\t%s\n)\n' "$(abspath $(SERVER_DIR))" "$(abspath $(LOCAL_TUSK_DIR))" > "$(GO_WORK_FILE)"
 
-## pin-parser-checklist: print steps to bump server/go.mod after go-php-parser+syntax is pushed
+## pin-parser-checklist: print steps to bump server/go.mod after tusk+syntax is pushed
 pin-parser-checklist:
-	@echo "==> go-php-parser pin checklist (do NOT invent a fake remote commit)"
-	@echo "    Current pin in server/go.mod should track go-php-parser main (syntax/ + ReferencesAt)."
-	@echo "    1. Confirm origin/main of $(LOCAL_PHP_PARSER_DIR) contains the syntax/ package."
-	@echo "    2. Note the real pushed commit SHA (git -C $(LOCAL_PHP_PARSER_DIR) rev-parse origin/main)."
-	@echo "    3. cd $(SERVER_DIR) && GOWORK=off go get github.com/ayanozturk/go-php-parser@<SHA>"
+	@echo "==> tusk pin checklist (do NOT invent a fake remote commit)"
+	@echo "    Current pin in server/go.mod should track the Tusk repository main branch (syntax/ + ReferencesAt)."
+	@echo "    1. Confirm origin/main of $(LOCAL_TUSK_DIR) contains the syntax/ package."
+	@echo "    2. Note the real pushed commit SHA (git -C $(LOCAL_TUSK_DIR) rev-parse origin/main)."
+	@echo "    3. cd $(SERVER_DIR) && GOWORK=off go get github.com/ayanozturk/tusk@<SHA>"
 	@echo "    4. cd $(SERVER_DIR) && GOWORK=off go mod tidy"
 	@echo "    5. Validate: make test-server   # GOWORK=off against the new pin"
 	@echo "    Sibling override: make test-server-dev / build-server-dev (GOWORK → local checkout)."
@@ -85,7 +85,7 @@ build-server-local:
 
 ## build-server-dev: compile the host binary against an explicit sibling parser checkout
 build-server-dev: prepare-go-work
-	@echo "==> Building Go language server against $(LOCAL_PHP_PARSER_DIR)..."
+	@echo "==> Building Go language server against $(LOCAL_TUSK_DIR)..."
 	@mkdir -p $(BIN_DIR)
 	cd $(SERVER_DIR) && GOWORK="$(GO_WORK_FILE)" $(GO) build $(GOFLAGS) -o ../$(BINARY) .
 
@@ -178,7 +178,7 @@ test-server:
 
 ## test-server-dev: run Go unit tests against an explicit sibling parser checkout
 test-server-dev: prepare-go-work
-	@echo "==> Running Go tests against $(LOCAL_PHP_PARSER_DIR)..."
+	@echo "==> Running Go tests against $(LOCAL_TUSK_DIR)..."
 	cd $(SERVER_DIR) && GOWORK="$(GO_WORK_FILE)" $(GO) test ./...
 
 ## test-editor-latency: run the process-cold and incremental synthetic editor trace gate

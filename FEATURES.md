@@ -3,7 +3,7 @@
 > A fully open-source, MIT-licensed, high-performance PHP Strom for VS Code and any LSP-capable editor.  
 > All features listed here are **free**. There is no premium tier.
 >
-> **Architecture status (2026-08-31):** production uses a Go language server in `server/` backed by [`go-php-parser`](https://github.com/ayanozturk/go-php-parser). The TypeScript `src/server` / tree-sitter diagram below is obsolete and must not be read as the shipped design. A full rewrite of this specification is a ranked maintenance item; analyser coverage work is documented in the parser's [full-static-analyser-target](https://github.com/ayanozturk/go-php-parser/blob/main/docs/full-static-analyser-target.md).
+> **Architecture status (2026-08-31):** production uses a Go language server in `server/` backed by [`tusk`](https://github.com/ayanozturk/tusk). The TypeScript `src/server` / tree-sitter diagram below is obsolete and must not be read as the shipped design. A full rewrite of this specification is a ranked maintenance item; analyser coverage work is documented in the parser's [full-static-analyser-target](https://github.com/ayanozturk/tusk/blob/main/docs/full-static-analyser-target.md).
 
 ---
 
@@ -89,7 +89,7 @@ VS Code / LSP client
         ├── indexer/            (workspace discovery, incremental index)
         ├── providers/          (diagnostics, hover, definition, …)
         ├── phpstrom/           (LSP handlers, overlays, scheduling)
-        └── go-php-parser       (parse, project index, SemanticSnapshot, rules)
+        └── tusk       (parse, project index, SemanticSnapshot, rules)
 ```
 
 The TypeScript/tree-sitter layout that follows is **not** what ships. It is retained only until this file is rewritten.
@@ -137,7 +137,7 @@ VS Code
 | Concern | Choice | Rationale |
 |---|---|---|
 | Language server | Go (`server/`) | Same engine as the standalone `analyze` CLI |
-| Parser / analyser | [go-php-parser](https://github.com/ayanozturk/go-php-parser) | PHP 8.x parse, project index, level-gated analysis |
+| Parser / analyser | [tusk](https://github.com/ayanozturk/tusk) | PHP 8.x parse, project index, level-gated analysis |
 | Client | TypeScript (`src/extension.ts`) | VS Code Language Client only |
 | Stubs | Bundled PHP version stubs under `stubs/` | Built-in symbols without a live phpstorm-stubs clone |
 | Transport | stdio | Language client to Go server |
@@ -637,7 +637,7 @@ Psalm-prefixed (`@psalm-*`) and PHPStan-prefixed (`@phpstan-*`) variants are rec
 
 ### 5.1 Tree-sitter Parser Backend
 
-Not used in production. PHP Strom parses and analyses through `go-php-parser`. A tree-sitter backend is not planned while the Go engine is the analyser target. The bullets below are leftover specification text.
+Not used in production. PHP Strom parses and analyses through `tusk`. A tree-sitter backend is not planned while the Go engine is the analyser target. The bullets below are leftover specification text.
 
 - **Incremental parsing** — only re-parses changed ranges, not the entire file
 - **Error recovery** — continues building a useful AST even with syntax errors

@@ -1,6 +1,6 @@
 # Codex Instructions
 
-This repo is the PHP Strom VS Code extension and Go language server. Parser work lives in sibling `go-php-parser`; production pin is `server/go.mod` (validate with `GOWORK=off`).
+This repo is the PHP Strom VS Code extension and Go language server. Parser work lives in sibling `tusk`; production pin is `server/go.mod` (validate with `GOWORK=off`).
 
 ## Testing coverage (lossless parser cutover)
 
@@ -22,7 +22,7 @@ Do **not** chase a single line-% on the whole repo. Use layered targets.
 
 - Prefer **behavioral coverage**: binding, rename/refs, format identity, type-from-syntax — not line % on giant rule files.
 - Keep differential/level fixtures green; add cases when string→syntax edges move.
-- go-php-parser's `AnalysisContext.Content []byte` field selects its
+- tusk's `AnalysisContext.Content []byte` field selects its
   CST-direct fused analysis path in `RunAnalysisRulesWithContext` (left nil,
   behavior falls back to the legacy `[]ast.Node` walk).
   `server/providers/diagnostics.go`'s `runAnalysisRulesForSource` sets
@@ -38,4 +38,4 @@ Do **not** chase a single line-% on the whole repo. Use layered targets.
 - New `syntax` / trivia / binder packages: **≥95%** (or 100% if critical-unit-testing bar applies to those packages only).
 - Whole-module line coverage: **non-goal** during cutover; round-trip + gold + analyse suite are the merge bar.
 
-**Summary:** 100% on the identity/gold contract, very high on the new kernel, corpus/analyse green for integration — not “100% of go-php-parser.”
+**Summary:** 100% on the identity/gold contract, very high on the new kernel, corpus/analyse green for integration — not “100% of tusk.”

@@ -3,7 +3,7 @@ package indexer
 import (
 	"log"
 
-	"github.com/ayanozturk/go-php-parser/phpstubs"
+	"github.com/ayanozturk/tusk/phpstubs"
 )
 
 func (wi *WorkspaceIndexer) loadConfiguredStubs() {

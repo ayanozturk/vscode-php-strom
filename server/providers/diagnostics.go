@@ -1,7 +1,7 @@
 package providers
 
 // diagnostics.go — implements DiagnosticsProvider using tusk analysis and
-// style rules from github.com/ayanozturk/go-php-parser (local: tusk).
+// style rules from github.com/ayanozturk/tusk (local: tusk).
 
 import (
 	"hash/crc32"
@@ -10,12 +10,12 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/ayanozturk/go-php-parser/analyse"
-	"github.com/ayanozturk/go-php-parser/ast"
-	goparser "github.com/ayanozturk/go-php-parser/diag"
-	"github.com/ayanozturk/go-php-parser/sharedcache"
-	"github.com/ayanozturk/go-php-parser/style"
-	"github.com/ayanozturk/go-php-parser/syntax"
+	"github.com/ayanozturk/tusk/analyse"
+	"github.com/ayanozturk/tusk/ast"
+	goparser "github.com/ayanozturk/tusk/diag"
+	"github.com/ayanozturk/tusk/sharedcache"
+	"github.com/ayanozturk/tusk/style"
+	"github.com/ayanozturk/tusk/syntax"
 
 	"github.com/ayanozturk/vscode-php-strom/indexer"
 	"github.com/ayanozturk/vscode-php-strom/lsp"

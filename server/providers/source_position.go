@@ -5,7 +5,7 @@ import (
 	"unicode/utf16"
 	"unicode/utf8"
 
-	goparser "github.com/ayanozturk/go-php-parser/diag"
+	goparser "github.com/ayanozturk/tusk/diag"
 	"github.com/ayanozturk/vscode-php-strom/lsp"
 )
 

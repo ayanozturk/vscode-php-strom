@@ -3,7 +3,7 @@ package indexer
 import (
 	"testing"
 
-	"github.com/ayanozturk/go-php-parser/analyse"
+	"github.com/ayanozturk/tusk/analyse"
 )
 
 func TestProjectIndexSnapshotRevisionChangesOnlyWhenExportedSemanticsChange(t *testing.T) {

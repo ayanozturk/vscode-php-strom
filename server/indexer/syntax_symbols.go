@@ -4,10 +4,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/ayanozturk/go-php-parser/analyse"
-	"github.com/ayanozturk/go-php-parser/ast"
-	"github.com/ayanozturk/go-php-parser/syntax"
-	"github.com/ayanozturk/go-php-parser/token"
+	"github.com/ayanozturk/tusk/analyse"
+	"github.com/ayanozturk/tusk/ast"
+	"github.com/ayanozturk/tusk/syntax"
+	"github.com/ayanozturk/tusk/token"
 )
 
 // extractSymbolsFromSyntax walks a declaration-tier (or full) syntax tree and

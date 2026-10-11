@@ -1,7 +1,7 @@
 package providers
 
 import (
-	"github.com/ayanozturk/go-php-parser/overrides"
+	"github.com/ayanozturk/tusk/overrides"
 
 	"github.com/ayanozturk/vscode-php-strom/indexer"
 )

@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ayanozturk/go-php-parser/analyse"
-	"github.com/ayanozturk/go-php-parser/overrides"
-	"github.com/ayanozturk/go-php-parser/sharedcache"
+	"github.com/ayanozturk/tusk/analyse"
+	"github.com/ayanozturk/tusk/overrides"
+	"github.com/ayanozturk/tusk/sharedcache"
 
 	"github.com/ayanozturk/vscode-php-strom/indexer"
 	"github.com/ayanozturk/vscode-php-strom/lsp"

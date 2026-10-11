@@ -2,7 +2,7 @@ module github.com/ayanozturk/vscode-php-strom
 
 go 1.23
 
-// Pin tracks go-php-parser main. Recent notable fixes (see go-php-parser's
+// Pin tracks tusk main. Recent notable fixes (see tusk's
 // own commit history for detail): Phase 4 CST-direct analysis path
 // (AnalysisContext.Content); several O(N^2) performance fixes in the
 // CST-direct diagnostics/lowering/indexing paths (shared-parse reuse,
@@ -29,4 +29,4 @@ go 1.23
 // infer supported closure/arrow returns, and preserve generic call-site bindings.
 // Sibling override: make test-server-dev.
 // Checklist: make pin-parser-checklist
-require github.com/ayanozturk/go-php-parser v0.0.0-20261009223717-48208dd17ad1
+require github.com/ayanozturk/tusk v0.0.0-20261011210105-be589421ba68
