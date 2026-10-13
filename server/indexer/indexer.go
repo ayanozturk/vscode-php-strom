@@ -209,9 +209,9 @@ func (wi *WorkspaceIndexer) indexWorkspace(visitor func(ParsedFile)) {
 	wi.mu.RUnlock()
 	serviceTypes := loadSymfonyServiceTypes(folders)
 
-	paths := wi.collectWorkspaceFilePaths(folders, gitignores)
-	uris := make([]string, 0, len(paths))
-	for _, filePath := range paths {
+	hostPaths := wi.collectWorkspaceFilePaths(folders, gitignores)
+	uris := make([]string, 0, len(hostPaths))
+	for _, filePath := range hostPaths {
 		uris = append(uris, pathToURI(filePath))
 	}
 
@@ -219,6 +219,31 @@ func (wi *WorkspaceIndexer) indexWorkspace(visitor func(ParsedFile)) {
 	wi.workspaceURIs = uris
 	wi.serviceTypes = serviceTypes
 	wi.mu.Unlock()
+
+	// Composer autoload directories (psr-4/psr-0/classmap targets) referenced
+	// by the nearest composer.json above each workspace folder are indexed
+	// for symbol resolution only — e.g. a legacy monorepo sibling tree with
+	// classmap-style underscore class names outside the open folder — but
+	// are never added to wi.workspaceURIs, so they are not diagnosed.
+	indexOnlyFolders := composerAutoloadWorkspaceFolders(folders)
+	indexOnlyPaths := wi.collectWorkspaceFilePaths(indexOnlyFolders, nil)
+
+	seen := make(map[string]struct{}, len(hostPaths)+len(indexOnlyPaths))
+	paths := make([]string, 0, len(hostPaths)+len(indexOnlyPaths))
+	for _, p := range hostPaths {
+		if _, ok := seen[p]; ok {
+			continue
+		}
+		seen[p] = struct{}{}
+		paths = append(paths, p)
+	}
+	for _, p := range indexOnlyPaths {
+		if _, ok := seen[p]; ok {
+			continue
+		}
+		seen[p] = struct{}{}
+		paths = append(paths, p)
+	}
 
 	total := len(paths)
 	log.Printf("[indexer] discovered %d files across %d workspace folder(s)", total, len(folders))

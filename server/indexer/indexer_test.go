@@ -551,6 +551,49 @@ func TestCollectWorkspaceFilePathsIndexesGitignoredVendorDependencies(t *testing
 	t.Fatalf("expected gitignored Composer dependency to be indexed, got %#v", paths)
 }
 
+func TestIndexWorkspaceIndexesComposerAutoloadDirsWithoutDiagnosingThem(t *testing.T) {
+	root := t.TempDir()
+	composerJSON := `{
+  "autoload": {
+    "classmap": ["common/Classes/"]
+  }
+}`
+	if err := os.WriteFile(filepath.Join(root, "composer.json"), []byte(composerJSON), 0o644); err != nil {
+		t.Fatalf("write composer.json: %v", err)
+	}
+	legacyClass := filepath.Join(root, "common", "Classes", "Contact.class.php")
+	if err := os.MkdirAll(filepath.Dir(legacyClass), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(legacyClass, []byte("<?php\nclass RG_User_Contact {}\n"), 0o644); err != nil {
+		t.Fatalf("write legacy class: %v", err)
+	}
+
+	projectPath := filepath.Join(root, "api-rg")
+	if err := os.MkdirAll(projectPath, 0o755); err != nil {
+		t.Fatalf("mkdir project: %v", err)
+	}
+	usageFile := filepath.Join(projectPath, "Controller.php")
+	if err := os.WriteFile(usageFile, []byte("<?php\nclass Controller {\n    public function f(RG_User_Contact $contact): string { return ''; }\n}\n"), 0o644); err != nil {
+		t.Fatalf("write usage file: %v", err)
+	}
+
+	wi := New(Config{Associations: []string{"**/*.php"}, MaxSize: 1_000_000})
+	folders := []WorkspaceFolder{{URI: pathToURI(projectPath), Name: "api-rg"}}
+	wi.SetWorkspaceFolders(folders)
+	wi.IndexWorkspace()
+
+	for _, uri := range wi.WorkspaceFileURIs() {
+		if uri == pathToURI(legacyClass) {
+			t.Fatalf("expected composer autoload dir file to be excluded from diagnosed workspace URIs, got %#v", wi.WorkspaceFileURIs())
+		}
+	}
+
+	if _, ok := wi.ProjectIndex().ResolveClass("RG_User_Contact"); !ok {
+		t.Fatal("expected composer autoload class to be resolvable via project index")
+	}
+}
+
 func TestReplaceWorkspaceProjectNodesDropsVendorASTsAndKeepsSymbols(t *testing.T) {
 	wi := New(Config{})
 	vendorURI := "file:///workspace/vendor/symfony/framework-bundle/Test/WebTestCase.php"
