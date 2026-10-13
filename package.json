@@ -2,7 +2,7 @@
   "name": "phpstrom",
   "displayName": "PHP Strom",
   "description": "Open-source PHP language support for VS Code with workspace indexing, diagnostics, navigation, completion, and signature help.",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "publisher": "AOSSoftware",
   "license": "MIT",
   "repository": {

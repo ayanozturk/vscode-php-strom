@@ -2,6 +2,12 @@
 
 All notable changes to PHP Strom are documented in this file.
 
+## 1.1.0 - 2026-10-13
+
+### Changed
+
+- Updated the bundled Tusk parser and analyser to the current pinned revision, including recent indexing and analysis performance improvements.
+
 ## 1.0.0 - 2026-10-11
 
 ### Added
