@@ -27,7 +27,8 @@
     "psalm"
   ],
   "activationEvents": [
-    "onLanguage:php"
+    "onLanguage:php",
+    "workspaceContains:**/*.php"
   ],
   "icon": "phpstrom-logo.png",
   "main": "./dist/extension.js",
