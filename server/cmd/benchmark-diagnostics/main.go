@@ -25,6 +25,7 @@ func main() {
 	workers := flag.Int("workers", 0, "worker count override (0 = indexer.DiagnosticWorkerCountFor default)")
 	dumpDiagnostics := flag.String("dump", "", "write sorted uri|message lines to this file for correctness diffing")
 	prodExcludes := flag.Bool("prod-excludes", false, "use production indexing excludes and diagnostic defaults, including reportable-file filtering")
+	timeLimit := flag.Duration("time-limit", 0, "stop after this duration, flush profiles, and report the stage reached (0 = run to completion)")
 	flag.Parse()
 
 	root := "."
@@ -47,6 +48,24 @@ func main() {
 	log.SetOutput(os.Stderr)
 	log.Printf("Starting Diagnostics Benchmark on root: %s", root)
 
+	var stage atomic.Value
+	stage.Store("discovery")
+	var indexDone, indexTotal, processed int64
+	if *timeLimit > 0 {
+		time.AfterFunc(*timeLimit, func() {
+			log.Printf("TIME LIMIT %s reached: stage=%v index=%d/%d diagnostics=%d", *timeLimit, stage.Load(),
+				atomic.LoadInt64(&indexDone), atomic.LoadInt64(&indexTotal), atomic.LoadInt64(&processed))
+			pprof.StopCPUProfile()
+			if *memProfile != "" {
+				if f, err := os.Create(*memProfile); err == nil {
+					_ = pprof.WriteHeapProfile(f)
+					_ = f.Close()
+				}
+			}
+			os.Exit(0)
+		})
+	}
+
 	exclude := []string{
 		"**/vendor/**",
 		"**/node_modules/**",
@@ -66,9 +85,14 @@ func main() {
 	wi.SetWorkspaceFolders(folders)
 
 	indexStart := time.Now()
-	wi.OnIndexingProgress(func(done, total int) {})
+	wi.OnIndexingProgress(func(done, total int) {
+		atomic.StoreInt64(&indexDone, int64(done))
+		atomic.StoreInt64(&indexTotal, int64(total))
+	})
+	stage.Store("indexing")
 	wi.IndexWorkspace()
 	log.Printf("Indexing done in %s", time.Since(indexStart).Round(time.Millisecond))
+	stage.Store("diagnostics")
 
 	providerCfg := providers.Config{}
 	if *prodExcludes {
@@ -95,7 +119,6 @@ func main() {
 	}
 	close(jobs)
 
-	var processed int64
 	var totalDiags int64
 	var wg sync.WaitGroup
 	var dumpMu sync.Mutex
