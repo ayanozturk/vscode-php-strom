@@ -13,6 +13,7 @@ import (
 var methodNonObjectName = regexp.MustCompile(`^Cannot call method ([A-Za-z_][A-Za-z0-9_]*)\(\) on `)
 
 func filterResolvedServiceMethodDiagnostics(filename string, nodes []ast.Node, ctx *analyse.AnalysisContext, diagnostics []lsp.Diagnostic) []lsp.Diagnostic {
+	memo := hoverTargetMemo{}
 	filtered := diagnostics[:0]
 	for _, diagnostic := range diagnostics {
 		code, _ := diagnostic.Code.(string)
@@ -30,7 +31,7 @@ func filterResolvedServiceMethodDiagnostics(filename string, nodes []ast.Node, c
 			filtered = append(filtered, diagnostic)
 			continue
 		}
-		serviceType, ok := resolvedServiceVariableTypeAtLine(nodes, int(diagnostic.Range.Start.Line)+1, variable, ctx)
+		serviceType, ok := resolvedServiceVariableTypeAtLineMemo(nodes, int(diagnostic.Range.Start.Line)+1, variable, ctx, memo)
 		if !ok || ctx == nil || ctx.Resolver == nil {
 			filtered = append(filtered, diagnostic)
 			continue
@@ -48,8 +49,12 @@ func filterResolvedServiceMethodDiagnostics(filename string, nodes []ast.Node, c
 }
 
 func resolvedServiceVariableTypeAtLine(nodes []ast.Node, targetLine int, variableName string, ctx *analyse.AnalysisContext) (string, bool) {
+	return resolvedServiceVariableTypeAtLineMemo(nodes, targetLine, variableName, ctx, nil)
+}
+
+func resolvedServiceVariableTypeAtLineMemo(nodes []ast.Node, targetLine int, variableName string, ctx *analyse.AnalysisContext, memo hoverTargetMemo) (string, bool) {
 	if nodesContainVariableAtLine(nodes, targetLine, variableName) {
-		if serviceType := resolvedServiceVariableTypeThroughStatements(nodes, nodes, targetLine, variableName, ctx, make(map[string]string)); serviceType != "" {
+		if serviceType := resolvedServiceVariableTypeThroughStatements(nodes, nodes, targetLine, variableName, ctx, make(map[string]string), memo); serviceType != "" {
 			return serviceType, true
 		}
 	}
@@ -66,7 +71,7 @@ func resolvedServiceVariableTypeAtLine(nodes []ast.Node, targetLine int, variabl
 				walk(n.Methods)
 			case *ast.FunctionNode:
 				if nodesContainVariableAtLine(n.Body, targetLine, variableName) {
-					resolved = resolvedServiceVariableTypeThroughStatements(nodes, n.Body, targetLine, variableName, ctx, make(map[string]string))
+					resolved = resolvedServiceVariableTypeThroughStatements(nodes, n.Body, targetLine, variableName, ctx, make(map[string]string), memo)
 				}
 			}
 		}
@@ -75,12 +80,12 @@ func resolvedServiceVariableTypeAtLine(nodes []ast.Node, targetLine int, variabl
 	return resolved, resolved != ""
 }
 
-func resolvedServiceVariableTypeThroughStatements(allNodes, statements []ast.Node, targetLine int, variableName string, ctx *analyse.AnalysisContext, variableTypes map[string]string) string {
+func resolvedServiceVariableTypeThroughStatements(allNodes, statements []ast.Node, targetLine int, variableName string, ctx *analyse.AnalysisContext, variableTypes map[string]string, memo hoverTargetMemo) string {
 	serviceType := ""
 	for _, statement := range statements {
 		if assignment := assignmentFromStatement(statement); assignment != nil {
 			if variable, ok := assignment.Left.(*ast.VariableNode); ok {
-				assignedType := inferAssignmentRightType(allNodes, assignment.Right, ctx, variableTypes)
+				assignedType := inferAssignmentRightTypeMemo(allNodes, assignment.Right, ctx, variableTypes, memo)
 				if assignedType != "" {
 					variableTypes[variable.Name] = assignedType
 				}

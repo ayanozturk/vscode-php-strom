@@ -413,20 +413,12 @@ func (r workspaceSymbolResolver) resolveDirectMethod(className, methodName strin
 		return method, true
 	}
 
-	for _, sym := range idx.GetByName(methodName) {
-		if sym.Kind != indexer.KindMethod {
-			continue
+	if sym := idx.MemberByOwner(classSym.FQN, methodName, indexer.KindMethod); sym != nil {
+		method := resolvedMethod(sym)
+		if classSym.Kind == indexer.KindInterface {
+			method.Abstract = true
 		}
-		if !strings.HasPrefix(sym.FQN, classSym.FQN+"::") {
-			continue
-		}
-		if strings.EqualFold(sym.Name, methodName) {
-			method := resolvedMethod(sym)
-			if classSym.Kind == indexer.KindInterface {
-				method.Abstract = true
-			}
-			return method, true
-		}
+		return method, true
 	}
 
 	return analyse.ResolvedMethod{}, false
@@ -459,10 +451,8 @@ func (r workspaceSymbolResolver) ResolveOwnConstant(className, constantName stri
 	if sym := idx.GetByFQN(classSym.FQN + "::" + constantName); sym != nil && sym.Kind == indexer.KindConstant {
 		return resolvedConstant(sym), true
 	}
-	for _, sym := range idx.GetByName(constantName) {
-		if sym.Kind == indexer.KindConstant && strings.HasPrefix(sym.FQN, classSym.FQN+"::") && strings.EqualFold(sym.Name, constantName) {
-			return resolvedConstant(sym), true
-		}
+	if sym := idx.MemberByOwner(classSym.FQN, constantName, indexer.KindConstant); sym != nil {
+		return resolvedConstant(sym), true
 	}
 	return analyse.ResolvedConstant{}, false
 }
@@ -478,16 +468,8 @@ func (r workspaceSymbolResolver) resolveDirectProperty(className, propertyName s
 		return resolvedProperty(sym), true
 	}
 
-	for _, sym := range idx.GetByName(propertyName) {
-		if sym.Kind != indexer.KindProperty {
-			continue
-		}
-		if !strings.HasPrefix(sym.FQN, classSym.FQN+"::$") {
-			continue
-		}
-		if strings.EqualFold(sym.Name, propertyName) {
-			return resolvedProperty(sym), true
-		}
+	if sym := idx.MemberByOwner(classSym.FQN, propertyName, indexer.KindProperty); sym != nil {
+		return resolvedProperty(sym), true
 	}
 
 	return analyse.ResolvedProperty{}, false

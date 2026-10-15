@@ -94,7 +94,30 @@ func assignmentFromStatement(node ast.Node) *ast.AssignmentNode {
 	}
 }
 
+type hoverTargetResult struct {
+	target analyse.HoverTarget
+	ok     bool
+}
+
+// hoverTargetMemo is valid only while nodes and ctx are unchanged; a nil memo disables caching.
+type hoverTargetMemo map[*ast.MethodCallNode]hoverTargetResult
+
+func (m hoverTargetMemo) infer(allNodes []ast.Node, call *ast.MethodCallNode, ctx *analyse.AnalysisContext) (analyse.HoverTarget, bool) {
+	if cached, hit := m[call]; hit {
+		return cached.target, cached.ok
+	}
+	target, ok := analyse.InferHoverTargetAtPosition(allNodes, call.GetPos().Line, call.GetPos().Column, call.Method, ctx)
+	if m != nil {
+		m[call] = hoverTargetResult{target: target, ok: ok}
+	}
+	return target, ok
+}
+
 func inferAssignmentRightType(allNodes []ast.Node, node ast.Node, ctx *analyse.AnalysisContext, variableTypes map[string]string) string {
+	return inferAssignmentRightTypeMemo(allNodes, node, ctx, variableTypes, nil)
+}
+
+func inferAssignmentRightTypeMemo(allNodes []ast.Node, node ast.Node, ctx *analyse.AnalysisContext, variableTypes map[string]string, memo hoverTargetMemo) string {
 	if instance, ok := node.(*ast.NewNode); ok {
 		return instance.ClassName
 	}
@@ -114,7 +137,7 @@ func inferAssignmentRightType(allNodes []ast.Node, node ast.Node, ctx *analyse.A
 			}
 		}
 	}
-	target, ok := analyse.InferHoverTargetAtPosition(allNodes, call.GetPos().Line, call.GetPos().Column, call.Method, ctx)
+	target, ok := memo.infer(allNodes, call, ctx)
 	if !ok {
 		return ""
 	}

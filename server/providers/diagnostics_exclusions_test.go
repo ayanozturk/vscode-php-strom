@@ -11,8 +11,8 @@ import (
 
 func TestBuildDiagnosticsPathExclusionsExplicitIgnoreAll(t *testing.T) {
 	ex := BuildDiagnosticsPathExclusions(map[string][]string{
-		"**/vendor/**":     nil,
-		"**/Legacy.php":    {"phpstrom.undefined"},
+		"**/vendor/**":  nil,
+		"**/Legacy.php": {"phpstrom.undefined"},
 	}, nil)
 
 	if !ex.IgnoresAll("/proj/vendor/pkg/Lib.php") {
@@ -101,5 +101,29 @@ func TestNewRegistryWiresProviders(t *testing.T) {
 	if snap := r.SemanticCacheTrace(); snap != (SemanticCacheTraceSnapshot{}) {
 		// nil diagnostics cache path already covered; zero snap is fine
 		_ = snap
+	}
+}
+
+func TestGitignoreRulesPrecompiledMatching(t *testing.T) {
+	m := workspaceGitignore{root: "/proj", rules: parseGitignoreRules("cache/\n*.log\n/build\nsrc/**/gen\n*.{tmp,bak}\nvar/*\n!var/keep.php\n")}
+	cases := map[string]bool{
+		"/proj/cache/a.php":      true,
+		"/proj/src/cache/a.php":  true,
+		"/proj/cache":            false,
+		"/proj/a/b/run.log":      true,
+		"/proj/build":            true,
+		"/proj/sub/build/x.php":  false,
+		"/proj/src/a/b/gen":      true,
+		"/proj/src/other/x.php":  false,
+		"/proj/x.bak":            true,
+		"/proj/var/a.php":        true,
+		"/proj/var/keep.php":     false,
+		"/proj/src/App.php":      false,
+		"/elsewhere/cache/a.php": false,
+	}
+	for path, want := range cases {
+		if got := m.ignores(path); got != want {
+			t.Errorf("ignores(%q) = %v, want %v", path, got, want)
+		}
 	}
 }

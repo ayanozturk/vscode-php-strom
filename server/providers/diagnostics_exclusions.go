@@ -33,6 +33,9 @@ type gitignoreRule struct {
 	dirOnly  bool
 	anchored bool
 	hasSlash bool
+	// variants and baseVariants are brace-expanded, segment-split patterns built once at parse time.
+	variants     [][]string
+	baseVariants [][]string
 }
 
 func BuildDiagnosticsPathExclusions(config map[string][]string, folders []indexer.WorkspaceFolder) DiagnosticsPathExclusions {
@@ -159,11 +162,11 @@ func (m workspaceGitignore) ignores(filename string) bool {
 	}
 
 	ignored := false
-	for _, rule := range m.rules {
-		if !rule.matches(rel) {
-			continue
+	for i := len(m.rules) - 1; i >= 0; i-- {
+		if m.rules[i].matches(rel) {
+			ignored = !m.rules[i].negated
+			break
 		}
-		ignored = !rule.negated
 	}
 	return ignored
 }
@@ -196,6 +199,10 @@ func parseGitignoreRules(content string) []gitignoreRule {
 		}
 		rule.pattern = line
 		rule.hasSlash = strings.Contains(line, "/")
+		rule.variants = compileGlobVariants(rule.globVariants())
+		if !rule.hasSlash {
+			rule.baseVariants = compileGlobVariants([]string{rule.pattern})
+		}
 		rules = append(rules, rule)
 	}
 	return rules
@@ -207,33 +214,53 @@ func (r gitignoreRule) matches(rel string) bool {
 		return false
 	}
 
+	parts := strings.Split(rel, "/")
 	if r.dirOnly {
-		for _, dir := range parentDirectories(rel) {
-			if r.matchesPath(dir) {
+		for i := 0; i < len(parts)-1; i++ {
+			if r.matchesParts(parts[:i+1]) {
 				return true
 			}
 		}
 		return false
 	}
 
-	if r.matchesPath(rel) {
+	if r.matchesParts(parts) {
 		return true
 	}
 
 	if !r.hasSlash {
-		return matchSimple(r.pattern, pathpkg.Base(rel))
+		base := []string{parts[len(parts)-1]}
+		for _, variant := range r.baseVariants {
+			if matchSegmentSlice(variant, base) {
+				return true
+			}
+		}
 	}
 
 	return false
 }
 
-func (r gitignoreRule) matchesPath(candidate string) bool {
-	for _, pattern := range r.globVariants() {
-		if matchSimple(pattern, candidate) {
+func (r gitignoreRule) matchesParts(parts []string) bool {
+	for _, variant := range r.variants {
+		if matchSegmentSlice(variant, parts) {
 			return true
 		}
 	}
 	return false
+}
+
+func compileGlobVariants(patterns []string) [][]string {
+	var compiled [][]string
+	for _, pattern := range patterns {
+		for _, variant := range expandBracePattern(filepath.ToSlash(pattern)) {
+			variant = strings.Trim(filepath.ToSlash(variant), "/")
+			if variant == "" {
+				continue
+			}
+			compiled = append(compiled, strings.Split(variant, "/"))
+		}
+	}
+	return compiled
 }
 
 func (r gitignoreRule) globVariants() []string {
@@ -244,19 +271,6 @@ func (r gitignoreRule) globVariants() []string {
 		return []string{r.pattern}
 	}
 	return []string{r.pattern, "**/" + r.pattern}
-}
-
-func parentDirectories(rel string) []string {
-	dir := pathpkg.Dir(filepath.ToSlash(rel))
-	if dir == "." || dir == "" {
-		return nil
-	}
-	parts := strings.Split(dir, "/")
-	dirs := make([]string, 0, len(parts))
-	for i := range parts {
-		dirs = append(dirs, strings.Join(parts[:i+1], "/"))
-	}
-	return dirs
 }
 
 func relativeWorkspacePath(root, filename string) (string, bool) {

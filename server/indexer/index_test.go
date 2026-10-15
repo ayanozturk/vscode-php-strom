@@ -99,3 +99,32 @@ func TestMethodsByOwnerIsolatesDifferentOwnersInSameShard(t *testing.T) {
 		t.Fatalf("expected exactly \\B::run for owner \\B, got %+v", b)
 	}
 }
+
+func TestMemberByOwnerMatchesKindAndCaseOnlyWithinOwner(t *testing.T) {
+	idx := newIndex()
+	idx.PutFile("file:///A.php", []*Symbol{
+		{URI: "file:///A.php", FQN: `\A`, Name: "A", Kind: KindClass},
+		methodSymbol("file:///A.php", `\A::doWork`, "doWork"),
+		{URI: "file:///A.php", FQN: `\A::$items`, Name: "items", Kind: KindProperty},
+		{URI: "file:///A.php", FQN: `\A::LIMIT`, Name: "LIMIT", Kind: KindConstant},
+	})
+	idx.PutFile("file:///B.php", []*Symbol{
+		methodSymbol("file:///B.php", `\B::doWork`, "doWork"),
+	})
+
+	if got := idx.MemberByOwner(`\a`, "DOWORK", KindMethod); got == nil || got.FQN != `\A::doWork` {
+		t.Fatalf("expected case-insensitive method match on \\A, got %+v", got)
+	}
+	if got := idx.MemberByOwner(`\A`, "items", KindProperty); got == nil || got.FQN != `\A::$items` {
+		t.Fatalf("expected property match, got %+v", got)
+	}
+	if got := idx.MemberByOwner(`\A`, "LIMIT", KindConstant); got == nil {
+		t.Fatal("expected constant match")
+	}
+	if got := idx.MemberByOwner(`\A`, "items", KindMethod); got != nil {
+		t.Fatalf("kind must be enforced, got %+v", got)
+	}
+	if got := idx.MemberByOwner(`\C`, "doWork", KindMethod); got != nil {
+		t.Fatalf("member of another owner must not match, got %+v", got)
+	}
+}

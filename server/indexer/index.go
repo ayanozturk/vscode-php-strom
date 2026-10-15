@@ -15,8 +15,8 @@ type Index struct {
 }
 
 type shard struct {
-	mu    sync.RWMutex
-	byFQN map[string]*Symbol   // FQN → symbol
+	mu          sync.RWMutex
+	byFQN       map[string]*Symbol   // FQN → symbol
 	byNameLower map[string][]*Symbol // lowercase unqualified name → symbols
 	// byOwnerLower is keyed by lowercase owner FQN (before "::"), then by the
 	// member's own FQN, mirroring byFQN's overwrite-on-collision semantics:
@@ -281,6 +281,21 @@ func (idx *Index) MethodsByOwner(ownerFQN string) []*Symbol {
 		out = append(out, sym)
 	}
 	return out
+}
+
+// MemberByOwner returns the member of ownerFQN with the given kind whose short name
+// matches case-insensitively, scanning only that owner's members.
+func (idx *Index) MemberByOwner(ownerFQN, name string, kind SymbolKind) *Symbol {
+	ownerLower := strings.ToLower(ownerFQN)
+	s := idx.shardFor(ownerLower)
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, sym := range s.byOwnerLower[ownerLower] {
+		if sym.Kind == kind && strings.EqualFold(sym.Name, name) {
+			return sym
+		}
+	}
+	return nil
 }
 
 // FuzzySearch matches acronyms / camelCase abbreviations.
