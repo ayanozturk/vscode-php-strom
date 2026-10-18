@@ -817,7 +817,7 @@
     "@typescript-eslint/eslint-plugin": "^8.0.0",
     "@typescript-eslint/parser": "^8.0.0",
     "@vscode/test-electron": "^2.3.9",
-    "@vscode/vsce": "^3.9.1",
+    "@vscode/vsce": "^4.0.0",
     "eslint": "^9.3.0",
     "ts-loader": "^9.5.1",
     "typescript": "^5.4.5",
