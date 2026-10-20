@@ -1,6 +1,8 @@
 module github.com/ayanozturk/vscode-php-strom
 
-go 1.23
+go 1.26.0
+
+toolchain go1.26.10
 
 // Pin tracks tusk main. Recent notable fixes (see tusk's
 // own commit history for detail): Phase 4 CST-direct analysis path

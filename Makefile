@@ -43,7 +43,7 @@ prepare-go-work:
 		exit 1; \
 	fi
 	@mkdir -p $(CACHE_DIR)
-	@printf 'go 1.23\n\nuse (\n\t%s\n\t%s\n)\n' "$(abspath $(SERVER_DIR))" "$(abspath $(LOCAL_TUSK_DIR))" > "$(GO_WORK_FILE)"
+	@printf 'go 1.26.0\n\ntoolchain go1.26.10\n\nuse (\n\t%s\n\t%s\n)\n' "$(abspath $(SERVER_DIR))" "$(abspath $(LOCAL_TUSK_DIR))" > "$(GO_WORK_FILE)"
 
 ## pin-parser-checklist: print steps to bump server/go.mod after tusk+syntax is pushed
 pin-parser-checklist:

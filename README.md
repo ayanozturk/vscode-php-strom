@@ -27,7 +27,7 @@ make install    # Go server + extension, package, install into VS Code
 make package    # VSIX only
 ```
 
-Needs Go 1.23+, Node.js, and the `code` CLI on `PATH` for `make install`.
+Needs Go 1.26+, Node.js, and the `code` CLI on `PATH` for `make install`.
 A Node `DEP0169` (`url.parse`) warning from `code --install-extension` is upstream
 ([vscode#319867](https://github.com/microsoft/vscode/issues/319867)); `make install`
 disables that warning only for the install child process. Our packaging path has no
