@@ -2,6 +2,14 @@
 
 All notable changes to PHP Strom are documented in this file.
 
+## 1.1.1 - 2026-10-27
+
+### Changed
+
+- Faster diagnostics: positions are resolved through a per-document line table instead of rescanning and copying the document for every diagnostic (about 3.5x faster on a 300 KB file).
+- Faster hover and go-to-definition: type inference now skips functions that cannot contain the requested line (about 13x faster on a 300 KB file; bundled Tusk parser updated).
+- Faster symbol-name lookups and unchanged-document re-indexing, lower per-keystroke cost when applying edits, and cheaper signature help and suppression-comment scanning.
+
 ## 1.1.0 - 2026-10-13
 
 ### Changed
