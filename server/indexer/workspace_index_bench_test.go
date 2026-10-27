@@ -2,6 +2,7 @@ package indexer
 
 import (
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -14,8 +15,17 @@ func BenchmarkIndexWorkspaceCold(b *testing.B) {
 	}
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		wi := New(Config{Associations: []string{"**/*.php"}, MaxSize: 2_000_000})
+		wi := New(Config{Associations: []string{"**/*.php", "**/*.phtml", "**/*.phar"}, Exclude: benchExcludes(), MaxSize: 1_000_000})
 		wi.SetWorkspaceFolders([]WorkspaceFolder{{URI: pathToURI(dir), Name: "bench"}})
 		wi.IndexWorkspace()
 	}
+}
+
+// benchExcludes returns the server's default excludes, or the comma-separated
+// PHP_BENCH_EXCLUDE globs when set.
+func benchExcludes() []string {
+	if v := os.Getenv("PHP_BENCH_EXCLUDE"); v != "" {
+		return strings.Split(v, ",")
+	}
+	return []string{"**/.git/**", "**/node_modules/**", "**/vendor/**/{Tests,tests}/**"}
 }
