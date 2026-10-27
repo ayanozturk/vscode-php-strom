@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"hash/fnv"
+	"hash/maphash"
 	"io"
 	"log"
 	"maps"
@@ -784,10 +784,13 @@ func projectIndexKey(uri string) string {
 	return uriToPath(uri)
 }
 
+// sourceHashSeed seeds sourceHash. Hashes are only compared in memory within
+// one process, so a per-process random seed is fine and maphash runs at
+// memory bandwidth where byte-at-a-time FNV dominated unchanged-save indexing.
+var sourceHashSeed = maphash.MakeSeed()
+
 func sourceHash(text string) uint64 {
-	h := fnv.New64a()
-	_, _ = h.Write([]byte(text))
-	return h.Sum64()
+	return maphash.String(sourceHashSeed, text)
 }
 
 // ─── Internal ─────────────────────────────────────────────────────────────────
