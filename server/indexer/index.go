@@ -9,15 +9,22 @@ const shards = 64
 
 // Index is a concurrent, sharded in-memory symbol store.
 type Index struct {
-	shards    [shards]shard
-	muURI     sync.Mutex
-	uriToFQNs map[string][]string
+	shards [shards]shard
+	// nameShards holds the lowercase-name secondary index, sharded by the name
+	// itself (not the symbol's FQN) so GetByName touches exactly one shard.
+	nameShards [shards]nameShard
+	muURI      sync.Mutex
+	uriToFQNs  map[string][]string
+}
+
+type nameShard struct {
+	mu          sync.RWMutex
+	byNameLower map[string][]*Symbol // lowercase unqualified name → symbols
 }
 
 type shard struct {
-	mu          sync.RWMutex
-	byFQN       map[string]*Symbol   // FQN → symbol
-	byNameLower map[string][]*Symbol // lowercase unqualified name → symbols
+	mu    sync.RWMutex
+	byFQN map[string]*Symbol // FQN → symbol
 	// byOwnerLower is keyed by lowercase owner FQN (before "::"), then by the
 	// member's own FQN, mirroring byFQN's overwrite-on-collision semantics:
 	// distinct files that (legitimately, e.g. Symfony's per-scenario test
@@ -34,7 +41,7 @@ func newIndex() *Index {
 	}
 	for i := range idx.shards {
 		idx.shards[i].byFQN = make(map[string]*Symbol)
-		idx.shards[i].byNameLower = make(map[string][]*Symbol)
+		idx.nameShards[i].byNameLower = make(map[string][]*Symbol)
 		idx.shards[i].byOwnerLower = make(map[string]map[string]*Symbol)
 	}
 	return idx
@@ -43,6 +50,10 @@ func newIndex() *Index {
 func (idx *Index) shardFor(key string) *shard {
 	h := fnv32(key)
 	return &idx.shards[h%shards]
+}
+
+func (idx *Index) nameShardFor(nameLower string) *nameShard {
+	return &idx.nameShards[fnv32(nameLower)%shards]
 }
 
 // symbolOwnerLower returns the lowercased owner FQN for a member symbol whose
@@ -77,11 +88,26 @@ func (idx *Index) PutFile(uri string, symbols []*Symbol) {
 		for s, shardSymbols := range grouped {
 			s.mu.Lock()
 			for _, sym := range shardSymbols {
-				nameLower := strings.ToLower(sym.Name)
 				s.byFQN[sym.FQN] = sym
-				s.byNameLower[nameLower] = append(s.byNameLower[nameLower], sym)
 			}
 			s.mu.Unlock()
+		}
+		type namedSymbol struct {
+			nameLower string
+			sym       *Symbol
+		}
+		nameGrouped := make(map[*nameShard][]namedSymbol, min(len(symbols), shards))
+		for _, sym := range symbols {
+			nameLower := strings.ToLower(sym.Name)
+			ns := idx.nameShardFor(nameLower)
+			nameGrouped[ns] = append(nameGrouped[ns], namedSymbol{nameLower, sym})
+		}
+		for ns, entries := range nameGrouped {
+			ns.mu.Lock()
+			for _, e := range entries {
+				ns.byNameLower[e.nameLower] = append(ns.byNameLower[e.nameLower], e.sym)
+			}
+			ns.mu.Unlock()
 		}
 		for s, shardSymbols := range ownerGrouped {
 			s.mu.Lock()
@@ -141,6 +167,9 @@ func (idx *Index) RemoveFile(uri string) {
 		}
 	}
 
+	// Names of the symbols actually removed from byFQN, grouped by the name
+	// shard that indexes them. Locks are taken one at a time, never nested.
+	removedNames := make(map[*nameShard][]string, min(len(fqns), shards))
 	for s, shardFQNs := range grouped {
 		s.mu.Lock()
 		for _, fqn := range shardFQNs {
@@ -149,7 +178,19 @@ func (idx *Index) RemoveFile(uri string) {
 				continue
 			}
 			nameLower := strings.ToLower(sym.Name)
-			current := s.byNameLower[nameLower]
+			ns := idx.nameShardFor(nameLower)
+			removedNames[ns] = append(removedNames[ns], nameLower)
+			delete(s.byFQN, fqn)
+		}
+		s.mu.Unlock()
+	}
+	for ns, names := range removedNames {
+		ns.mu.Lock()
+		for _, nameLower := range names {
+			current := ns.byNameLower[nameLower]
+			if len(current) == 0 {
+				continue
+			}
 			updated := current[:0]
 			for _, existing := range current {
 				if existing.URI != uri {
@@ -157,13 +198,14 @@ func (idx *Index) RemoveFile(uri string) {
 				}
 			}
 			if len(updated) == 0 {
-				delete(s.byNameLower, nameLower)
+				delete(ns.byNameLower, nameLower)
 			} else {
-				s.byNameLower[nameLower] = updated
+				// Clear the dropped tail so removed symbols can be collected.
+				clear(current[len(updated):])
+				ns.byNameLower[nameLower] = updated
 			}
-			delete(s.byFQN, fqn)
 		}
-		s.mu.Unlock()
+		ns.mu.Unlock()
 	}
 
 	// byOwnerLower is keyed by (ownerLower, fqn), mirroring byFQN's own
@@ -207,17 +249,19 @@ func (idx *Index) GetByFQN(fqn string) *Symbol {
 }
 
 // GetByName returns all symbols whose unqualified name matches (case-insensitive).
-// This is an O(1) lookup backed by the byNameLower secondary index.
+// This is an O(1) lookup: one shard lock and one map probe, backed by the
+// name-sharded byNameLower secondary index.
 func (idx *Index) GetByName(name string) []*Symbol {
 	nameLower := strings.ToLower(name)
-	var results []*Symbol
-	for i := range idx.shards {
-		s := &idx.shards[i]
-		s.mu.RLock()
-		results = append(results, s.byNameLower[nameLower]...)
-		s.mu.RUnlock()
+	ns := idx.nameShardFor(nameLower)
+	ns.mu.RLock()
+	defer ns.mu.RUnlock()
+	found := ns.byNameLower[nameLower]
+	if len(found) == 0 {
+		return nil
 	}
-	return results
+	// Copy: writers filter the stored slice in place.
+	return append(make([]*Symbol, 0, len(found)), found...)
 }
 
 // GetByURI returns all symbols declared in a file.
