@@ -33,4 +33,6 @@ toolchain go1.26.10
 // array-shape and callable fixes, and more conservative empty-array diagnostics.
 // Sibling override: make test-server-dev.
 // Checklist: make pin-parser-checklist
-require github.com/ayanozturk/tusk v0.0.0-20261014093629-6a768ee82cf2
+require github.com/ayanozturk/tusk v0.0.0-20261027131658-8cf34500cba9
+
+require gopkg.in/yaml.v2 v2.4.0 // indirect

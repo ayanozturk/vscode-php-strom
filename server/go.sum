@@ -1,2 +1,7 @@
 github.com/ayanozturk/tusk v0.0.0-20261014093629-6a768ee82cf2 h1:a2xde5rGLdQ40nKp+JTE82qsW8Z6Kb9dCwvVt//9o9I=
 github.com/ayanozturk/tusk v0.0.0-20261014093629-6a768ee82cf2/go.mod h1:vrpCI2p6kLaG+B5ujtfEt9GXDKp3+rqzBgEJ//VznCY=
+github.com/ayanozturk/tusk v0.0.0-20261027131658-8cf34500cba9 h1:zAbIvbyDIVlnSBDO5NDRNn3iJrLBG1Oii4UR5JbNdO0=
+github.com/ayanozturk/tusk v0.0.0-20261027131658-8cf34500cba9/go.mod h1:zyoQoYf9TROARhidN/LY7cea+W2JtKkxza4+REFCqWk=
+gopkg.in/check.v1 v0.0.0-20161208181325-20d25e280405/go.mod h1:Co6ibVJAznAaIkqp8huTwlJQCZ016jof/cbN4VW5Yz0=
+gopkg.in/yaml.v2 v2.4.0 h1:D8xgwECY7CYvx+Y2n4sBz93Jn9JRvxdiyyo8CTfuKaY=
+gopkg.in/yaml.v2 v2.4.0/go.mod h1:RDklbk79AGWmwhnvt/jBztapEOGDOx6ZbXqjP6csGnQ=
