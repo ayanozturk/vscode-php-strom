@@ -810,6 +810,10 @@ type inlineDiagnosticSuppressions struct {
 func collectInlineDiagnosticSuppressions(text string) inlineDiagnosticSuppressions {
 	suppressions := inlineDiagnosticSuppressions{ignoreLines: make(map[uint32]struct{})}
 	for idx, line := range strings.Split(text, "\n") {
+		// Every marker below contains '@'; skip the lowercase copy otherwise.
+		if strings.IndexByte(line, '@') < 0 {
+			continue
+		}
 		lower := strings.ToLower(line)
 		lineNo := uint32(idx)
 		if strings.Contains(lower, "@phpstan-ignore-line") ||

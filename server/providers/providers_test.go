@@ -534,3 +534,38 @@ enum InvoiceStatus: int {
 		t.Fatalf("expected enum-case $value hover not to resolve Doctrine Value, got %q", caseHover.Contents.Value)
 	}
 }
+
+func TestLineAtMatchesSplit(t *testing.T) {
+	for _, text := range []string{"", "a", "a\n", "a\nb\r\nc", "\n\n"} {
+		lines := strings.Split(text, "\n")
+		for n := -1; n <= len(lines)+1; n++ {
+			got, ok := lineAt(text, n)
+			if n < 0 || n >= len(lines) {
+				if ok {
+					t.Errorf("lineAt(%q, %d) ok, want miss", text, n)
+				}
+				continue
+			}
+			if !ok || got != lines[n] {
+				t.Errorf("lineAt(%q, %d) = %q,%v want %q", text, n, got, ok, lines[n])
+			}
+		}
+	}
+}
+
+func BenchmarkIdentifierAt(b *testing.B) {
+	text := strings.Repeat("$foo->bar(baz($qux));\n", 5000)
+	pos := lsp.Position{Line: 4000, Character: 8}
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		_ = identifierAt(text, pos)
+	}
+}
+
+func BenchmarkCollectInlineDiagnosticSuppressions(b *testing.B) {
+	text := strings.Repeat("$foo->bar(baz($qux)); // plain comment\n", 5000)
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		_ = collectInlineDiagnosticSuppressions(text)
+	}
+}

@@ -693,12 +693,30 @@ func collectTypeContext(nodes []ast.Node, currentNS string, ctx *documentTypeCon
 	}
 }
 
+// lineAt returns the zero-based line n of text, split on "\n" only (a trailing
+// "\r" is kept), without splitting the rest of the document.
+func lineAt(text string, n int) (string, bool) {
+	if n < 0 {
+		return "", false
+	}
+	for ; n > 0; n-- {
+		i := strings.IndexByte(text, '\n')
+		if i < 0 {
+			return "", false
+		}
+		text = text[i+1:]
+	}
+	if i := strings.IndexByte(text, '\n'); i >= 0 {
+		text = text[:i]
+	}
+	return text, true
+}
+
 func identifierAt(text string, pos lsp.Position) string {
-	lines := strings.Split(text, "\n")
-	if int(pos.Line) >= len(lines) {
+	line, ok := lineAt(text, int(pos.Line))
+	if !ok {
 		return ""
 	}
-	line := lines[pos.Line]
 	col := int(pos.Character)
 	if col < 0 {
 		col = 0

@@ -160,11 +160,10 @@ func (p *CompletionProvider) variableTypeAt(uri, text string, pos lsp.Position, 
 }
 
 func identifierColumnOnLine(text string, pos lsp.Position, name string) int {
-	lines := strings.Split(text, "\n")
-	if int(pos.Line) >= len(lines) {
+	line, ok := lineAt(text, int(pos.Line))
+	if !ok {
 		return int(pos.Character) + 1
 	}
-	line := lines[pos.Line]
 	col := int(pos.Character)
 	if col > len(line) {
 		col = len(line)
@@ -301,11 +300,10 @@ func (a memberAccess) receiverIsThis() bool {
 }
 
 func memberAccessAt(text string, pos lsp.Position) (memberAccess, bool) {
-	lines := strings.Split(text, "\n")
-	if int(pos.Line) >= len(lines) {
+	line, ok := lineAt(text, int(pos.Line))
+	if !ok {
 		return memberAccess{}, false
 	}
-	line := lines[pos.Line]
 	col := int(pos.Character)
 	if col > len(line) {
 		col = len(line)
@@ -537,11 +535,10 @@ func phpKeywordCompletions(prefix string) []lsp.CompletionItem {
 
 // wordAt returns the identifier fragment ending at pos.
 func wordAt(text string, pos lsp.Position) string {
-	lines := strings.Split(text, "\n")
-	if int(pos.Line) >= len(lines) {
+	line, ok := lineAt(text, int(pos.Line))
+	if !ok {
 		return ""
 	}
-	line := lines[pos.Line]
 	col := int(pos.Character)
 	if col > len(line) {
 		col = len(line)
