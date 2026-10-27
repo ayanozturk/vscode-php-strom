@@ -1,6 +1,7 @@
 package providers
 
 import (
+	"sort"
 	"strings"
 	"unicode/utf16"
 	"unicode/utf8"
@@ -77,8 +78,29 @@ func positionBefore(left, right lsp.Position) bool {
 }
 
 func (m sourcePositionMapper) positionFromByteOffset(offset int) lsp.Position {
-	position := goparser.UTF16PositionFromByteOffset([]byte(m.source), offset)
-	return lsp.Position{Line: position.Line, Character: position.Character}
+	// Same contract as goparser.UTF16PositionFromByteOffset, but resolved
+	// through the precomputed line table: no []byte copy of the document and
+	// no scan from the start of the file for every diagnostic endpoint.
+	if offset < 0 {
+		offset = 0
+	}
+	if offset > len(m.source) {
+		offset = len(m.source)
+	}
+	line := sort.Search(len(m.lineStarts), func(i int) bool { return m.lineStarts[i] > offset }) - 1
+	column := 0
+	for i := m.lineStarts[line]; i < offset; {
+		if m.source[i] == '\r' && i+1 == offset && offset < len(m.source) && m.source[offset] == '\n' {
+			break
+		}
+		r, size := utf8.DecodeRuneInString(m.source[i:])
+		if size < 1 || i+size > offset {
+			break
+		}
+		column += utf16.RuneLen(r)
+		i += size
+	}
+	return lsp.Position{Line: uint32(line), Character: uint32(column)}
 }
 
 func (m sourcePositionMapper) byteOffsetFromPosition(pos lsp.Position) int {
@@ -116,9 +138,50 @@ func (m sourcePositionMapper) byteOffsetFromPosition(pos lsp.Position) int {
 }
 
 // byteSpanFromRunePositions converts the parser/style packages' one-based
-// rune coordinates into the shared diagnostic's half-open byte span.
+// rune coordinates into the shared diagnostic's half-open byte span, with the
+// same contract as goparser.ByteSpanFromRunePositions but resolved through the
+// line table instead of rescanning the document from the start per call.
 func (m sourcePositionMapper) byteSpanFromRunePositions(startLine, startColumn, endLine, endColumn int) goparser.ByteSpan {
-	return goparser.ByteSpanFromRunePositions([]byte(m.source), startLine, startColumn, endLine, endColumn)
+	start, ok := m.runePositionToByte(startLine, startColumn)
+	if !ok {
+		return goparser.ByteSpan{}
+	}
+	end := start
+	if endLine > 0 && endColumn > 0 {
+		if candidate, valid := m.runePositionToByte(endLine, endColumn); valid && candidate >= start {
+			end = candidate
+		}
+	}
+	return goparser.ByteSpan{Start: start, End: end}
+}
+
+func (m sourcePositionMapper) runePositionToByte(line, column int) (int, bool) {
+	if line < 1 || column < 1 || line > len(m.lineStarts) {
+		return 0, false
+	}
+	lineStart := m.lineStarts[line-1]
+	lineEnd := len(m.source)
+	if line < len(m.lineStarts) {
+		lineEnd = m.lineStarts[line] - 1
+	}
+	if lineEnd > lineStart && m.source[lineEnd-1] == '\r' {
+		lineEnd--
+	}
+	target := column - 1
+	for offset, count := lineStart, 0; ; {
+		if count == target {
+			return offset, true
+		}
+		if offset >= lineEnd {
+			return 0, false
+		}
+		_, size := utf8.DecodeRuneInString(m.source[offset:lineEnd])
+		if size < 1 {
+			return 0, false
+		}
+		offset += size
+		count++
+	}
 }
 
 func (m sourcePositionMapper) byteOffsetFromRunePosition(line, column int) int {

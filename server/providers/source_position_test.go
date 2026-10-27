@@ -3,6 +3,7 @@ package providers
 import (
 	"testing"
 
+	goparser "github.com/ayanozturk/tusk/diag"
 	"github.com/ayanozturk/vscode-php-strom/lsp"
 )
 
@@ -169,5 +170,36 @@ func TestSourcePositionMapper_InvalidStartIsSafe(t *testing.T) {
 				t.Fatalf("expected malformed span fallback to %+v, got %+v", position, rangeValue)
 			}
 		})
+	}
+}
+
+func TestPositionFromByteOffsetMatchesDiag(t *testing.T) {
+	sources := []string{"", "abc", "a\nb\n", "ab\r\ncd\r\n", "é🙂x\n\r\nlast\r", "a\r", "\r\n", "x🙂\n\n\ny"}
+	for _, src := range sources {
+		mapper := newSourcePositionMapper(src)
+		for off := -2; off <= len(src)+2; off++ {
+			want := goparser.UTF16PositionFromByteOffset([]byte(src), off)
+			got := mapper.positionFromByteOffset(off)
+			if got.Line != want.Line || got.Character != want.Character {
+				t.Errorf("%q offset %d: got %+v want %+v", src, off, got, want)
+			}
+		}
+	}
+}
+
+func TestByteSpanFromRunePositionsMatchesDiag(t *testing.T) {
+	sources := []string{"", "abc", "a\nb\n", "ab\r\ncd\r\n", "é🙂x\n\r\nlast\r", "x🙂\n\n\ny", "\xff\xfeab\ncd"}
+	for _, src := range sources {
+		mapper := newSourcePositionMapper(src)
+		for sl := -1; sl <= 5; sl++ {
+			for sc := -1; sc <= 6; sc++ {
+				for _, end := range [][2]int{{0, 0}, {1, 1}, {sl, sc + 2}, {sl + 1, 2}} {
+					want := goparser.ByteSpanFromRunePositions([]byte(src), sl, sc, end[0], end[1])
+					if got := mapper.byteSpanFromRunePositions(sl, sc, end[0], end[1]); got != want {
+						t.Fatalf("%q (%d:%d-%d:%d): got %+v want %+v", src, sl, sc, end[0], end[1], got, want)
+					}
+				}
+			}
+		}
 	}
 }

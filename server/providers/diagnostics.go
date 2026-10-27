@@ -724,12 +724,18 @@ func (p *DiagnosticsProvider) analyseParsed(cacheKey, filename, text string, nod
 	analysisCtx.AnalysisLevel = p.cfg.AnalysisLevel
 	analysisCtx.DisabledIssueCodes = p.cfg.disabledAnalysisIssueCodes()
 	for _, issue := range analyse.FilterIssues(runAnalysisRulesForSource(filename, text, nodes, parsed, analysisCtx), p.cfg.DiagnosticsOverrides) {
-		diagnostics = append(diagnostics, issue.AsDiagnostic([]byte(text), "phpstrom"))
+		// nil source skips AsDiagnostic's per-issue rescan of the whole
+		// document; the span comes from the mapper's line table instead.
+		d := issue.AsDiagnostic(nil, "phpstrom")
+		d.Span = positions.byteSpanFromRunePositions(issue.Line, issue.Column, issue.EndLine, issue.EndColumn)
+		diagnostics = append(diagnostics, d)
 	}
 
 	if !p.cfg.DisabledAnalysis.Style && !isVendoredAnalysisPath(filename) {
 		for _, issue := range style.FilterIssues(style.RunSelectedRules(filename, []byte(text), nodes, []string{"all"}), p.cfg.DiagnosticsOverrides) {
-			diagnostics = append(diagnostics, issue.AsDiagnostic([]byte(text), "phpstrom"))
+			d := issue.AsDiagnostic(nil, "phpstrom")
+			d.Span = positions.byteSpanFromRunePositions(issue.Line, issue.Column, issue.EndLine, issue.EndColumn)
+			diagnostics = append(diagnostics, d)
 		}
 	}
 
