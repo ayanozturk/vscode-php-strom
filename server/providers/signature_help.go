@@ -20,30 +20,10 @@ import (
 )
 
 func (p *SignatureHelpProvider) Provide(uri, text string, pos lsp.Position) *lsp.SignatureHelp {
-	lines := strings.Split(text, "\n")
-	if int(pos.Line) >= len(lines) {
+	src, ok := textBeforeCursor(text, pos)
+	if !ok {
 		return nil
 	}
-
-	// Build a flat char slice of everything up to the cursor so we can scan
-	// backwards without dealing with line/col bookkeeping inside the loop.
-	var before strings.Builder
-	for i, l := range lines {
-		if i > int(pos.Line) {
-			break
-		}
-		if i == int(pos.Line) {
-			col := int(pos.Character)
-			if col > len(l) {
-				col = len(l)
-			}
-			before.WriteString(l[:col])
-		} else {
-			before.WriteString(l)
-			before.WriteByte('\n')
-		}
-	}
-	src := before.String()
 
 	callee, activeParam := findCalleeAndParam(src)
 	if callee == "" {
@@ -56,6 +36,25 @@ func (p *SignatureHelpProvider) Provide(uri, text string, pos lsp.Position) *lsp
 	}
 
 	return buildSignatureHelp(sym, activeParam)
+}
+
+// textBeforeCursor returns everything before pos as a prefix slice of text
+// (no split or rebuild of the document). A column past the end of its line
+// clamps to the line end; a line past the last one reports false.
+func textBeforeCursor(text string, pos lsp.Position) (string, bool) {
+	lineStart := 0
+	for i := int(pos.Line); i > 0; i-- {
+		next := strings.IndexByte(text[lineStart:], '\n')
+		if next < 0 {
+			return "", false
+		}
+		lineStart += next + 1
+	}
+	lineLen := len(text) - lineStart
+	if next := strings.IndexByte(text[lineStart:], '\n'); next >= 0 {
+		lineLen = next
+	}
+	return text[:lineStart+min(int(pos.Character), lineLen)], true
 }
 
 // findCalleeAndParam scans src (everything before the cursor) backwards to find

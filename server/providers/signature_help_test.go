@@ -1,9 +1,11 @@
 package providers
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/ayanozturk/vscode-php-strom/indexer"
+	"github.com/ayanozturk/vscode-php-strom/lsp"
 )
 
 func TestFindCalleeAndParam_SimpleFunction(t *testing.T) {
@@ -141,6 +143,47 @@ func TestRenderParam(t *testing.T) {
 		got := renderParam(tt.p)
 		if got != tt.want {
 			t.Errorf("renderParam(%+v) = %q, want %q", tt.p, got, tt.want)
+		}
+	}
+}
+
+// signatureSourceBefore is the previous split-and-rebuild implementation of
+// "everything before the cursor", kept as the reference for the prefix slice.
+func signatureSourceBefore(text string, pos lsp.Position) (string, bool) {
+	lines := strings.Split(text, "\n")
+	if int(pos.Line) >= len(lines) {
+		return "", false
+	}
+	var before strings.Builder
+	for i, l := range lines {
+		if i > int(pos.Line) {
+			break
+		}
+		if i == int(pos.Line) {
+			col := int(pos.Character)
+			if col > len(l) {
+				col = len(l)
+			}
+			before.WriteString(l[:col])
+		} else {
+			before.WriteString(l)
+			before.WriteByte('\n')
+		}
+	}
+	return before.String(), true
+}
+
+func TestTextBeforeCursorMatchesReference(t *testing.T) {
+	for _, text := range []string{"", "f(", "a(\nb,\n  c", "x\r\nfoo($a, \r\n$b", "end\n", "\n\n"} {
+		for line := 0; line < 6; line++ {
+			for col := 0; col < 12; col++ {
+				pos := lsp.Position{Line: uint32(line), Character: uint32(col)}
+				want, wantOK := signatureSourceBefore(text, pos)
+				got, gotOK := textBeforeCursor(text, pos)
+				if got != want || gotOK != wantOK {
+					t.Fatalf("%q at %d:%d: got %q,%v want %q,%v", text, line, col, got, gotOK, want, wantOK)
+				}
+			}
 		}
 	}
 }
