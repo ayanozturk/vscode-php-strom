@@ -1,6 +1,7 @@
 package phpstrom
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/ayanozturk/vscode-php-strom/lsp"
@@ -103,9 +104,38 @@ func TestDocumentStoreSetTextMissing(t *testing.T) {
 	}
 }
 
-func TestSplitLinesPreservesNewlines(t *testing.T) {
-	lines := splitLines("a\nb\n")
-	if len(lines) != 3 || lines[0] != "a\n" || lines[1] != "b\n" || lines[2] != "" {
-		t.Fatalf("unexpected lines: %#v", lines)
+func TestByteOffsetFromUTF16Position(t *testing.T) {
+	cases := []struct {
+		name       string
+		src        string
+		line, char int
+		want       int
+	}{
+		{"first line", "ab\ncd\n", 0, 1, 1},
+		{"second line", "ab\ncd\n", 1, 1, 4},
+		{"line end clamps before newline", "ab\ncd\n", 0, 9, 2},
+		{"crlf clamps before CR", "ab\r\ncd", 0, 9, 2},
+		{"empty trailing line", "a\nb\n", 2, 0, 4},
+		{"past last line", "a\nb\n", 3, 0, 4},
+		{"no trailing newline", "ab\ncd", 1, 9, 5},
+		{"emoji is two UTF-16 units", "a\U0001F600b", 0, 3, 5},
+		{"negative line", "ab", -1, 5, 0},
+	}
+	for _, c := range cases {
+		if got := byteOffsetFromUTF16Position(c.src, c.line, c.char); got != c.want {
+			t.Errorf("%s: got %d, want %d", c.name, got, c.want)
+		}
+	}
+}
+
+func BenchmarkApplyEdit(b *testing.B) {
+	src := strings.Repeat("<?php echo 'hello world'; // filler line\n", 5000)
+	r := lsp.Range{
+		Start: lsp.Position{Line: 4000, Character: 3},
+		End:   lsp.Position{Line: 4000, Character: 3},
+	}
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		_ = applyEdit(src, r, "x")
 	}
 }

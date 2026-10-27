@@ -4,6 +4,7 @@ import (
 	"strings"
 	"sync"
 	"unicode/utf16"
+	"unicode/utf8"
 
 	"github.com/ayanozturk/vscode-php-strom/lsp"
 )
@@ -95,41 +96,25 @@ func applyEdit(src string, r lsp.Range, newText string) string {
 	return src[:startOff] + newText + src[endOff:]
 }
 
-func splitLines(s string) []string {
-	var lines []string
-	start := 0
-	for i := 0; i < len(s); i++ {
-		if s[i] == '\n' {
-			lines = append(lines, s[start:i+1])
-			start = i + 1
-		}
-	}
-	lines = append(lines, s[start:])
-	return lines
-}
-
 // byteOffsetFromUTF16Position maps an LSP (line, character) position — where
 // character is a UTF-16 code unit offset — onto a byte offset in src.
 func byteOffsetFromUTF16Position(src string, line, char int) int {
 	if line < 0 {
 		return 0
 	}
-	lines := splitLines(src)
 	off := 0
-	for i := 0; i < line && i < len(lines); i++ {
-		off += len(lines[i])
-	}
-	if line >= len(lines) {
-		return len(src)
-	}
-	lineText := lines[line]
-	// Exclude the trailing newline from the editable line content when present.
-	content := lineText
-	if strings.HasSuffix(content, "\n") {
-		content = content[:len(content)-1]
-		if strings.HasSuffix(content, "\r") {
-			content = content[:len(content)-1]
+	for i := 0; i < line; i++ {
+		idx := strings.IndexByte(src[off:], '\n')
+		if idx < 0 {
+			return len(src)
 		}
+		off += idx + 1
+	}
+	// Exclude the trailing newline from the editable line content when present.
+	content := src[off:]
+	if idx := strings.IndexByte(content, '\n'); idx >= 0 {
+		content = content[:idx]
+		content = strings.TrimSuffix(content, "\r")
 	}
 	if char < 0 {
 		char = 0
@@ -140,7 +125,7 @@ func byteOffsetFromUTF16Position(src string, line, char int) int {
 		if utf16Column >= char {
 			return off + bytePos
 		}
-		size := len(string(r))
+		size := utf8.RuneLen(r)
 		utf16Column += utf16.RuneLen(r)
 		bytePos += size
 		if utf16Column >= char {
