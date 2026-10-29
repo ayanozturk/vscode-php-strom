@@ -6,7 +6,7 @@ All notable changes to PHP Strom are documented in this file.
 
 ### Changed
 
-- Updated the pinned Tusk analyser to infer generic function templates from supported structured argument types and check known generic arguments against declared template bounds.
+- Updated the pinned Tusk analyser to share structured generic inference across functions and methods, validate supported method/constructor arguments against template bounds, and preserve those bounds in inferred returns. Nullable template arguments forwarded to other calls retain their declared bounds.
 
 ## 1.1.1 - 2026-10-27
 
