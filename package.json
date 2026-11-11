@@ -823,5 +823,13 @@
     "typescript": "^5.4.5",
     "webpack": "^5.91.0",
     "webpack-cli": "^5.1.4"
+  },
+  "overrides": {
+    "@typescript-eslint/typescript-estree": {
+      "minimatch": "11.0.1"
+    },
+    "@vscode/vsce": {
+      "minimatch": "11.0.1"
+    }
   }
 }
